@@ -8,9 +8,9 @@ import {
   pickHandIndex,
   projectToBoard,
 } from './pickMath';
-import { handCardPoses, deckCardPose } from '../board/layout';
+import { handCardPoses, deckCardPose, graveyardCardPose, replenCardPose } from '../board/layout';
 import { boardCardAt, slotAtPoint } from './hitTest';
-import type { CardId } from '../state/types';
+import type { CardId, PileSource } from '../state/types';
 
 /**
  * DOM-driven pointer input. Attaches window pointer listeners and drives the
@@ -25,10 +25,12 @@ import type { CardId } from '../state/types';
  * click open the inspection panel without disturbing drag-to-place.
  */
 
-type PressKind = 'hand' | 'board' | 'deck' | 'empty';
+type PressKind = 'hand' | 'board' | 'deck' | 'pile' | 'empty';
 interface Press {
   kind: PressKind;
   cardId: CardId | null;
+  /** For a 'pile' press: which pile was pressed (graveyard/replen). */
+  pile: PileSource | null;
   downX: number;
   downY: number;
   startedDrag: boolean;
@@ -51,7 +53,7 @@ export function PointerControls() {
       if (s.dragging) return;
 
       const ndc = clientToNdc(e.clientX, e.clientY, canvas);
-      const base = { downX: e.clientX, downY: e.clientY, startedDrag: false };
+      const base = { downX: e.clientX, downY: e.clientY, startedDrag: false, pile: null };
 
       // 1) Hand card — candidate for either inspect (click) or drag.
       const handPoses = handCardPoses(s.hand.length);
@@ -70,7 +72,20 @@ export function PointerControls() {
         }
       }
 
-      // 3) A placed board card — click to inspect (placed cards don't move yet).
+      // 3) Graveyard / replen pile — click to open its search pop-up. Target the
+      // top card's pose (or the empty placeholder slot when the pile is empty).
+      const gravePose = graveyardCardPose(Math.max(0, s.graveyard.length - 1));
+      if (pickDeck(ndc, camera, gravePose)) {
+        press = { kind: 'pile', cardId: null, ...base, pile: 'graveyard' };
+        return;
+      }
+      const replenPose = replenCardPose(Math.max(0, s.replen.length - 1));
+      if (pickDeck(ndc, camera, replenPose)) {
+        press = { kind: 'pile', cardId: null, ...base, pile: 'replen' };
+        return;
+      }
+
+      // 4) A placed board card — click to inspect (placed cards don't move yet).
       const point = projectToBoard(ndc, camera);
       const boardCard = point ? boardCardAt(point, s.board) : null;
       if (boardCard) {
@@ -78,7 +93,7 @@ export function PointerControls() {
         return;
       }
 
-      // 4) Empty space — click to close the inspection panel.
+      // 5) Empty space — click to close the inspection panel.
       press = { kind: 'empty', cardId: null, ...base };
     };
 
@@ -144,6 +159,9 @@ export function PointerControls() {
               break;
             case 'deck':
               s.drawCard();
+              break;
+            case 'pile':
+              if (press.pile) s.openPileSearch(press.pile);
               break;
             case 'empty':
               s.selectCard(null);

@@ -1,7 +1,7 @@
 import type { GameState, CardId, Pose } from '../state/types';
 import type { SpringConfig } from '@react-spring/three';
 import { SLOT_IDS } from '../state/cardData';
-import { deckCardPose, handCardPoses, slotCardPose, graveyardCardPose, FAN_UP } from '../board/layout';
+import { deckCardPose, deckSpreadPose, handCardPoses, slotCardPose, graveyardCardPose, replenCardPose, FAN_UP } from '../board/layout';
 import { BOARD_CARD_SCALE, CARD_HEIGHT } from '../board/boardConfig';
 import { DRAG_LIFT, SPRING } from './motionConfig';
 
@@ -9,7 +9,7 @@ import { DRAG_LIFT, SPRING } from './motionConfig';
 const HOVER_LIFT = CARD_HEIGHT * 0.5;
 
 /** A card's zone right now, used to pick face orientation + spring feel. */
-export type CardVisualZone = 'deck' | 'hand' | 'dragging' | 'board' | 'graveyard';
+export type CardVisualZone = 'deck' | 'hand' | 'dragging' | 'board' | 'graveyard' | 'replen';
 
 export interface CardVisual {
   pose: Pose;
@@ -85,13 +85,26 @@ export function selectCardVisual(
     };
   }
 
-  // Otherwise in the deck (face down, board scale).
+  // In the replenish pile — face-up, stacked at the replen anchor.
+  const replenIndex = state.replen.indexOf(cardId);
+  if (replenIndex >= 0) {
+    return {
+      pose: replenCardPose(replenIndex),
+      faceUp: true,
+      zone: 'replen',
+      config: SPRING.snap,
+      scale: BOARD_CARD_SCALE,
+    };
+  }
+
+  // Otherwise in the deck (face down, board scale). During a shuffle the deck
+  // splits into two lifted piles (spread pose) before collapsing back.
   const deckIndex = state.deck.indexOf(cardId);
   return {
-    pose: deckCardPose(deckIndex),
+    pose: state.deckSpread ? deckSpreadPose(deckIndex) : deckCardPose(deckIndex),
     faceUp: false,
     zone: 'deck',
-    config: SPRING.draw,
+    config: state.deckSpread ? SPRING.snap : SPRING.draw,
     scale: BOARD_CARD_SCALE,
   };
 }

@@ -1,7 +1,11 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { CardId, GameState, SlotId, Vec3 } from './types';
+import type { CardId, GameState, PileSource, SlotId, Vec3 } from './types';
 import { createInitialState } from './cardData';
 import { canDrop } from '../board/slotRules';
+import { shuffleArray } from './shuffle';
+
+/** How long (ms) the deck stays split into two piles before collapsing back. */
+export const SHUFFLE_SPREAD_MS = 300;
 
 /**
  * Authoritative Phase 1 game store. State transitions are immediate and
@@ -29,7 +33,8 @@ export interface GameActions {
   returnToHand: (cardId: CardId) => void;
   /** Raise a hand card under the pointer (selection hint), or clear with null. */
   hoverCard: (cardId: CardId | null) => void;
-  /** Open the expanded detail view for a card (hand or board), or close with null. */
+  /** Open the expanded detail view for any existing card (hand, board, or a
+   * pile-search window: deck/graveyard/replen), or close with null. */
   selectCard: (cardId: CardId | null) => void;
   /**
    * Temp Phase 3 mechanic (no Player 2 yet): "destroy" a random occupied zone-A
@@ -44,6 +49,34 @@ export interface GameActions {
    * No-op when no B slot holds a card.
    */
   destroyZoneB: () => void;
+  /**
+   * Temp Phase 3 mechanic: send a random occupied zone-A slot's card to the
+   * replenish pile, along with the linked zone-C card in the same column pair
+   * (A1↔C1…A4↔C4) if occupied. No-op when no A slot holds a card.
+   */
+  replenZoneA: () => void;
+  /**
+   * Temp Phase 3 "disturb" mechanic: send the top card of the deck to the
+   * replenish pile. No-op when the deck is empty.
+   */
+  disturbDeck: () => void;
+  /**
+   * Shuffle the deck with a riffle animation: the deck splits into two lifted
+   * piles, then collapses back in a randomized order. No-op while a shuffle is
+   * already running.
+   */
+  shuffleDeck: () => void;
+  /** Move the whole replenish pile into the deck, then shuffle (animated). */
+  replenIntoDeck: () => void;
+  /** Move the whole graveyard into the deck, then shuffle (animated). */
+  graveyardIntoDeck: () => void;
+  /** Return the whole hand to the deck, then shuffle (animated). */
+  handIntoDeck: () => void;
+  /** Open the pile-search pop-up for a pile (deck/graveyard/replen). Opened by
+   * a dev button or by clicking the pile on the board. */
+  openPileSearch: (source: PileSource) => void;
+  /** Close the pile-search pop-up. */
+  closePileSearch: () => void;
   /** Reset to a fresh initial state (used by tests and restart). */
   reset: () => void;
 }
@@ -53,7 +86,22 @@ export type GameStore = GameState & GameActions;
 export function createGameStore(
   initial: GameState = createInitialState(),
 ): StoreApi<GameStore> {
-  return createStore<GameStore>((set, get) => ({
+  return createStore<GameStore>((set, get) => {
+    /**
+     * Start an animated shuffle. `gather` optionally folds other cards (a pile
+     * or the hand) into the deck first; the deck then spreads into two piles and
+     * collapses back randomized after SHUFFLE_SPREAD_MS. No-op if already
+     * shuffling.
+     */
+    const beginShuffle = (gather?: (s: GameStore) => Partial<GameState>) => {
+      if (get().deckSpread) return;
+      set((s) => ({ ...s, ...(gather ? gather(s) : {}), deckSpread: true }));
+      setTimeout(() => {
+        set((s) => ({ ...s, deck: shuffleArray(s.deck), deckSpread: false }));
+      }, SHUFFLE_SPREAD_MS);
+    };
+
+    return {
     ...initial,
 
     drawCard: () =>
@@ -124,14 +172,12 @@ export function createGameStore(
 
     selectCard: (cardId) =>
       set((s) => {
-        // Only a card that actually exists (in hand or on the board) can be
-        // inspected. null closes the panel.
+        // null closes the panel. Any existing card can be inspected — from the
+        // hand, the board, or a pile-search window (deck/graveyard/replen).
         if (cardId === null) {
           return s.selectedCardId === null ? s : { ...s, selectedCardId: null };
         }
-        const onBoard = Object.values(s.board).includes(cardId);
-        const inHand = s.hand.includes(cardId);
-        if (!onBoard && !inHand) return s;
+        if (!s.cardsById[cardId]) return s;
         if (s.selectedCardId === cardId) return s;
         return { ...s, selectedCardId: cardId };
       }),
@@ -170,6 +216,56 @@ export function createGameStore(
         };
       }),
 
+    replenZoneA: () =>
+      set((s) => {
+        const occupiedA = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).filter(
+          (slot) => s.board[slot] !== null,
+        );
+        if (occupiedA.length === 0) return s;
+        const aSlot = occupiedA[Math.floor(Math.random() * occupiedA.length)];
+        const aCard = s.board[aSlot] as CardId;
+        const cSlot = `C${aSlot[1]}` as SlotId;
+        const cCard = s.board[cSlot];
+        const board = { ...s.board, [aSlot]: null };
+        const sent: CardId[] = [aCard];
+        if (cCard !== null) {
+          board[cSlot] = null;
+          sent.push(cCard);
+        }
+        return { ...s, board, replen: [...s.replen, ...sent] };
+      }),
+
+    disturbDeck: () =>
+      set((s) => {
+        if (s.deck.length === 0) return s;
+        const topId = s.deck[s.deck.length - 1];
+        return {
+          ...s,
+          deck: s.deck.slice(0, -1),
+          replen: [...s.replen, topId],
+        };
+      }),
+
+    shuffleDeck: () => beginShuffle(),
+
+    replenIntoDeck: () =>
+      beginShuffle((s) => ({ deck: [...s.deck, ...s.replen], replen: [] })),
+
+    graveyardIntoDeck: () =>
+      beginShuffle((s) => ({ deck: [...s.deck, ...s.graveyard], graveyard: [] })),
+
+    handIntoDeck: () =>
+      beginShuffle((s) => ({
+        deck: [...s.deck, ...s.hand],
+        hand: [],
+        hoveredCardId: null,
+      })),
+
+    openPileSearch: (source) => set(() => ({ pileSearch: source })),
+
+    closePileSearch: () => set(() => ({ pileSearch: null })),
+
     reset: () => set(() => ({ ...get(), ...createInitialState() })),
-  }));
+    };
+  });
 }

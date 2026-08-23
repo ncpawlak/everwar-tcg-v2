@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Euler, Vector3 } from 'three';
-import { deckCardPose, handCardPoses, slotCardPose, graveyardCardPose, FAN_UP, FAN_NORMAL } from './layout';
-import { GRAVEYARD_ANCHOR, HAND_ANCHOR, HAND_MAX_HALF_WIDTH, SLOT_POSITIONS } from './boardConfig';
+import { deckCardPose, handCardPoses, slotCardPose, graveyardCardPose, replenCardPose, FAN_UP, FAN_NORMAL } from './layout';
+import { GRAVEYARD_ANCHOR, REPLEN_ANCHOR, HAND_ANCHOR, HAND_MAX_HALF_WIDTH, SLOT_POSITIONS } from './boardConfig';
 import type { SlotId } from '../state/types';
 
 /** Screen-space tilt of a card's local up-vector (x component after rotation). */
@@ -91,6 +91,14 @@ describe('P1-S04 layout math', () => {
     expect(third.position[1]).toBeGreaterThan(first.position[1]);
     // Anchored near the graveyard placeholder.
     expect(first.position[0]).toBeCloseTo(GRAVEYARD_ANCHOR[0], 1);
+  });
+
+  it('stacks replen cards face-up and rising at the replen anchor', () => {
+    const first = replenCardPose(0);
+    const third = replenCardPose(2);
+    expect(first.rotation[0]).toBeCloseTo(-Math.PI / 2, 5);
+    expect(third.position[1]).toBeGreaterThan(first.position[1]);
+    expect(first.position[0]).toBeCloseTo(REPLEN_ANCHOR[0], 1);
   });
 });
 

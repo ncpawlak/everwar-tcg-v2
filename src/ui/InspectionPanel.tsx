@@ -37,6 +37,7 @@ export function InspectionPanel() {
         opacity: open ? 1 : 0,
         transition: 'transform 220ms cubic-bezier(0.22,1,0.36,1), opacity 200ms ease',
         pointerEvents: open ? 'auto' : 'none',
+        zIndex: 30,
         width: 300,
         borderRadius: 14,
         overflow: 'hidden',

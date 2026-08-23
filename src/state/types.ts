@@ -60,6 +60,9 @@ export interface Pose {
 
 export type DragOrigin = 'hand';
 
+/** A browsable pile whose cards can be listed in the search pop-up. */
+export type PileSource = 'deck' | 'graveyard' | 'replen';
+
 export interface DragState {
   cardId: CardId;
   origin: DragOrigin;
@@ -77,9 +80,17 @@ export interface GameState {
   board: Record<SlotId, CardId | null>;
   /** Discard pile, in the order cards were sent (last = top of the stack). */
   graveyard: CardId[];
+  /** Replenish pile (no mechanic yet); searchable like the deck/graveyard. */
+  replen: CardId[];
+  /** True while the deck is mid-shuffle (cards split into two piles then
+   * collapse). Purely visual; drives the spread pose in the animation layer. */
+  deckSpread: boolean;
   dragging: DragState | null;
   /** Hand card currently under the pointer (raised for selection), or null. */
   hoveredCardId: CardId | null;
   /** Card whose expanded detail view is open (hand or board), or null. */
   selectedCardId: CardId | null;
+  /** Pile whose search pop-up is open (opened by a dev button or by clicking
+   * the pile on the board), or null when no pop-up is showing. */
+  pileSearch: PileSource | null;
 }

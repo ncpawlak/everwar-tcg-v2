@@ -6,6 +6,7 @@ import {
   CARD_THICKNESS,
   DECK_ANCHOR,
   GRAVEYARD_ANCHOR,
+  REPLEN_ANCHOR,
   HAND_ANCHOR,
   HAND_ARC_DIP,
   HAND_CARD_SPACING,
@@ -87,6 +88,25 @@ export function deckCardPose(indexFromBottom: number): Pose {
 }
 
 /**
+ * Transient shuffle pose: the deck splits into two lifted piles (even indices
+ * left, odd indices right), each stacking upward. Springing between this and
+ * `deckCardPose` produces a riffle-shuffle motion. Stays face-down.
+ */
+export function deckSpreadPose(indexFromBottom: number): Pose {
+  const [x, y, z] = DECK_ANCHOR;
+  const side = indexFromBottom % 2 === 0 ? -1 : 1;
+  const tier = Math.floor(indexFromBottom / 2);
+  return {
+    position: [
+      x + side * 0.44,
+      y + 0.16 + tier * CARD_THICKNESS * BOARD_CARD_SCALE * 3,
+      z,
+    ],
+    rotation: [...FACE_DOWN_ROTATION] as Vec3,
+  };
+}
+
+/**
  * Poses for every card in a hand of `count` cards, left-to-right.
  *
  * The fan faces the camera (billboard-style) and is centered on HAND_ANCHOR,
@@ -134,12 +154,12 @@ export function slotCardPose(slotId: SlotId): Pose {
 }
 
 /**
- * Pose of a card in the graveyard pile by its index from the bottom (0 = first
- * sent). Cards lie face-up and stack upward, with a small planar drift per card
- * so the pile reads as a loose stack rather than a single card.
+ * Pose of a card in a face-up pile (graveyard or replen) by its index from the
+ * bottom (0 = first sent). Cards lie face-up and stack upward, with a small
+ * planar drift per card so the pile reads as a loose stack, not one card.
  */
-export function graveyardCardPose(indexFromBottom: number): Pose {
-  const [x, y, z] = GRAVEYARD_ANCHOR;
+function pileCardPose(anchor: Vec3, indexFromBottom: number): Pose {
+  const [x, y, z] = anchor;
   return {
     position: [
       x + indexFromBottom * 0.016,
@@ -148,4 +168,14 @@ export function graveyardCardPose(indexFromBottom: number): Pose {
     ],
     rotation: [...FLAT_ROTATION] as Vec3,
   };
+}
+
+/** Pose of a card in the graveyard pile by its index from the bottom. */
+export function graveyardCardPose(indexFromBottom: number): Pose {
+  return pileCardPose(GRAVEYARD_ANCHOR, indexFromBottom);
+}
+
+/** Pose of a card in the replenish pile by its index from the bottom. */
+export function replenCardPose(indexFromBottom: number): Pose {
+  return pileCardPose(REPLEN_ANCHOR, indexFromBottom);
 }

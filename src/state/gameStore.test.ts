@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createGameStore } from './gameStore';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState } from './types';
@@ -161,10 +161,17 @@ describe('P3-S02 card selection (inspection)', () => {
     expect(store.getState().selectedCardId).toBe('card-C1');
   });
 
-  it('ignores a card that is neither in hand nor on the board', () => {
+  it('selects a card that is in a pile (deck/graveyard/replen), e.g. via pile search', () => {
+    const store = createGameStore();
+    // card-B1 is still in the deck; pile search lets it be inspected.
+    const deckCard = store.getState().deck[0];
+    store.getState().selectCard(deckCard);
+    expect(store.getState().selectedCardId).toBe(deckCard);
+  });
+
+  it('ignores a card id that does not exist', () => {
     const store = storeWithHand(['card-A1']);
-    // card-B1 is still in the deck.
-    store.getState().selectCard('card-B1');
+    store.getState().selectCard('card-does-not-exist');
     expect(store.getState().selectedCardId).toBeNull();
   });
 
@@ -265,5 +272,164 @@ describe('P3-S03 destroy (send occupied zone card -> graveyard)', () => {
     const s = store.getState();
     expect(s.board.A1).toBe('card-A1');
     expect(s.graveyard).toEqual([]);
+  });
+});
+
+describe('P3-S04 replen (send cards to the replenish pile)', () => {
+  it('replenZoneA sends the A card and its linked C card to replen and clears the slots', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      board: { ...base.board, A4: 'card-A4', C4: 'card-C4' },
+    });
+    store.getState().replenZoneA();
+    const s = store.getState();
+    expect(s.board.A4).toBeNull();
+    expect(s.board.C4).toBeNull();
+    expect(s.replen).toContain('card-A4');
+    expect(s.replen).toContain('card-C4');
+    expect(s.replen).toHaveLength(2);
+    // Nothing went to the graveyard.
+    expect(s.graveyard).toEqual([]);
+  });
+
+  it('replenZoneA is a no-op when no Zone A slot is occupied', () => {
+    const store = createGameStore(createInitialState());
+    store.getState().replenZoneA();
+    expect(store.getState().replen).toEqual([]);
+  });
+
+  it('disturbDeck sends the top card of the deck to replen', () => {
+    const store = createGameStore();
+    const startLen = store.getState().deck.length;
+    const topId = store.getState().deck.at(-1)!;
+    store.getState().disturbDeck();
+    const s = store.getState();
+    expect(s.deck).toHaveLength(startLen - 1);
+    expect(s.deck).not.toContain(topId);
+    expect(s.replen).toEqual([topId]);
+  });
+
+  it('disturbDeck is a no-op on an empty deck', () => {
+    const store = createGameStore({ ...createInitialState(), deck: [] });
+    store.getState().disturbDeck();
+    expect(store.getState().replen).toEqual([]);
+  });
+});
+
+describe('P3-S05 shuffle (animated deck reshuffle)', () => {
+  it('shuffleDeck spreads immediately then collapses to a permutation', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createGameStore();
+      const before = [...store.getState().deck];
+
+      store.getState().shuffleDeck();
+      // Spread phase is active right away.
+      expect(store.getState().deckSpread).toBe(true);
+
+      vi.runAllTimers();
+      const after = store.getState().deck;
+      expect(store.getState().deckSpread).toBe(false);
+      expect(after).toHaveLength(before.length);
+      expect([...after].sort()).toEqual([...before].sort());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores a second shuffle while one is already running', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createGameStore();
+      store.getState().shuffleDeck();
+      expect(store.getState().deckSpread).toBe(true);
+      // Second call is a no-op (does not throw, stays spreading).
+      store.getState().shuffleDeck();
+      expect(store.getState().deckSpread).toBe(true);
+      vi.runAllTimers();
+      expect(store.getState().deckSpread).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('replenIntoDeck folds the replen pile into the deck then shuffles', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({ ...base, replen: ['card-A1', 'card-B1'] });
+      const deckLen = store.getState().deck.length;
+
+      store.getState().replenIntoDeck();
+      // Cards moved synchronously; replen emptied; spread begins.
+      expect(store.getState().replen).toEqual([]);
+      expect(store.getState().deck).toHaveLength(deckLen + 2);
+      expect(store.getState().deck).toContain('card-A1');
+      expect(store.getState().deckSpread).toBe(true);
+
+      vi.runAllTimers();
+      expect(store.getState().deckSpread).toBe(false);
+      expect(store.getState().deck).toHaveLength(deckLen + 2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('graveyardIntoDeck folds the graveyard into the deck then shuffles', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({ ...base, graveyard: ['card-C1'] });
+      const deckLen = store.getState().deck.length;
+
+      store.getState().graveyardIntoDeck();
+      expect(store.getState().graveyard).toEqual([]);
+      expect(store.getState().deck).toContain('card-C1');
+      expect(store.getState().deck).toHaveLength(deckLen + 1);
+
+      vi.runAllTimers();
+      expect(store.getState().deckSpread).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('handIntoDeck returns the hand to the deck (clearing hover) then shuffles', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        hand: ['card-A1', 'card-A2'],
+        deck: base.deck.filter((id) => id !== 'card-A1' && id !== 'card-A2'),
+        hoveredCardId: 'card-A1',
+      });
+      const deckLen = store.getState().deck.length;
+
+      store.getState().handIntoDeck();
+      expect(store.getState().hand).toEqual([]);
+      expect(store.getState().hoveredCardId).toBeNull();
+      expect(store.getState().deck).toHaveLength(deckLen + 2);
+      expect(store.getState().deck).toContain('card-A1');
+
+      vi.runAllTimers();
+      expect(store.getState().deckSpread).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('pile-search pop-up state', () => {
+  it('openPileSearch opens a pile and closePileSearch clears it', () => {
+      const store = createGameStore();
+      expect(store.getState().pileSearch).toBeNull();
+      store.getState().openPileSearch('graveyard');
+      expect(store.getState().pileSearch).toBe('graveyard');
+      store.getState().openPileSearch('replen');
+      expect(store.getState().pileSearch).toBe('replen');
+      store.getState().closePileSearch();
+      expect(store.getState().pileSearch).toBeNull();
   });
 });
