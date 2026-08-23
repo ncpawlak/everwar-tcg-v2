@@ -23,3 +23,8 @@ export const DRAG_LIFT = 0.55;
 
 /** Delay between each of the opening 5 auto-dealt cards. */
 export const OPENING_DEAL_STAGGER_MS = 260;
+
+/** When an effect draws several cards at once, the next card leaves the deck
+ *  only after the previous is past the midpoint of its flight to the hand.
+ *  Tuned to ~half the draw spring's settle time. */
+export const MULTI_DRAW_STAGGER_MS = 200;

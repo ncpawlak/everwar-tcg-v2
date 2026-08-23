@@ -45,7 +45,7 @@ describe('P2-S01 initial state', () => {
     expect(new Set(top5).size).toBeGreaterThan(1);
   });
 
-  it('gives every card a full combat profile', () => {
+  it('gives every card a full type-specific profile', () => {
     const { cardsById } = createInitialCards();
     const cards = Object.values(cardsById);
     expect(cards).toHaveLength(12);
@@ -54,8 +54,17 @@ describe('P2-S01 initial state', () => {
       expect(c.name.length).toBeGreaterThan(0);
       names.add(c.name);
       expect(c.cost).toBeGreaterThan(0);
-      expect(c.atk).toBeGreaterThanOrEqual(0);
-      expect(c.def).toBeGreaterThanOrEqual(0);
+      // A (Vanguard) cards carry combat stats; B carry an ability; C a boost.
+      if (c.type === 'A') {
+        expect(c.atk).toBeGreaterThanOrEqual(0);
+        expect(c.def).toBeGreaterThanOrEqual(0);
+        expect(c.hp).toBeGreaterThanOrEqual(0);
+      } else if (c.type === 'B') {
+        expect(c.ability).toBeDefined();
+        expect(c.atk).toBeUndefined();
+      } else {
+        expect(c.atk).toBeUndefined();
+      }
       expect(['Common', 'Rare', 'Epic', 'Legendary']).toContain(c.rarity);
       expect(c.effect.length).toBeGreaterThan(0);
       expect(c.flavor.length).toBeGreaterThan(0);

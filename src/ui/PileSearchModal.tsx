@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import type { Card, PileSource } from '../state/types';
+import { B_ABILITY_LABEL } from '../state/types';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 
 /**
@@ -78,11 +79,34 @@ function CardTile({ card, onSelect }: { card: Card | undefined; onSelect: () => 
         <span style={TILE_COST_STYLE}>{card.cost}</span>
       </div>
       <div style={TILE_NAME_STYLE}>{card.name}</div>
-      <div style={TILE_FOOT_STYLE}>
+      <div style={TILE_FOOT_STYLE}>{tileFoot(card)}</div>
+    </button>
+  );
+}
+
+/** Compact per-type footer for a pile tile: A = ATK/DEF, B = ability, C = boost. */
+function tileFoot(card: Card) {
+  if (card.type === 'A') {
+    return (
+      <>
         <span style={{ color: '#e07a5f' }}>{card.atk}</span>
         <span style={{ color: '#6aa9e0' }}>{card.def}</span>
-      </div>
-    </button>
+      </>
+    );
+  }
+  if (card.type === 'B') {
+    return (
+      <span style={{ color: '#b6a0e8', fontSize: 10, fontWeight: 700 }}>
+        {card.ability ? B_ABILITY_LABEL[card.ability] : 'Ability'}
+      </span>
+    );
+  }
+  return (
+    <span style={{ color: card.buff ? (card.buff.amount >= 0 ? '#5ed17a' : '#e08a72') : '#8fa39a', fontSize: 10, fontWeight: 700 }}>
+      {card.buff
+        ? `${card.buff.amount >= 0 ? '▲' : '▼'} ${card.buff.stat.toUpperCase()} ${card.buff.amount >= 0 ? '+' : ''}${card.buff.amount}`
+        : 'Boost'}
+    </span>
   );
 }
 

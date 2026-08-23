@@ -1,6 +1,7 @@
 import { RoundedBox, Text } from '@react-three/drei';
 import { CARD_HEIGHT, CARD_THICKNESS, CARD_WIDTH } from '../board/boardConfig';
 import type { Card } from '../state/types';
+import { B_ABILITY_LABEL } from '../state/types';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from './cardTheme';
 
 /**
@@ -152,6 +153,21 @@ export function CardView({ card, pickable = true }: { card: Card; pickable?: boo
             Boosts a random stat of its linked A card
           </Text>
         )
+      ) : card.type === 'B' ? (
+        /* B cards are spells: instead of combat stats they show the on-play
+           ability they enact when set. */
+        <Text
+          position={[0, -HALF_H + 0.09, ZF + 0.001]}
+          fontSize={0.044}
+          maxWidth={CARD_WIDTH * 0.84}
+          lineHeight={1.12}
+          color="#7a5cc6"
+          anchorX="center"
+          anchorY="middle"
+          textAlign="center"
+        >
+          {card.ability ? B_ABILITY_LABEL[card.ability] : ''}
+        </Text>
       ) : (
         <>
           {/* HP (centered, just above the ATK/DEF row) */}

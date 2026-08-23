@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import type { Card } from '../state/types';
+import { B_ABILITY_LABEL } from '../state/types';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 
 /**
@@ -118,12 +119,60 @@ export function InspectionPanel() {
               {TYPE_LABEL[shown.type]} · Type {shown.type}
             </div>
 
-            {/* HP / ATK / DEF */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-              <Stat label="HP" value={shown.hp} color="#2f9e46" />
-              <Stat label="ATK" value={shown.atk} color="#e0663d" />
-              <Stat label="DEF" value={shown.def} color="#3d9be0" />
-            </div>
+            {/* Type-specific highlight: A = combat stats, B = ability, C = boost. */}
+            {shown.type === 'A' ? (
+              <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                <Stat label="HP" value={shown.hp ?? 0} color="#2f9e46" />
+                <Stat label="ATK" value={shown.atk ?? 0} color="#e0663d" />
+                <Stat label="DEF" value={shown.def ?? 0} color="#3d9be0" />
+              </div>
+            ) : shown.type === 'B' ? (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  background: 'rgba(122,92,198,0.14)',
+                  border: '1px solid rgba(122,92,198,0.5)',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: '#c9b8f0',
+                  textAlign: 'center',
+                }}
+              >
+                {shown.ability ? B_ABILITY_LABEL[shown.ability] : 'Ability'}
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  background: shown.buff
+                    ? shown.buff.amount >= 0
+                      ? 'rgba(47,158,70,0.14)'
+                      : 'rgba(178,58,31,0.14)'
+                    : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${
+                    shown.buff
+                      ? shown.buff.amount >= 0
+                        ? 'rgba(47,158,70,0.5)'
+                        : 'rgba(178,58,31,0.5)'
+                      : 'rgba(255,255,255,0.1)'
+                  }`,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: shown.buff ? (shown.buff.amount >= 0 ? '#5ed17a' : '#e08a72') : '#97a0ab',
+                  textAlign: 'center',
+                }}
+              >
+                {shown.buff
+                  ? `${shown.buff.amount >= 0 ? '▲' : '▼'} ${shown.buff.stat.toUpperCase()} ${
+                      shown.buff.amount >= 0 ? '+' : ''
+                    }${shown.buff.amount} to linked A card`
+                  : 'Boosts a random stat of its linked A card'}
+              </div>
+            )}
 
             {/* Effect */}
             <div

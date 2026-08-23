@@ -1,9 +1,10 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { CardId, GameState, PileSource, SlotId, Vec3 } from './types';
+import type { BAbility, CardId, GameState, PileSource, SlotId, Vec3 } from './types';
 import { createInitialState } from './cardData';
 import { canDrop } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
 import { rollCBuff } from './combatStats';
+import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 
 /** How long (ms) the deck stays split into two piles before collapsing back. */
 export const SHUFFLE_SPREAD_MS = 300;
@@ -106,6 +107,41 @@ export function createGameStore(
       }, SHUFFLE_SPREAD_MS);
     };
 
+      /**
+       * Draw `n` cards with a stagger so they pop off the deck one at a time: the
+       * next card is drawn once the previous is past the midpoint of its flight to
+       * the hand (see MULTI_DRAW_STAGGER_MS), rather than all at once.
+       */
+      const drawStaggered = (n: number) => {
+        get().drawCard();
+        for (let i = 1; i < n; i++) {
+          setTimeout(() => get().drawCard(), i * MULTI_DRAW_STAGGER_MS);
+        }
+      };
+
+      /**
+       * Resolve a B-card's on-play ability by delegating to the matching deck/hand
+       * action. Called after the summon showcase so the effect reads as the card
+       * "activating" once it lands.
+       */
+      const enactBAbility = (ability: BAbility) => {
+        const actions = get();
+        switch (ability) {
+          case 'draw1':
+            drawStaggered(1);
+            break;
+          case 'draw2':
+            drawStaggered(2);
+            break;
+          case 'graveyardIntoDeck':
+            actions.graveyardIntoDeck();
+            break;
+          case 'replenIntoDeck':
+            actions.replenIntoDeck();
+            break;
+        }
+      };
+
     return {
     ...initial,
 
@@ -158,6 +194,8 @@ export function createGameStore(
                 [cardId]: { ...s.cardsById[cardId], buff: rollCBuff() },
               }
             : s.cardsById;
+        // A B card's on-play ability resolves once its showcase finishes.
+        const ability = cardType === 'B' ? s.cardsById[cardId]?.ability : undefined;
         set({
           cardsById,
           hand: s.hand.filter((id) => id !== cardId),
@@ -171,6 +209,7 @@ export function createGameStore(
           set((st) =>
             st.summon && st.summon.cardId === cardId ? { ...st, summon: null } : st,
           );
+          if (ability) enactBAbility(ability);
         }, SUMMON_SHOWCASE_MS);
         return;
       }

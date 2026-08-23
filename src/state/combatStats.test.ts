@@ -39,7 +39,7 @@ describe('combatStats', () => {
     };
     const card = state.cardsById['card-A1'];
     const eff = effectiveStats(state, 'A1');
-    expect(eff.atk).toEqual({ value: card.atk + 300, delta: 300 });
+    expect(eff.atk).toEqual({ value: card.atk! + 300, delta: 300 });
     expect(eff.def).toEqual({ value: card.def, delta: 0 });
     expect(eff.hp).toEqual({ value: card.hp, delta: 0 });
   });

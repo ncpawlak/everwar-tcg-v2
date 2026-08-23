@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createGameStore, SUMMON_SHOWCASE_MS } from './gameStore';
+import { createGameStore, SUMMON_SHOWCASE_MS, SHUFFLE_SPREAD_MS } from './gameStore';
+import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState } from './types';
 
@@ -134,6 +135,44 @@ describe('P2-S02/S08 game store actions', () => {
     store.getState().beginDrag('card-A1');
     store.getState().dropCard('card-A1', 'B1'); // wrong type
     expect(store.getState().summon).toBeNull();
+  });
+
+  it('setting a B card enacts its ability after the showcase (draw 1 / draw 2)', () => {
+    vi.useFakeTimers();
+    const draw1 = storeWithHand(['card-B1']); // B1 = draw1
+    draw1.getState().beginDrag('card-B1');
+    draw1.getState().dropCard('card-B1', 'B1');
+    expect(draw1.getState().hand).toHaveLength(0); // B card left the hand
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+    expect(draw1.getState().hand).toHaveLength(1); // drew 1
+
+    const draw2 = storeWithHand(['card-B4']); // B4 = draw2
+    draw2.getState().beginDrag('card-B4');
+    draw2.getState().dropCard('card-B4', 'B4');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+    expect(draw2.getState().hand).toHaveLength(1); // first card off the deck
+    vi.advanceTimersByTime(MULTI_DRAW_STAGGER_MS);
+    expect(draw2.getState().hand).toHaveLength(2); // second follows after the stagger
+    vi.useRealTimers();
+  });
+
+  it('setting a B card shuffles the graveyard into the deck after the showcase', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-B2'], // B2 = graveyardIntoDeck
+      deck: base.deck.filter((id) => id !== 'card-B2' && id !== 'card-A3'),
+      graveyard: ['card-A3'],
+    });
+    store.getState().beginDrag('card-B2');
+    store.getState().dropCard('card-B2', 'B2');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+    expect(store.getState().graveyard).toHaveLength(0);
+    expect(store.getState().deck).toContain('card-A3');
+    vi.advanceTimersByTime(SHUFFLE_SPREAD_MS);
+    expect(store.getState().deckSpread).toBe(false);
+    vi.useRealTimers();
   });
 
   it('dropCard with no slot returns the card to the hand in its original order', () => {

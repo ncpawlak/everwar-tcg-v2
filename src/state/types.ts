@@ -14,6 +14,20 @@ export type Rarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
 export type StatKey = 'hp' | 'atk' | 'def';
 
 /**
+ * A B-card's on-play ability. Enacted the moment the card is set in a B slot.
+ * Each maps to an existing deck/hand action.
+ */
+export type BAbility = 'draw1' | 'graveyardIntoDeck' | 'replenIntoDeck' | 'draw2';
+
+/** Short human label for a B-card ability, shown on the card and in the panel. */
+export const B_ABILITY_LABEL: Record<BAbility, string> = {
+  draw1: 'Draw 1 card',
+  graveyardIntoDeck: 'Shuffle graveyard into deck',
+  replenIntoDeck: 'Shuffle replen into deck',
+  draw2: 'Draw 2 cards',
+};
+
+/**
  * A stat modifier a C card applies to its linked A card. Rolled when the C card
  * is set (random stat + random amount). `amount` is signed: positive raises the
  * stat (shown green), negative lowers it (shown red).
@@ -50,13 +64,14 @@ export interface Card {
   name: string;
   /** Deploy cost (flavor for now; a resource system comes later). */
   cost: number;
-  /** Attack value. */
-  atk: number;
-  /** Defense value. */
-  def: number;
-  /** Max health. The floating A-zone stat bar reads current/max from here;
-   * combat (a later slice) will track a separate current-HP value. */
-  hp: number;
+  /** Attack value. Only A (Vanguard) cards carry combat stats. */
+  atk?: number;
+  /** Defense value. Only A (Vanguard) cards carry combat stats. */
+  def?: number;
+  /** Max health. Only A (Vanguard) cards carry combat stats. The floating
+   * A-zone stat bar reads current/max from here; combat (a later slice) will
+   * track a separate current-HP value. */
+  hp?: number;
   rarity: Rarity;
   /** Rules text — what the card does. */
   effect: string;
@@ -67,6 +82,11 @@ export interface Card {
    * one, and only once set in a C slot (rolled at placement). Absent otherwise.
    */
   buff?: StatBuff;
+  /**
+   * On-play ability. Only B (Arcane) cards carry one; enacted when the card is
+   * set in a B slot. Absent for A/C cards.
+   */
+  ability?: BAbility;
 }
 
 /** Plain 3-tuple position/rotation, decoupled from THREE.Vector3. */
