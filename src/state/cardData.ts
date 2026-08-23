@@ -129,6 +129,7 @@ export function createInitialState(): GameState {
     deck,
     hand: [],
     board: createEmptyBoard(),
+    graveyard: [],
     dragging: null,
     hoveredCardId: null,
     selectedCardId: null,

@@ -5,6 +5,7 @@ import {
   CAMERA_POSITION,
   CARD_THICKNESS,
   DECK_ANCHOR,
+  GRAVEYARD_ANCHOR,
   HAND_ANCHOR,
   HAND_ARC_DIP,
   HAND_CARD_SPACING,
@@ -128,6 +129,23 @@ export function slotCardPose(slotId: SlotId): Pose {
   const [x, y, z] = SLOT_POSITIONS[slotId];
   return {
     position: [x, y + CARD_THICKNESS * BOARD_CARD_SCALE, z],
+    rotation: [...FLAT_ROTATION] as Vec3,
+  };
+}
+
+/**
+ * Pose of a card in the graveyard pile by its index from the bottom (0 = first
+ * sent). Cards lie face-up and stack upward, with a small planar drift per card
+ * so the pile reads as a loose stack rather than a single card.
+ */
+export function graveyardCardPose(indexFromBottom: number): Pose {
+  const [x, y, z] = GRAVEYARD_ANCHOR;
+  return {
+    position: [
+      x + indexFromBottom * 0.016,
+      y + (indexFromBottom + 1) * CARD_THICKNESS * BOARD_CARD_SCALE,
+      z - indexFromBottom * 0.011,
+    ],
     rotation: [...FLAT_ROTATION] as Vec3,
   };
 }

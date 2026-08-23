@@ -183,3 +183,87 @@ describe('P3-S02 card selection (inspection)', () => {
     expect(store.getState().selectedCardId).toBe('card-B1');
   });
 });
+
+describe('P3-S03 destroy (send occupied zone card -> graveyard)', () => {
+  it('sends the A card and its linked C card to the graveyard and clears the slots', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      board: { ...base.board, A2: 'card-A2', C2: 'card-C2' },
+    });
+    store.getState().destroyZoneA();
+    const s = store.getState();
+    expect(s.board.A2).toBeNull();
+    expect(s.board.C2).toBeNull();
+    expect(s.graveyard).toContain('card-A2');
+    expect(s.graveyard).toContain('card-C2');
+    expect(s.graveyard).toHaveLength(2);
+  });
+
+  it('sends only the A card when the linked C slot is empty', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      board: { ...base.board, A1: 'card-A1' },
+    });
+    store.getState().destroyZoneA();
+    const s = store.getState();
+    expect(s.board.A1).toBeNull();
+    expect(s.graveyard).toEqual(['card-A1']);
+  });
+
+  it('destroyZoneA is a no-op when no Zone A slot is occupied', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      board: { ...base.board, C1: 'card-C1' },
+    });
+    store.getState().destroyZoneA();
+    const s = store.getState();
+    expect(s.board.C1).toBe('card-C1');
+    expect(s.graveyard).toEqual([]);
+  });
+
+  it('appends to the graveyard across repeated attacks (stacking order preserved)', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      board: { ...base.board, A1: 'card-A1', A2: 'card-A2' },
+    });
+    store.getState().destroyZoneA();
+    store.getState().destroyZoneA();
+    const s = store.getState();
+    expect(s.graveyard).toHaveLength(2);
+    expect(s.graveyard).toContain('card-A1');
+    expect(s.graveyard).toContain('card-A2');
+    expect(s.board.A1).toBeNull();
+    expect(s.board.A2).toBeNull();
+  });
+
+  it('destroyZoneB sends the occupied B card to the graveyard (no links)', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      board: { ...base.board, B3: 'card-B3', A3: 'card-A3', C3: 'card-C3' },
+    });
+    store.getState().destroyZoneB();
+    const s = store.getState();
+    expect(s.board.B3).toBeNull();
+    // Zone B has no links: the A3/C3 pair is untouched.
+    expect(s.board.A3).toBe('card-A3');
+    expect(s.board.C3).toBe('card-C3');
+    expect(s.graveyard).toEqual(['card-B3']);
+  });
+
+  it('destroyZoneB is a no-op when no Zone B slot is occupied', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      board: { ...base.board, A1: 'card-A1' },
+    });
+    store.getState().destroyZoneB();
+    const s = store.getState();
+    expect(s.board.A1).toBe('card-A1');
+    expect(s.graveyard).toEqual([]);
+  });
+});

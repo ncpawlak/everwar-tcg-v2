@@ -75,6 +75,8 @@ export interface GameState {
   /** Ordered left-to-right; drives the hand fan layout. */
   hand: CardId[];
   board: Record<SlotId, CardId | null>;
+  /** Discard pile, in the order cards were sent (last = top of the stack). */
+  graveyard: CardId[];
   dragging: DragState | null;
   /** Hand card currently under the pointer (raised for selection), or null. */
   hoveredCardId: CardId | null;

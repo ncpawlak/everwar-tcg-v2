@@ -31,6 +31,19 @@ export interface GameActions {
   hoverCard: (cardId: CardId | null) => void;
   /** Open the expanded detail view for a card (hand or board), or close with null. */
   selectCard: (cardId: CardId | null) => void;
+  /**
+   * Temp Phase 3 mechanic (no Player 2 yet): "destroy" a random occupied zone-A
+   * slot — send its card to the graveyard, along with the linked zone-C card in
+   * the same column pair (A1↔C1…A4↔C4) if that slot is occupied. No-op when no A
+   * slot holds a card.
+   */
+  destroyZoneA: () => void;
+  /**
+   * Temp Phase 3 mechanic: "destroy" a random occupied zone-B slot — send its
+   * card to the graveyard. Zone B has no links, so only the one card moves.
+   * No-op when no B slot holds a card.
+   */
+  destroyZoneB: () => void;
   /** Reset to a fresh initial state (used by tests and restart). */
   reset: () => void;
 }
@@ -121,6 +134,40 @@ export function createGameStore(
         if (!onBoard && !inHand) return s;
         if (s.selectedCardId === cardId) return s;
         return { ...s, selectedCardId: cardId };
+      }),
+
+    destroyZoneA: () =>
+      set((s) => {
+        const occupiedA = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).filter(
+          (slot) => s.board[slot] !== null,
+        );
+        if (occupiedA.length === 0) return s;
+        const aSlot = occupiedA[Math.floor(Math.random() * occupiedA.length)];
+        const aCard = s.board[aSlot] as CardId;
+        const cSlot = `C${aSlot[1]}` as SlotId;
+        const cCard = s.board[cSlot];
+        const board = { ...s.board, [aSlot]: null };
+        const sent: CardId[] = [aCard];
+        if (cCard !== null) {
+          board[cSlot] = null;
+          sent.push(cCard);
+        }
+        return { ...s, board, graveyard: [...s.graveyard, ...sent] };
+      }),
+
+    destroyZoneB: () =>
+      set((s) => {
+        const occupiedB = (['B1', 'B2', 'B3', 'B4'] as SlotId[]).filter(
+          (slot) => s.board[slot] !== null,
+        );
+        if (occupiedB.length === 0) return s;
+        const bSlot = occupiedB[Math.floor(Math.random() * occupiedB.length)];
+        const bCard = s.board[bSlot] as CardId;
+        return {
+          ...s,
+          board: { ...s.board, [bSlot]: null },
+          graveyard: [...s.graveyard, bCard],
+        };
       }),
 
     reset: () => set(() => ({ ...get(), ...createInitialState() })),

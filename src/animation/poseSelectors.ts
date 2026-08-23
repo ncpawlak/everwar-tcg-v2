@@ -1,7 +1,7 @@
 import type { GameState, CardId, Pose } from '../state/types';
 import type { SpringConfig } from '@react-spring/three';
 import { SLOT_IDS } from '../state/cardData';
-import { deckCardPose, handCardPoses, slotCardPose, FAN_UP } from '../board/layout';
+import { deckCardPose, handCardPoses, slotCardPose, graveyardCardPose, FAN_UP } from '../board/layout';
 import { BOARD_CARD_SCALE, CARD_HEIGHT } from '../board/boardConfig';
 import { DRAG_LIFT, SPRING } from './motionConfig';
 
@@ -9,7 +9,7 @@ import { DRAG_LIFT, SPRING } from './motionConfig';
 const HOVER_LIFT = CARD_HEIGHT * 0.5;
 
 /** A card's zone right now, used to pick face orientation + spring feel. */
-export type CardVisualZone = 'deck' | 'hand' | 'dragging' | 'board';
+export type CardVisualZone = 'deck' | 'hand' | 'dragging' | 'board' | 'graveyard';
 
 export interface CardVisual {
   pose: Pose;
@@ -71,6 +71,18 @@ export function selectCardVisual(
           }
         : pose;
     return { pose: lifted, faceUp: true, zone: 'hand', config: SPRING.hand, scale: 1 };
+  }
+
+  // In the graveyard — face-up, stacked at the grave anchor.
+  const graveIndex = state.graveyard.indexOf(cardId);
+  if (graveIndex >= 0) {
+    return {
+      pose: graveyardCardPose(graveIndex),
+      faceUp: true,
+      zone: 'graveyard',
+      config: SPRING.snap,
+      scale: BOARD_CARD_SCALE,
+    };
   }
 
   // Otherwise in the deck (face down, board scale).

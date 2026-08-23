@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Euler, Vector3 } from 'three';
-import { deckCardPose, handCardPoses, slotCardPose, FAN_UP, FAN_NORMAL } from './layout';
-import { HAND_ANCHOR, HAND_MAX_HALF_WIDTH, SLOT_POSITIONS } from './boardConfig';
+import { deckCardPose, handCardPoses, slotCardPose, graveyardCardPose, FAN_UP, FAN_NORMAL } from './layout';
+import { GRAVEYARD_ANCHOR, HAND_ANCHOR, HAND_MAX_HALF_WIDTH, SLOT_POSITIONS } from './boardConfig';
 import type { SlotId } from '../state/types';
 
 /** Screen-space tilt of a card's local up-vector (x component after rotation). */
@@ -80,6 +80,17 @@ describe('P1-S04 layout math', () => {
     const pose = slotCardPose('C1');
     expect(pose.position[0]).toBeCloseTo(SLOT_POSITIONS.C1[0], 5);
     expect(pose.position[2]).toBeCloseTo(SLOT_POSITIONS.C1[2], 5);
+  });
+
+  it('stacks graveyard cards face-up and rising at the grave anchor', () => {
+    const first = graveyardCardPose(0);
+    const third = graveyardCardPose(2);
+    // Face-up (flat), same orientation as a slot card.
+    expect(first.rotation[0]).toBeCloseTo(-Math.PI / 2, 5);
+    // Pile rises with index.
+    expect(third.position[1]).toBeGreaterThan(first.position[1]);
+    // Anchored near the graveyard placeholder.
+    expect(first.position[0]).toBeCloseTo(GRAVEYARD_ANCHOR[0], 1);
   });
 });
 
