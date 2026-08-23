@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { BAbility, CardId, CardType, DiceState, GameState, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
+import type { BAbility, CardId, CardType, DiceState, GameState, OppCSlotId, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
 import { createInitialState } from './cardData';
 import { canDropCard, requiresTribute, canAffordTribute, validTargetSlots } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
@@ -368,6 +368,7 @@ export function createGameStore(
               let destroyedAny = false;
               set((s) => {
                 const opponentBoard = { ...s.opponentBoard };
+                const opponentCBoard = { ...s.opponentCBoard };
                 const opponentGraveyard = [...s.opponentGraveyard];
                 const currentHp = { ...s.currentHp };
                 for (const slot of OPP_SLOT_IDS) {
@@ -380,6 +381,13 @@ export function createGameStore(
                   opponentBoard[slot] = null;
                   opponentGraveyard.push(oppId);
                   delete currentHp[oppId];
+                  // The linked opponent C-card (same column) falls with its A-card.
+                  const ocSlot = `OC${slot[1]}` as OppCSlotId;
+                  const ocId = opponentCBoard[ocSlot];
+                  if (ocId) {
+                    opponentCBoard[ocSlot] = null;
+                    opponentGraveyard.push(ocId);
+                  }
                 }
                 return {
                   outcomePopups: {},
@@ -388,6 +396,7 @@ export function createGameStore(
                   resolutionResults: {},
                   destroying: [],
                   opponentBoard,
+                  opponentCBoard,
                   opponentGraveyard,
                   currentHp,
                 };
@@ -563,6 +572,13 @@ export function createGameStore(
                   board[slot] = null;
                   graveyard.push(pid);
                   delete currentHp[pid];
+                  // The linked C-card (same column support) falls with its A-card.
+                  const cSlot = `C${slot[1]}` as SlotId;
+                  const cid = board[cSlot];
+                  if (cid) {
+                    board[cSlot] = null;
+                    graveyard.push(cid);
+                  }
                 }
                 return {
                   oppOutcomePopups: {},

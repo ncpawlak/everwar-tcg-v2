@@ -1063,7 +1063,7 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
         phase: 'battle',
         activePlayer: 'player',
         // A lone player Vanguard on 1 HP: any opponent hit is lethal.
-        board: { ...base.board, A1: 'card-A1' },
+        board: { ...base.board, A1: 'card-A1', C1: 'card-C1' },
         currentHp: { 'card-A1': 1 },
       });
 
@@ -1092,6 +1092,9 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
       // The player's card took lethal damage and was sent to the PLAYER graveyard.
       expect(s.board.A1).toBeNull();
       expect(s.graveyard).toContain('card-A1');
+      // ...and its linked C-card (same column) fell with it.
+      expect(s.board.C1).toBeNull();
+      expect(s.graveyard).toContain('card-C1');
       expect(s.currentHp['card-A1']).toBeUndefined();
       expect(s.oppDestroying).toEqual([]);
 
