@@ -80,7 +80,8 @@ export function createGameStore(
     dropCard: (cardId, slotId) =>
       set((s) => {
         if (s.dragging === null || s.dragging.cardId !== cardId) return s;
-        if (canDrop(s.board, slotId) && slotId !== null) {
+        const cardType = s.cardsById[cardId]?.type;
+        if (cardType && canDrop(s.board, slotId, cardType) && slotId !== null) {
           return {
             ...s,
             hand: s.hand.filter((id) => id !== cardId),

@@ -13,11 +13,11 @@ import { CardView } from '../cards/CardView';
 export function CardEntity({ cardId }: { cardId: CardId }) {
   const state = useGameStore((s) => s);
   const visual = selectCardVisual(state, cardId, state.hoveredCardId);
-  const number = state.cardsById[cardId].number;
+  const type = state.cardsById[cardId].type;
 
   return (
-    <MotionCard pose={visual.pose} config={visual.config}>
-      <CardView number={number} />
+    <MotionCard pose={visual.pose} config={visual.config} scale={visual.scale}>
+      <CardView type={type} />
     </MotionCard>
   );
 }

@@ -51,10 +51,11 @@ describe('P1-S06/S12 card visual selection', () => {
     const placed: GameState = {
       ...s,
       deck: s.deck.slice(0, -1),
-      board: { ...s.board, slotB: cardId },
+      board: { ...s.board, B1: cardId },
     };
     const v = selectCardVisual(placed, cardId);
     expect(v.zone).toBe('board');
     expect(v.faceUp).toBe(true);
+    expect(v.scale).toBeLessThan(1); // shrinks on the board
   });
 });

@@ -1,25 +1,47 @@
 import { describe, it, expect } from 'vitest';
-import { createInitialState, createInitialCards, DECK_SIZE } from './cardData';
+import {
+  createInitialState,
+  createInitialCards,
+  createEmptyBoard,
+  DECK_SIZE,
+  SLOT_IDS,
+} from './cardData';
 
-describe('P1-S02 initial state', () => {
-  it('creates 10 cards numbered 1..10', () => {
+describe('P2-S01 initial state', () => {
+  it('creates 12 cards, 4 each of A/B/C', () => {
     const { cardsById, deck } = createInitialCards();
     expect(deck).toHaveLength(DECK_SIZE);
-    const numbers = deck.map((id) => cardsById[id].number).sort((a, b) => a - b);
-    expect(numbers).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(DECK_SIZE).toBe(12);
+    const counts = { A: 0, B: 0, C: 0 } as Record<string, number>;
+    for (const id of deck) counts[cardsById[id].type]++;
+    expect(counts).toEqual({ A: 4, B: 4, C: 4 });
   });
 
-  it('starts with a full deck, empty hand, three empty slots, and no drag', () => {
+  it('starts with a full deck, empty hand, twelve empty slots, and no drag', () => {
     const s = createInitialState();
     expect(s.deck).toHaveLength(DECK_SIZE);
     expect(s.hand).toEqual([]);
-    expect(s.board).toEqual({ slotA: null, slotB: null, slotC: null });
+    expect(Object.keys(s.board)).toHaveLength(12);
+    expect(Object.values(s.board).every((v) => v === null)).toBe(true);
     expect(s.dragging).toBeNull();
   });
 
-  it('orders the deck so the top card is the last element', () => {
+  it('exposes 12 typed slot ids', () => {
+    expect(SLOT_IDS).toHaveLength(12);
+    expect(SLOT_IDS).toContain('A1');
+    expect(SLOT_IDS).toContain('B4');
+    expect(SLOT_IDS).toContain('C2');
+  });
+
+  it('creates an all-null empty board keyed by every slot id', () => {
+    const board = createEmptyBoard();
+    for (const id of SLOT_IDS) expect(board[id]).toBeNull();
+  });
+
+  it('interleaves types so the opening five come out mixed', () => {
     const s = createInitialState();
-    const top = s.deck[s.deck.length - 1];
-    expect(s.cardsById[top].number).toBe(10);
+    // Draw the top five (last five elements) and confirm >1 distinct type.
+    const top5 = s.deck.slice(-5).map((id) => s.cardsById[id].type);
+    expect(new Set(top5).size).toBeGreaterThan(1);
   });
 });

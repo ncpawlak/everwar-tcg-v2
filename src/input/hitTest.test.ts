@@ -1,23 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import { slotAtPoint } from './hitTest';
 import { SLOT_POSITIONS } from '../board/boardConfig';
+import { SLOT_IDS } from '../state/cardData';
 
-describe('P1-S07 slot hit-testing', () => {
-  it('returns the slot when the point is on its center', () => {
-    expect(slotAtPoint(SLOT_POSITIONS.slotA)).toBe('slotA');
-    expect(slotAtPoint(SLOT_POSITIONS.slotB)).toBe('slotB');
-    expect(slotAtPoint(SLOT_POSITIONS.slotC)).toBe('slotC');
+describe('P2-S07 slot hit-testing', () => {
+  it('returns each of the 12 slots at its center', () => {
+    for (const slotId of SLOT_IDS) {
+      expect(slotAtPoint(SLOT_POSITIONS[slotId])).toBe(slotId);
+    }
   });
 
   it('returns null when the point is far from every slot', () => {
-    expect(slotAtPoint([10, 0, 10])).toBeNull();
+    expect(slotAtPoint([20, 0, 20])).toBeNull();
   });
 
   it('returns the nearest slot when between two slots', () => {
-    const [ax, , az] = SLOT_POSITIONS.slotA;
-    const [bx] = SLOT_POSITIONS.slotB;
-    // slightly left of the midpoint => nearer slotA
-    const point: [number, number, number] = [(ax + bx) / 2 - 0.1, 0, az];
-    expect(slotAtPoint(point)).toBe('slotA');
+    const [ax, , az] = SLOT_POSITIONS.A1;
+    const [cx] = SLOT_POSITIONS.C1;
+    // slightly left of the A1↔C1 midpoint => nearer A1
+    const point: [number, number, number] = [(ax + cx) / 2 - 0.05, 0, az];
+    expect(slotAtPoint(point)).toBe('A1');
   });
 });

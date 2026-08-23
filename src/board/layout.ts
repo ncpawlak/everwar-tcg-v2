@@ -1,6 +1,7 @@
 import { Euler, Quaternion, Vector3 } from 'three';
 import type { Pose, SlotId, Vec3 } from '../state/types';
 import {
+  BOARD_CARD_SCALE,
   CAMERA_POSITION,
   CARD_THICKNESS,
   DECK_ANCHOR,
@@ -79,7 +80,7 @@ function handRotation(roll: number): Vec3 {
 export function deckCardPose(indexFromBottom: number): Pose {
   const [x, y, z] = DECK_ANCHOR;
   return {
-    position: [x, y + indexFromBottom * CARD_THICKNESS, z],
+    position: [x, y + indexFromBottom * CARD_THICKNESS * BOARD_CARD_SCALE, z],
     rotation: [...FACE_DOWN_ROTATION] as Vec3,
   };
 }
@@ -126,7 +127,7 @@ export function handCardPoses(count: number): Pose[] {
 export function slotCardPose(slotId: SlotId): Pose {
   const [x, y, z] = SLOT_POSITIONS[slotId];
   return {
-    position: [x, y + CARD_THICKNESS, z],
+    position: [x, y + CARD_THICKNESS * BOARD_CARD_SCALE, z],
     rotation: [...FLAT_ROTATION] as Vec3,
   };
 }

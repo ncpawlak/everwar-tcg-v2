@@ -2,7 +2,7 @@ import type { GameState, CardId, Pose } from '../state/types';
 import type { SpringConfig } from '@react-spring/three';
 import { SLOT_IDS } from '../state/cardData';
 import { deckCardPose, handCardPoses, slotCardPose, FAN_UP } from '../board/layout';
-import { CARD_HEIGHT } from '../board/boardConfig';
+import { BOARD_CARD_SCALE, CARD_HEIGHT } from '../board/boardConfig';
 import { DRAG_LIFT, SPRING } from './motionConfig';
 
 /** Hovered hand card rises this far straight up on screen (50% of card height). */
@@ -16,6 +16,8 @@ export interface CardVisual {
   faceUp: boolean;
   zone: CardVisualZone;
   config: SpringConfig;
+  /** Uniform scale of the card mesh (hand = 1, board/deck shrink). */
+  scale: number;
 }
 
 /**
@@ -31,11 +33,17 @@ export function selectCardVisual(
   // Board (occupies a slot)
   for (const slotId of SLOT_IDS) {
     if (state.board[slotId] === cardId) {
-      return { pose: slotCardPose(slotId), faceUp: true, zone: 'board', config: SPRING.snap };
+      return {
+        pose: slotCardPose(slotId),
+        faceUp: true,
+        zone: 'board',
+        config: SPRING.snap,
+        scale: BOARD_CARD_SCALE,
+      };
     }
   }
 
-  // Actively dragging this card — follow the projected pointer.
+  // Actively dragging this card — follow the projected pointer (full size).
   if (state.dragging && state.dragging.cardId === cardId) {
     const [x, , z] = state.dragging.projectedPoint;
     return {
@@ -43,6 +51,7 @@ export function selectCardVisual(
       faceUp: true,
       zone: 'dragging',
       config: SPRING.drag,
+      scale: 1,
     };
   }
 
@@ -61,10 +70,16 @@ export function selectCardVisual(
             rotation: pose.rotation,
           }
         : pose;
-    return { pose: lifted, faceUp: true, zone: 'hand', config: SPRING.hand };
+    return { pose: lifted, faceUp: true, zone: 'hand', config: SPRING.hand, scale: 1 };
   }
 
-  // Otherwise in the deck (face down).
+  // Otherwise in the deck (face down, board scale).
   const deckIndex = state.deck.indexOf(cardId);
-  return { pose: deckCardPose(deckIndex), faceUp: false, zone: 'deck', config: SPRING.draw };
+  return {
+    pose: deckCardPose(deckIndex),
+    faceUp: false,
+    zone: 'deck',
+    config: SPRING.draw,
+    scale: BOARD_CARD_SCALE,
+  };
 }

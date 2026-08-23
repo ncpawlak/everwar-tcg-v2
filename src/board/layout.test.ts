@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Euler, Vector3 } from 'three';
 import { deckCardPose, handCardPoses, slotCardPose, FAN_UP, FAN_NORMAL } from './layout';
 import { HAND_ANCHOR, HAND_MAX_HALF_WIDTH, SLOT_POSITIONS } from './boardConfig';
+import type { SlotId } from '../state/types';
 
 /** Screen-space tilt of a card's local up-vector (x component after rotation). */
 function upTiltX(rotation: [number, number, number]): number {
@@ -76,8 +77,35 @@ describe('P1-S04 layout math', () => {
   });
 
   it('places a slot card at its configured slot', () => {
-    const pose = slotCardPose('slotC');
-    expect(pose.position[0]).toBeCloseTo(SLOT_POSITIONS.slotC[0], 5);
-    expect(pose.position[2]).toBeCloseTo(SLOT_POSITIONS.slotC[2], 5);
+    const pose = slotCardPose('C1');
+    expect(pose.position[0]).toBeCloseTo(SLOT_POSITIONS.C1[0], 5);
+    expect(pose.position[2]).toBeCloseTo(SLOT_POSITIONS.C1[2], 5);
+  });
+});
+
+describe('P2-S02 board grid geometry', () => {
+  it('pairs each C slot immediately to the right of its A slot on the same row', () => {
+    for (let i = 1; i <= 4; i++) {
+      const a = SLOT_POSITIONS[`A${i}` as SlotId];
+      const c = SLOT_POSITIONS[`C${i}` as SlotId];
+      expect(c[2]).toBeCloseTo(a[2], 5); // same row depth
+      expect(c[0]).toBeGreaterThan(a[0]); // C is to the right of A
+    }
+  });
+
+  it('centers each B slot on the x-midpoint between its A and C, on the bottom row', () => {
+    for (let i = 1; i <= 4; i++) {
+      const a = SLOT_POSITIONS[`A${i}` as SlotId];
+      const c = SLOT_POSITIONS[`C${i}` as SlotId];
+      const b = SLOT_POSITIONS[`B${i}` as SlotId];
+      expect(b[0]).toBeCloseTo((a[0] + c[0]) / 2, 5); // midway between A and C
+      expect(b[2]).toBeGreaterThan(a[2]); // bottom row nearer the player
+    }
+  });
+
+  it('keeps A and B on distinct rows and orders pairs left-to-right', () => {
+    const aXs = [1, 2, 3, 4].map((i) => SLOT_POSITIONS[`A${i}` as SlotId][0]);
+    for (let i = 1; i < aXs.length; i++) expect(aXs[i]).toBeGreaterThan(aXs[i - 1]);
+    expect(SLOT_POSITIONS.A1[2]).not.toBeCloseTo(SLOT_POSITIONS.B1[2], 5);
   });
 });

@@ -1,30 +1,53 @@
 import { describe, it, expect } from 'vitest';
-import { canDrop, emptySlots, isSlotEmpty } from './slotRules';
+import {
+  canDrop,
+  emptySlots,
+  isSlotEmpty,
+  slotAcceptsType,
+  validTargetSlots,
+} from './slotRules';
+import { createEmptyBoard } from '../state/cardData';
 import type { GameState } from '../state/types';
 
-const board = (
-  a: GameState['board']['slotA'],
-  b: GameState['board']['slotB'],
-  c: GameState['board']['slotC'],
-): GameState['board'] => ({ slotA: a, slotB: b, slotC: c });
+const withCards = (occupied: Partial<GameState['board']>): GameState['board'] => ({
+  ...createEmptyBoard(),
+  ...occupied,
+});
 
-describe('P1-S03 slot rules', () => {
+describe('P2-S03 slot rules', () => {
   it('isSlotEmpty reflects occupancy', () => {
-    const b = board(null, 'card-1', null);
-    expect(isSlotEmpty(b, 'slotA')).toBe(true);
-    expect(isSlotEmpty(b, 'slotB')).toBe(false);
+    const b = withCards({ A1: 'card-A1' });
+    expect(isSlotEmpty(b, 'A1')).toBe(false);
+    expect(isSlotEmpty(b, 'A2')).toBe(true);
   });
 
-  it('emptySlots returns empty slots left-to-right', () => {
-    expect(emptySlots(board(null, 'card-1', null))).toEqual(['slotA', 'slotC']);
-    expect(emptySlots(board('card-1', 'card-2', 'card-3'))).toEqual([]);
-    expect(emptySlots(board(null, null, null))).toEqual(['slotA', 'slotB', 'slotC']);
+  it('slotAcceptsType matches on the slot type letter only', () => {
+    expect(slotAcceptsType('A1', 'A')).toBe(true);
+    expect(slotAcceptsType('A1', 'B')).toBe(false);
+    expect(slotAcceptsType('C4', 'C')).toBe(true);
   });
 
-  it('canDrop is true only for an empty slot', () => {
-    const b = board(null, 'card-1', null);
-    expect(canDrop(b, 'slotA')).toBe(true);
-    expect(canDrop(b, 'slotB')).toBe(false);
-    expect(canDrop(b, null)).toBe(false);
+  it('emptySlots returns all unoccupied slots', () => {
+    expect(emptySlots(createEmptyBoard())).toHaveLength(12);
+    expect(emptySlots(withCards({ A1: 'card-A1' }))).not.toContain('A1');
+  });
+
+  it('validTargetSlots are empty slots of the matching type', () => {
+    const targets = validTargetSlots(withCards({ A1: 'card-A1' }), 'A');
+    expect(targets).toEqual(['A2', 'A3', 'A4']);
+    expect(validTargetSlots(createEmptyBoard(), 'B')).toEqual(['B1', 'B2', 'B3', 'B4']);
+  });
+
+  it('canDrop requires an empty slot whose type matches the card', () => {
+    const b = withCards({ A1: 'card-A1' });
+    expect(canDrop(b, 'A2', 'A')).toBe(true); // empty + matching
+    expect(canDrop(b, 'A1', 'A')).toBe(false); // occupied
+    expect(canDrop(b, 'B1', 'A')).toBe(false); // wrong type
+    expect(canDrop(b, 'C1', 'A')).toBe(false); // wrong type
+    expect(canDrop(b, null, 'A')).toBe(false);
+  });
+
+  it('a C card can set even when its paired A is empty (type-gated only)', () => {
+    expect(canDrop(createEmptyBoard(), 'C1', 'C')).toBe(true);
   });
 });
