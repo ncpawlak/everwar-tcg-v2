@@ -43,13 +43,13 @@ export const CARD_LIBRARY: Record<string, Omit<Card, 'id' | 'type'>> = {
     flavor: 'She reads the pages before they are written.',
   },
   B3: {
-    name: 'Tempest Weaver', cost: 4, rarity: 'Epic', ability: 'replenIntoDeck',
-    effect: 'When set: shuffle your replen into your deck.',
+    name: 'Tempest Weaver', cost: 4, rarity: 'Epic', ability: 'replenIntoDeck', continuous: true,
+    effect: 'Continuous. When set: shuffle your replen into your deck.',
     flavor: 'Storms answer to her hands.',
   },
   B4: {
-    name: 'Astral Archon', cost: 6, rarity: 'Legendary', ability: 'draw2',
-    effect: 'When set: draw 2 cards.',
+    name: 'Astral Archon', cost: 6, rarity: 'Legendary', ability: 'draw2', continuous: true,
+    effect: 'Continuous. When set: draw 2 cards.',
     flavor: 'Between the stars, it judges all.',
   },
   C1: {
@@ -137,6 +137,12 @@ export function createInitialState(): GameState {
     selectedCardId: null,
     pileSearch: null,
     summon: null,
+    turn: 1,
+    phase: 'draw',
+    phaseAnnounce: 0,
+    attackers: [],
+    resolutionRolls: {},
+    lastRolls: {},
   };
 }
 

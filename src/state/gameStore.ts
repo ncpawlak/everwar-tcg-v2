@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { BAbility, CardId, GameState, PileSource, SlotId, Vec3 } from './types';
+import type { BAbility, CardId, DiceState, GameState, PileSource, Phase, SlotId, Vec3 } from './types';
 import { createInitialState } from './cardData';
 import { canDrop } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
@@ -12,6 +12,27 @@ export const SHUFFLE_SPREAD_MS = 300;
 /** How long (ms) a freshly set card is showcased over the field before it flies
  * down into its slot. */
 export const SUMMON_SHOWCASE_MS = 800;
+
+/** Target hand size the Draw phase fills up to (draws until this, else +1). */
+export const HAND_TARGET = 6;
+
+/** Base dwell (ms) the Draw phase lingers before auto-advancing to Main, on top
+ * of the time its staggered draws take. Lets the Draw banner + draw animation
+ * play before the phase changes. */
+export const DRAW_PHASE_DWELL_MS = 900;
+
+/** Faces on the battle die. */
+export const DICE_SIDES = 20;
+/** How long (ms) the D20 tumbles before it settles on its value. */
+export const DICE_ROLL_MS = 800;
+/** How long (ms) the settled die stays on screen before it clears. */
+export const DICE_HOLD_MS = 600;
+/**
+ * Delay (ms) before the Resolution dice begin tumbling, so they wait for the
+ * "Resolution Phase" banner to slide off screen first. Matches PhaseBanner's
+ * ANIM_MS (1700) — keep in sync if that banner timing changes.
+ */
+export const RESOLUTION_ROLL_DELAY_MS = 1700;
 
 /**
  * Authoritative Phase 1 game store. State transitions are immediate and
@@ -83,6 +104,24 @@ export interface GameActions {
   openPileSearch: (source: PileSource) => void;
   /** Close the pile-search pop-up. */
   closePileSearch: () => void;
+  /**
+   * Enter the Draw phase of the current turn: announce it, draw up to the hand
+   * target (else +1), then auto-advance to Main. Called once at game start (by
+   * the opening deal) and again at the top of every later turn via advancePhase.
+   */
+  beginDrawPhase: () => void;
+  /**
+   * Advance to the next phase when the player clicks the field's phase button.
+   * Main→Battle→Resolution→End, and End→next turn's Draw (turn increments). Draw
+   * and Resolution advance themselves automatically, so this is a no-op then.
+   */
+  advancePhase: () => void;
+  /**
+   * Toggle an A-slot card as a declared attacker (Battle phase only). The slot
+   * gets a gold outline while selected; the selection is rolled in Resolution.
+   * No-op outside Battle, on non-A slots, or on empty slots.
+   */
+  toggleAttacker: (slotId: SlotId) => void;
   /** Reset to a fresh initial state (used by tests and restart). */
   reset: () => void;
 }
@@ -142,6 +181,98 @@ export function createGameStore(
         }
       };
 
+      /**
+       * End-phase resolution (fires on ENTERING End): shuffle the replen pile
+       * back into the deck, then send every non-continuous B card on the field to
+       * the graveyard. Continuous B cards stay put.
+       */
+      const runEndPhase = () => {
+        get().replenIntoDeck();
+        set((s) => {
+          const board = { ...s.board };
+          const sent: CardId[] = [];
+          for (const slot of ['B1', 'B2', 'B3', 'B4'] as SlotId[]) {
+            const id = board[slot];
+            if (id && !s.cardsById[id]?.continuous) {
+              sent.push(id);
+              board[slot] = null;
+            }
+          }
+          return sent.length ? { ...s, board, graveyard: [...s.graveyard, ...sent] } : s;
+        });
+      };
+
+      /**
+       * Resolution-phase roll (fires on ENTERING Resolution): for every declared
+       * attacker A-slot, roll a D20 simultaneously. The dice wait for the
+       * "Resolution Phase" banner to slide off screen (RESOLUTION_ROLL_DELAY_MS)
+       * before they start tumbling. Values are picked when the roll begins and
+       * absorbed into `lastRolls`; the dice tumble over each card's A/C area,
+       * settle, then the phase auto-advances to End. With no attackers it just
+       * moves on after the banner clears.
+       */
+      const beginResolution = () => {
+        if (get().attackers.length === 0) {
+          setTimeout(() => {
+            if (get().phase === 'resolution') goToPhase('end');
+          }, RESOLUTION_ROLL_DELAY_MS + 300);
+          return;
+        }
+        setTimeout(() => {
+          if (get().phase !== 'resolution') return;
+          const attackers = get().attackers;
+          const rolls: Record<string, DiceState> = {};
+          const values: Record<string, number> = {};
+          for (const slot of attackers) {
+            const value = 1 + Math.floor(Math.random() * DICE_SIDES);
+            rolls[slot] = { value, rolling: true };
+            values[slot] = value;
+          }
+          set((s) => ({ resolutionRolls: rolls, lastRolls: { ...s.lastRolls, ...values } }));
+          setTimeout(() => {
+            set((s) => {
+              const settled: Record<string, DiceState> = {};
+              for (const k of Object.keys(s.resolutionRolls)) {
+                settled[k] = { value: s.resolutionRolls[k].value, rolling: false };
+              }
+              return { resolutionRolls: settled };
+            });
+          }, DICE_ROLL_MS);
+          setTimeout(() => {
+            if (get().phase === 'resolution') goToPhase('end');
+          }, DICE_ROLL_MS + DICE_HOLD_MS);
+        }, RESOLUTION_ROLL_DELAY_MS);
+      };
+
+      /**
+       * Enter `next` phase: bump the announce counter (re-plays the banner), set
+       * the phase (optionally incrementing the turn), and run that phase's entry
+       * effects. Draw draws then auto-advances to Main; Resolution rolls the
+       * declared attackers' dice then auto-advances to End; End runs its cleanup
+       * and clears the attacker selection / spent dice.
+       */
+      const goToPhase = (next: Phase, incTurn = false) => {
+        set((s) => ({
+          phase: next,
+          turn: incTurn ? s.turn + 1 : s.turn,
+          phaseAnnounce: s.phaseAnnounce + 1,
+          // Leaving Resolution for End consumes the attack declaration + dice.
+          ...(next === 'end' ? { attackers: [], resolutionRolls: {} } : {}),
+        }));
+        if (next === 'draw') {
+          const handSize = get().hand.length;
+          const count = handSize < HAND_TARGET ? HAND_TARGET - handSize : 1;
+          drawStaggered(count);
+          setTimeout(() => {
+            if (get().phase === 'draw') goToPhase('main');
+          }, DRAW_PHASE_DWELL_MS + count * MULTI_DRAW_STAGGER_MS);
+        } else if (next === 'resolution') {
+          beginResolution();
+        } else if (next === 'end') {
+          runEndPhase();
+        }
+      };
+
     return {
     ...initial,
 
@@ -185,7 +316,13 @@ export function createGameStore(
       const s = get();
       if (s.dragging === null || s.dragging.cardId !== cardId) return;
       const cardType = s.cardsById[cardId]?.type;
-      if (cardType && canDrop(s.board, slotId, cardType) && slotId !== null) {
+      // Cards may only be set during the Main phase.
+      if (
+        s.phase === 'main' &&
+        cardType &&
+        canDrop(s.board, slotId, cardType) &&
+        slotId !== null
+      ) {
         // A C card rolls a random stat boost for its linked A card when set.
         const cardsById =
           cardType === 'C'
@@ -325,6 +462,28 @@ export function createGameStore(
     openPileSearch: (source) => set(() => ({ pileSearch: source })),
 
     closePileSearch: () => set(() => ({ pileSearch: null })),
+
+    beginDrawPhase: () => goToPhase('draw'),
+
+    advancePhase: () => {
+      const phase = get().phase;
+      if (phase === 'main') goToPhase('battle');
+      else if (phase === 'battle') goToPhase('resolution');
+      else if (phase === 'end') goToPhase('draw', true);
+      // Draw and Resolution advance themselves; ignore manual clicks then.
+    },
+
+    toggleAttacker: (slotId) =>
+      set((s) => {
+        if (s.phase !== 'battle') return s;
+        if (slotId[0] !== 'A' || !s.board[slotId]) return s;
+        const has = s.attackers.includes(slotId);
+        return {
+          attackers: has
+            ? s.attackers.filter((id) => id !== slotId)
+            : [...s.attackers, slotId],
+        };
+      }),
 
     reset: () => set(() => ({ ...get(), ...createInitialState() })),
     };

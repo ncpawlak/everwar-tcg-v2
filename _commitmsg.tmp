@@ -1,0 +1,20 @@
+feat(phase4): turn mechanics, battle declaration + resolution dice
+
+Add the turn/phase loop and combat setup:
+- Phase state machine: Draw -> Main -> Battle -> Resolution -> End,
+  with a turn counter, TurnHud strip + Next Phase button, and a
+  PhaseBanner that slides in/holds/out on every phase change.
+- Draw auto-draws to 6 (else 1) then advances; End folds replen back
+  into the deck and graveyards non-continuous B cards.
+- Card placement gated to Main; manual deck-click draw disabled.
+- Battle: click either linked A/C zone to declare that column's A card
+  as an attacker (gold outline across the whole column). Only occupied
+  A columns can attack.
+- Resolution: each declared attacker rolls a D20 simultaneously over its
+  A/C link area (in-scene, face-snaps toward the camera on settle), values
+  absorbed into lastRolls, then auto-advances to End. Dice wait for the
+  Resolution banner to clear before tumbling.
+- Placement: dragging an A/C card highlights and accepts a drop on either
+  zone of a linked column, resolving to the card's correct slot.
+
+Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>

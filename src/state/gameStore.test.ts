@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createGameStore, SUMMON_SHOWCASE_MS, SHUFFLE_SPREAD_MS } from './gameStore';
+import { createGameStore, SUMMON_SHOWCASE_MS, SHUFFLE_SPREAD_MS, DICE_ROLL_MS, RESOLUTION_ROLL_DELAY_MS } from './gameStore';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState } from './types';
@@ -11,6 +11,8 @@ function storeWithHand(hand: GameState['cardsById'][string]['id'][]) {
     ...base,
     hand: [...hand],
     deck: base.deck.filter((id) => !hand.includes(id)),
+    // Cards can only be set during Main; put drop tests in the Main phase.
+    phase: 'main',
   });
 }
 
@@ -164,6 +166,7 @@ describe('P2-S02/S08 game store actions', () => {
       hand: ['card-B2'], // B2 = graveyardIntoDeck
       deck: base.deck.filter((id) => id !== 'card-B2' && id !== 'card-A3'),
       graveyard: ['card-A3'],
+      phase: 'main',
     });
     store.getState().beginDrag('card-B2');
     store.getState().dropCard('card-B2', 'B2');
@@ -519,5 +522,237 @@ describe('pile-search pop-up state', () => {
       expect(store.getState().pileSearch).toBe('replen');
       store.getState().closePileSearch();
       expect(store.getState().pileSearch).toBeNull();
+  });
+});
+
+describe('P4 turn / phase mechanics', () => {
+  it('beginDrawPhase draws up to the hand target then auto-advances to Main', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      // Start with 5 in hand (like the opening deal), draw phase should top to 6.
+      const hand = base.deck.slice(-5);
+      const store = createGameStore({
+        ...base,
+        hand: [...hand],
+        deck: base.deck.slice(0, -5),
+      });
+
+      store.getState().beginDrawPhase();
+      expect(store.getState().phase).toBe('draw');
+      expect(store.getState().phaseAnnounce).toBe(1);
+      expect(store.getState().hand).toHaveLength(6);
+
+      // After the dwell it auto-advances to Main.
+      vi.runAllTimers();
+      expect(store.getState().phase).toBe('main');
+      expect(store.getState().phaseAnnounce).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Draw phase draws exactly 1 when the hand is already at or above the target', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const hand = base.deck.slice(-6);
+      const store = createGameStore({
+        ...base,
+        hand: [...hand],
+        deck: base.deck.slice(0, -6),
+      });
+
+      store.getState().beginDrawPhase();
+      expect(store.getState().hand).toHaveLength(7);
+      vi.runAllTimers();
+      expect(store.getState().phase).toBe('main');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('advancePhase steps Main -> Battle -> Resolution -> End, and End starts the next turn Draw', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({ ...base, phase: 'main' });
+
+      store.getState().advancePhase();
+      expect(store.getState().phase).toBe('battle');
+
+      store.getState().advancePhase(); // battle -> resolution
+      expect(store.getState().phase).toBe('resolution');
+
+      // With no attackers, Resolution auto-advances to End after a short beat.
+      vi.runAllTimers();
+      expect(store.getState().phase).toBe('end');
+
+      const turnBefore = store.getState().turn;
+      store.getState().advancePhase(); // end -> next turn draw
+      expect(store.getState().turn).toBe(turnBefore + 1);
+      expect(store.getState().phase).toBe('draw');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('advancePhase is a no-op during the Draw phase (Draw auto-advances)', () => {
+    const store = createGameStore({ ...createInitialState(), phase: 'draw' });
+    store.getState().advancePhase();
+    expect(store.getState().phase).toBe('draw');
+  });
+
+  it('End phase discards non-continuous B cards and keeps continuous ones', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        board: {
+          ...base.board,
+          B1: 'card-B1', // not continuous
+          B3: 'card-B3', // continuous
+        },
+      });
+
+      store.getState().advancePhase(); // battle -> resolution
+      vi.runAllTimers(); // resolution auto-advances to end (runs runEndPhase)
+      const s = store.getState();
+      expect(s.phase).toBe('end');
+      expect(s.board.B1).toBeNull();
+      expect(s.graveyard).toContain('card-B1');
+      expect(s.board.B3).toBe('card-B3');
+      expect(s.graveyard).not.toContain('card-B3');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('End phase shuffles the replen pile back into the deck', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        replen: ['card-A1'],
+      });
+      const deckLen = store.getState().deck.length;
+
+      store.getState().advancePhase(); // battle -> resolution
+      vi.runAllTimers(); // -> end, replen folds in + shuffle completes
+      expect(store.getState().replen).toEqual([]);
+      expect(store.getState().deck).toContain('card-A1');
+      expect(store.getState().deck).toHaveLength(deckLen + 1);
+      expect(store.getState().deckSpread).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('dropCard is blocked outside the Main phase', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-A1'],
+      deck: base.deck.filter((id) => id !== 'card-A1'),
+      phase: 'battle',
+    });
+    store.getState().beginDrag('card-A1');
+    store.getState().dropCard('card-A1', 'A1');
+    expect(store.getState().board.A1).toBeNull();
+    expect(store.getState().hand).toContain('card-A1');
+    expect(store.getState().dragging).toBeNull();
+  });
+
+  it('toggleAttacker selects and deselects A-slot cards during Battle only', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      phase: 'battle',
+      board: { ...base.board, A1: 'card-A1' },
+    });
+
+    store.getState().toggleAttacker('A1');
+    expect(store.getState().attackers).toEqual(['A1']);
+    store.getState().toggleAttacker('A1'); // deselect
+    expect(store.getState().attackers).toEqual([]);
+  });
+
+  it('toggleAttacker ignores empty A-slots, non-A slots, and non-Battle phases', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      phase: 'battle',
+      board: { ...base.board, A1: 'card-A1', B1: 'card-B1' },
+    });
+
+    store.getState().toggleAttacker('A2'); // empty
+    store.getState().toggleAttacker('B1'); // non-A
+    expect(store.getState().attackers).toEqual([]);
+
+    const mainStore = createGameStore({
+      ...base,
+      phase: 'main',
+      board: { ...base.board, A1: 'card-A1' },
+    });
+    mainStore.getState().toggleAttacker('A1'); // not Battle
+    expect(mainStore.getState().attackers).toEqual([]);
+  });
+
+  it('Resolution rolls a die per attacker, absorbs values, then auto-advances to End', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        board: { ...base.board, A1: 'card-A1', A2: 'card-A2' },
+        attackers: ['A1', 'A2'],
+      });
+
+      store.getState().advancePhase(); // battle -> resolution
+      expect(store.getState().phase).toBe('resolution');
+      // Dice wait for the phase banner to clear before they start tumbling.
+      expect(store.getState().resolutionRolls).toEqual({});
+
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS);
+      const rolls = store.getState().resolutionRolls;
+      expect(Object.keys(rolls).sort()).toEqual(['A1', 'A2']);
+      for (const slot of ['A1', 'A2']) {
+        expect(rolls[slot].rolling).toBe(true);
+        expect(rolls[slot].value).toBeGreaterThanOrEqual(1);
+        expect(rolls[slot].value).toBeLessThanOrEqual(20);
+        // Value is absorbed into the engine once the roll begins.
+        expect(store.getState().lastRolls[slot]).toBe(rolls[slot].value);
+      }
+
+      vi.advanceTimersByTime(DICE_ROLL_MS);
+      expect(store.getState().resolutionRolls.A1.rolling).toBe(false);
+
+      vi.runAllTimers(); // settle hold -> auto-advance to End
+      expect(store.getState().phase).toBe('end');
+      // Attack declaration + spent dice are cleared entering End; values persist.
+      expect(store.getState().attackers).toEqual([]);
+      expect(store.getState().resolutionRolls).toEqual({});
+      expect(Object.keys(store.getState().lastRolls).sort()).toEqual(['A1', 'A2']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Resolution with no attackers rolls nothing and still advances to End', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createGameStore({ ...createInitialState(), phase: 'battle' });
+      store.getState().advancePhase(); // -> resolution
+      expect(store.getState().resolutionRolls).toEqual({});
+      vi.runAllTimers();
+      expect(store.getState().phase).toBe('end');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

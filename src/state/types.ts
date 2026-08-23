@@ -40,6 +40,22 @@ export interface StatBuff {
 /** Slot column index within a type family (1-based, 4 per family). */
 export type SlotIndex = 1 | 2 | 3 | 4;
 
+/** The five sequential phases of a turn. Battle declares attacks; Resolution
+ * rolls the dice for them. */
+export type Phase = 'draw' | 'main' | 'battle' | 'resolution' | 'end';
+
+/** Phases in the order they advance within a turn. */
+export const PHASE_ORDER: readonly Phase[] = ['draw', 'main', 'battle', 'resolution', 'end'];
+
+/** Short display label per phase (shown in the HUD indicator + banner). */
+export const PHASE_LABEL: Record<Phase, string> = {
+  draw: 'Draw',
+  main: 'Main',
+  battle: 'Battle',
+  resolution: 'Resolution',
+  end: 'End',
+};
+
 export type CardId = string;
 
 /**
@@ -87,6 +103,11 @@ export interface Card {
    * set in a B slot. Absent for A/C cards.
    */
   ability?: BAbility;
+  /**
+   * Continuous B cards stay on the field through the End phase instead of being
+   * sent to the graveyard. Only meaningful for B cards.
+   */
+  continuous?: boolean;
 }
 
 /** Plain 3-tuple position/rotation, decoupled from THREE.Vector3. */
@@ -123,6 +144,16 @@ export interface SummonState {
   slotId: SlotId;
 }
 
+/**
+ * Transient D20 dice-roll state. The `value` is chosen immediately when the roll
+ * starts; the animation merely reveals it. `rolling` is true while the die
+ * tumbles and false once it has settled on `value`.
+ */
+export interface DiceState {
+  value: number;
+  rolling: boolean;
+}
+
 export interface GameState {
   cardsById: Record<CardId, Card>;
   /** Ordered stack; the top of the deck is the LAST element. */
@@ -148,4 +179,22 @@ export interface GameState {
   /** Card currently playing its summon-reveal (showcased over the field before
    * flying to its slot), or null. Purely visual and transient. */
   summon: SummonState | null;
+  /** Current turn number (1-based). Increments when advancing past End. */
+  turn: number;
+  /** The active phase within the current turn. */
+  phase: Phase;
+  /** Monotonic counter bumped on every phase entry. Drives the phase-transition
+   * banner: the announcement re-plays whenever this changes. */
+  phaseAnnounce: number;
+  /** A-slot ids the player has declared as attackers during the Battle phase
+   * (toggled by clicking the card; shown with a gold outline). Rolled in
+   * Resolution, then cleared at End. */
+  attackers: SlotId[];
+  /** Active per-attacker D20 rolls during the Resolution phase, keyed by A-slot
+   * id. Each die is shown over that card's A/C link area. Empty outside
+   * Resolution. */
+  resolutionRolls: Record<string, DiceState>;
+  /** The most recent Resolution results absorbed into the engine, keyed by
+   * A-slot id (1..20). Unused by rules for now; kept for later Battle logic. */
+  lastRolls: Record<string, number>;
 }

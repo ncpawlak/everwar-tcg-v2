@@ -9,14 +9,17 @@ import {
 } from '../board/boardConfig';
 import { SLOT_IDS } from '../state/cardData';
 import { useGameStore } from '../state/useGameStore';
-import { slotPlaceable } from '../board/slotRules';
+import { slotType } from '../state/types';
+import type { SlotId } from '../state/types';
+import { slotHighlighted } from '../board/slotRules';
 
 /**
  * The 12 typed placement slots plus the labeled graveyard/replen placeholders.
  *
- * During a drag, only EMPTY slots whose type matches the dragged card show the
- * gold outline (type-gated highlight). Highlighting is state/layout driven —
- * no animation decisions here.
+ * During a drag, the placeable target lights up gold. For A/C cards the whole
+ * linked column (both the A and C zone) highlights, since either can be dropped
+ * on; for B cards only the placeable slot itself. Highlighting is state/layout
+ * driven — no animation decisions here.
  */
 export function SlotView() {
   const board = useGameStore((s) => s.board);
@@ -24,15 +27,24 @@ export function SlotView() {
   const dragType = useGameStore((s) =>
     s.dragging ? (s.cardsById[s.dragging.cardId]?.type ?? null) : null,
   );
+  const attackers = useGameStore((s) => s.attackers);
+  const phase = useGameStore((s) => s.phase);
 
   return (
     <group>
       {SLOT_IDS.map((slotId) => {
         const [x, y, z] = SLOT_POSITIONS[slotId];
-        const highlight =
+        const dragHighlight =
           dragCardId !== null &&
           dragType !== null &&
-          slotPlaceable(board, slotId, dragType);
+          slotHighlighted(board, slotId, dragType);
+        // A declared attacker lights up its whole linked column (A + C zone)
+        // through Battle/Resolution.
+        const attackHighlight =
+          (phase === 'battle' || phase === 'resolution') &&
+          (slotType(slotId) === 'A' || slotType(slotId) === 'C') &&
+          attackers.includes(`A${slotId[1]}` as SlotId);
+        const highlight = dragHighlight || attackHighlight;
         return (
           <group key={slotId} position={[x, y - 0.009, z]}>
             <mesh rotation={[-Math.PI / 2, 0, 0]}>

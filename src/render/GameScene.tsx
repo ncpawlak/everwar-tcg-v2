@@ -4,6 +4,7 @@ import { SlotView } from './SlotView';
 import { CardEntity } from './CardEntity';
 import { AZoneStats } from './AZoneStats';
 import { SummonRipple } from './SummonRipple';
+import { ResolutionDice } from './ResolutionDice';
 import { OpeningDeal } from './OpeningDeal';
 import { ThreeBridge } from './ThreeBridge';
 
@@ -39,6 +40,7 @@ export function GameScene() {
       ))}
       <AZoneStats />
       <SummonRipple />
+      <ResolutionDice />
       <OpeningDeal />
     </>
   );

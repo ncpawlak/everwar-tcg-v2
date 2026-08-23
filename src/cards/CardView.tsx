@@ -155,19 +155,34 @@ export function CardView({ card, pickable = true }: { card: Card; pickable?: boo
         )
       ) : card.type === 'B' ? (
         /* B cards are spells: instead of combat stats they show the on-play
-           ability they enact when set. */
-        <Text
-          position={[0, -HALF_H + 0.09, ZF + 0.001]}
-          fontSize={0.044}
-          maxWidth={CARD_WIDTH * 0.84}
-          lineHeight={1.12}
-          color="#7a5cc6"
-          anchorX="center"
-          anchorY="middle"
-          textAlign="center"
-        >
-          {card.ability ? B_ABILITY_LABEL[card.ability] : ''}
-        </Text>
+           ability they enact when set. Continuous B cards get a badge since they
+           survive the End phase. */
+        <>
+          {card.continuous && (
+            <Text
+              position={[0, -HALF_H + 0.155, ZF + 0.001]}
+              fontSize={0.036}
+              letterSpacing={0.08}
+              color="#c9a24b"
+              anchorX="center"
+              anchorY="middle"
+            >
+              ◆ CONTINUOUS ◆
+            </Text>
+          )}
+          <Text
+            position={[0, -HALF_H + 0.09, ZF + 0.001]}
+            fontSize={0.044}
+            maxWidth={CARD_WIDTH * 0.84}
+            lineHeight={1.12}
+            color="#7a5cc6"
+            anchorX="center"
+            anchorY="middle"
+            textAlign="center"
+          >
+            {card.ability ? B_ABILITY_LABEL[card.ability] : ''}
+          </Text>
+        </>
       ) : (
         <>
           {/* HP (centered, just above the ATK/DEF row) */}

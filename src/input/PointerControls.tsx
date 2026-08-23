@@ -10,7 +10,8 @@ import {
 } from './pickMath';
 import { handCardPoses, deckCardPose, graveyardCardPose, replenCardPose } from '../board/layout';
 import { boardCardAt, slotAtPoint } from './hitTest';
-import type { CardId, PileSource } from '../state/types';
+import { resolveLinkedTarget, resolveAttackerSlot } from '../board/slotRules';
+import type { CardId, PileSource, SlotId } from '../state/types';
 
 /**
  * DOM-driven pointer input. Attaches window pointer listeners and drives the
@@ -31,6 +32,8 @@ interface Press {
   cardId: CardId | null;
   /** For a 'pile' press: which pile was pressed (graveyard/replen). */
   pile: PileSource | null;
+  /** The board slot under the pointer at press time ('board'/'empty' presses). */
+  slotId: SlotId | null;
   downX: number;
   downY: number;
   startedDrag: boolean;
@@ -53,7 +56,7 @@ export function PointerControls() {
       if (s.dragging) return;
 
       const ndc = clientToNdc(e.clientX, e.clientY, canvas);
-      const base = { downX: e.clientX, downY: e.clientY, startedDrag: false, pile: null };
+      const base = { downX: e.clientX, downY: e.clientY, startedDrag: false, pile: null, slotId: null };
 
       // 1) Hand card — candidate for either inspect (click) or drag.
       const handPoses = handCardPoses(s.hand.length);
@@ -86,15 +89,19 @@ export function PointerControls() {
       }
 
       // 4) A placed board card — click to inspect (placed cards don't move yet).
+      // We also record the slot under the pointer so a Battle-phase click on a
+      // linked A/C zone can declare an attacker even when the zone is empty.
       const point = projectToBoard(ndc, camera);
-      const boardCard = point ? boardCardAt(point, s.board) : null;
+      const slot = point ? slotAtPoint(point) : null;
+      const boardCard = slot ? s.board[slot] : null;
       if (boardCard) {
-        press = { kind: 'board', cardId: boardCard, ...base };
+        press = { kind: 'board', cardId: boardCard, ...base, slotId: slot };
         return;
       }
 
-      // 5) Empty space — click to close the inspection panel.
-      press = { kind: 'empty', cardId: null, ...base };
+      // 5) Empty space — click to close the inspection panel (or, in Battle,
+      // toggle an attacker via its empty linked zone).
+      press = { kind: 'empty', cardId: null, ...base, slotId: slot };
     };
 
     const onMove = (e: PointerEvent) => {
@@ -103,12 +110,16 @@ export function PointerControls() {
       const s = gameStore.getState();
       const ndc = clientToNdc(e.clientX, e.clientY, canvas);
 
-      // Active drag: follow the pointer and track the hovered slot.
+      // Active drag: follow the pointer and track the hovered slot. For A/C
+      // cards, hovering either zone of a linked column resolves to the card's
+      // own-type slot in that column.
       if (s.dragging) {
         const point = projectToBoard(ndc, camera);
         if (!point) return;
         s.updateDrag(point);
-        s.hoverSlot(slotAtPoint(point));
+        const cardType = s.cardsById[s.dragging.cardId]?.type;
+        const raw = slotAtPoint(point);
+        s.hoverSlot(cardType ? resolveLinkedTarget(s.board, raw, cardType) : raw);
         return;
       }
 
@@ -152,13 +163,26 @@ export function PointerControls() {
       if (press && !press.startedDrag) {
         const isDrag = exceededDragThreshold(press.downX, press.downY, e.clientX, e.clientY);
         if (!isDrag) {
+          // During Battle, clicking either zone of an occupied A/C column
+          // toggles that column's A card as a declared attacker (gold outline).
+          if (
+            s.phase === 'battle' &&
+            (press.kind === 'board' || press.kind === 'empty')
+          ) {
+            const attacker = resolveAttackerSlot(s.board, press.slotId);
+            if (attacker) {
+              s.toggleAttacker(attacker);
+              press = null;
+              return;
+            }
+          }
           switch (press.kind) {
             case 'hand':
-            case 'board':
               s.selectCard(press.cardId);
               break;
-            case 'deck':
-              s.drawCard();
+            case 'board':
+              // Outside Battle a board click inspects the card.
+              s.selectCard(press.cardId);
               break;
             case 'pile':
               if (press.pile) s.openPileSearch(press.pile);
@@ -166,6 +190,8 @@ export function PointerControls() {
             case 'empty':
               s.selectCard(null);
               break;
+            // 'deck': manual draw is disabled — cards are only drawn by the
+            // Draw phase / opening deal, never by clicking the deck.
           }
         }
       }

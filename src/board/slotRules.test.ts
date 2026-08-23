@@ -3,7 +3,10 @@ import {
   canDrop,
   emptySlots,
   isSlotEmpty,
+  resolveAttackerSlot,
+  resolveLinkedTarget,
   slotAcceptsType,
+  slotHighlighted,
   validTargetSlots,
 } from './slotRules';
 import { createEmptyBoard } from '../state/cardData';
@@ -55,5 +58,50 @@ describe('P2-S03 slot rules', () => {
     expect(canDrop(b, 'C2', 'C')).toBe(true);
     expect(canDrop(b, 'C1', 'C')).toBe(false);
     expect(validTargetSlots(b, 'C')).toEqual(['C2']);
+  });
+
+  it('resolveLinkedTarget maps either linked zone to the card own-type slot', () => {
+    const empty = createEmptyBoard();
+    // Dragging an A card: hovering A2 or its linked C2 both target A2.
+    expect(resolveLinkedTarget(empty, 'A2', 'A')).toBe('A2');
+    expect(resolveLinkedTarget(empty, 'C2', 'A')).toBe('A2');
+    // Dragging a C card needs the linked A occupied.
+    expect(resolveLinkedTarget(empty, 'A2', 'C')).toBe(null); // A2 empty -> illegal
+    const withA2 = withCards({ A2: 'card-A2' });
+    expect(resolveLinkedTarget(withA2, 'A2', 'C')).toBe('C2'); // hover occupied A -> C2
+    expect(resolveLinkedTarget(withA2, 'C2', 'C')).toBe('C2');
+    // An occupied A column is not a valid target for another A card.
+    expect(resolveLinkedTarget(withA2, 'C2', 'A')).toBe(null);
+    // B cards fall back to direct placement, no linking.
+    expect(resolveLinkedTarget(empty, 'B1', 'B')).toBe('B1');
+    expect(resolveLinkedTarget(empty, null, 'A')).toBe(null);
+  });
+
+  it('slotHighlighted lights the whole linked column for A/C drags', () => {    const withA2 = withCards({ A2: 'card-A2' });
+    // Dragging a C card with A2 set: both A2 and C2 highlight.
+    expect(slotHighlighted(withA2, 'A2', 'C')).toBe(true);
+    expect(slotHighlighted(withA2, 'C2', 'C')).toBe(true);
+    // Column 1 has no A card, so its C zone can't take a C card.
+    expect(slotHighlighted(withA2, 'C1', 'C')).toBe(false);
+    // Dragging an A card: an empty column's A and C zones both highlight.
+    const empty = createEmptyBoard();
+    expect(slotHighlighted(empty, 'A1', 'A')).toBe(true);
+    expect(slotHighlighted(empty, 'C1', 'A')).toBe(true);
+    // B highlights only its own placeable slot.
+    expect(slotHighlighted(empty, 'B1', 'B')).toBe(true);
+    expect(slotHighlighted(empty, 'A1', 'B')).toBe(false);
+  });
+
+  it('resolveAttackerSlot picks the column A card from either linked zone', () => {
+    const withA2 = withCards({ A2: 'card-A2' });
+    // Clicking the occupied A zone or its linked C zone both select A2.
+    expect(resolveAttackerSlot(withA2, 'A2')).toBe('A2');
+    expect(resolveAttackerSlot(withA2, 'C2')).toBe('A2');
+    // A column with no A card cannot attack from either zone.
+    expect(resolveAttackerSlot(withA2, 'A1')).toBe(null);
+    expect(resolveAttackerSlot(withA2, 'C1')).toBe(null);
+    // B zones and null never resolve to an attacker.
+    expect(resolveAttackerSlot(withA2, 'B1')).toBe(null);
+    expect(resolveAttackerSlot(withA2, null)).toBe(null);
   });
 });

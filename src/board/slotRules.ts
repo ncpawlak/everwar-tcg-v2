@@ -23,6 +23,62 @@ export function linkedASlot(cSlot: SlotId): SlotId {
 }
 
 /**
+ * A and C zones in the same column are a linked pair. When dragging an A or C
+ * card, hovering EITHER zone in a column should target the card's own-type slot
+ * in that column. Given the raw slot under the pointer and the dragged card's
+ * type, resolve to the actual placement slot — or null when placement there is
+ * illegal. B cards (and any non-A/C hover) fall back to direct placement.
+ */
+export function resolveLinkedTarget(
+  board: GameState['board'],
+  rawSlot: SlotId | null,
+  cardType: CardType,
+): SlotId | null {
+  if (rawSlot === null) return null;
+  const zone = slotType(rawSlot);
+  if ((cardType === 'A' || cardType === 'C') && (zone === 'A' || zone === 'C')) {
+    const target = `${cardType}${rawSlot[1]}` as SlotId;
+    return slotPlaceable(board, target, cardType) ? target : null;
+  }
+  return slotPlaceable(board, rawSlot, cardType) ? rawSlot : null;
+}
+
+/**
+ * Battle-phase attacker resolution: clicking EITHER zone of a linked column
+ * selects that column's A card as the attacker. Returns the column's A slot when
+ * it holds a card (only occupied A columns can attack), otherwise null.
+ */
+export function resolveAttackerSlot(
+  board: GameState['board'],
+  slot: SlotId | null,
+): SlotId | null {
+  if (slot === null) return null;
+  const zone = slotType(slot);
+  if (zone !== 'A' && zone !== 'C') return null;
+  const aSlot = `A${slot[1]}` as SlotId;
+  return isSlotEmpty(board, aSlot) ? null : aSlot;
+}
+
+/**
+ * Whether `slotId` should show the gold drag highlight for a dragged `cardType`.
+ * For A/C cards the WHOLE linked column (both the A and C zone) lights up when
+ * that column can legally receive the card; for B cards only the placeable slot
+ * itself lights up.
+ */
+export function slotHighlighted(
+  board: GameState['board'],
+  slotId: SlotId,
+  cardType: CardType,
+): boolean {
+  const zone = slotType(slotId);
+  if ((cardType === 'A' || cardType === 'C') && (zone === 'A' || zone === 'C')) {
+    const target = `${cardType}${slotId[1]}` as SlotId;
+    return slotPlaceable(board, target, cardType);
+  }
+  return slotPlaceable(board, slotId, cardType);
+}
+
+/**
  * Phase 3 placement gate: a slot may hold a card only when it is empty, its type
  * matches, AND — for a C slot — its linked A slot is already occupied. C cards
  * are supports that attach to a deployed A card, so they cannot be set on an

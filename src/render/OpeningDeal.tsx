@@ -19,6 +19,15 @@ export function OpeningDeal() {
         }, 450 + i * OPENING_DEAL_STAGGER_MS),
       );
     }
+    // After the opening 5 land, start turn 1's Draw phase (draws the 6th, then
+    // auto-advances to Main). Guarded on the initial announce so StrictMode's
+    // double-mount can't kick off the turn engine twice.
+    timers.push(
+      window.setTimeout(() => {
+        const s = gameStore.getState();
+        if (s.phaseAnnounce === 0) s.beginDrawPhase();
+      }, 450 + OPENING_HAND_SIZE * OPENING_DEAL_STAGGER_MS + 300),
+    );
     return () => timers.forEach((t) => clearTimeout(t));
   }, []);
 

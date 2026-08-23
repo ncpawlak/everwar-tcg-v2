@@ -3,6 +3,8 @@ import { GameScene } from '../render/GameScene';
 import { PointerControls } from '../input/PointerControls';
 import { InspectionPanel } from '../ui/InspectionPanel';
 import { DevControls } from '../ui/DevControls';
+import { TurnHud } from '../ui/TurnHud';
+import { PhaseBanner } from '../ui/PhaseBanner';
 import { CAMERA_FOV, CAMERA_POSITION, CAMERA_TARGET } from '../board/boardConfig';
 
 /**
@@ -28,6 +30,8 @@ export function App() {
       <PointerControls />
       <InspectionPanel />
       <DevControls />
+      <TurnHud />
+      <PhaseBanner />
     </div>
   );
 }
