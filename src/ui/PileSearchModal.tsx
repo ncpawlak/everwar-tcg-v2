@@ -18,6 +18,8 @@ const PILE_TITLE: Record<PileSource, string> = {
   deck: 'Deck',
   graveyard: 'Graveyard',
   replen: 'Replenish',
+  opponentGraveyard: "Opponent's Graveyard",
+  opponentReplen: "Opponent's Replenish",
 };
 
 interface Props {
@@ -28,6 +30,7 @@ interface Props {
 export function PileSearchModal({ source, onClose }: Props) {
   const pile = useGameStore((s) => s[source]);
   const cardsById = useGameStore((s) => s.cardsById);
+  const opponentCards = useGameStore((s) => s.opponentCards);
   const selectCard = useGameStore((s) => s.selectCard);
 
   return (
@@ -53,7 +56,7 @@ export function PileSearchModal({ source, onClose }: Props) {
           <div style={GRID_SCROLL_STYLE}>
             <div style={GRID_STYLE}>
               {pile.map((id) => (
-                <CardTile key={id} card={cardsById[id]} onSelect={() => selectCard(id)} />
+                <CardTile key={id} card={cardsById[id] ?? opponentCards[id]} onSelect={() => selectCard(id)} />
               ))}
             </div>
           </div>

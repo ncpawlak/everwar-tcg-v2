@@ -2,6 +2,7 @@ import { Canvas } from '@react-three/fiber';
 import { GameScene } from '../render/GameScene';
 import { PointerControls } from '../input/PointerControls';
 import { InspectionPanel } from '../ui/InspectionPanel';
+import { PileSearchHost } from '../ui/PileSearchHost';
 import { TributeModal } from '../ui/TributeModal';
 import { TurnHud } from '../ui/TurnHud';
 import { PhaseBanner } from '../ui/PhaseBanner';
@@ -29,6 +30,7 @@ export function App() {
       </Canvas>
       <PointerControls />
       <InspectionPanel />
+      <PileSearchHost />
       <TurnHud />
       <PhaseBanner />
       <TributeModal />

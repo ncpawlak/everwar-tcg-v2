@@ -152,7 +152,7 @@ export interface Pose {
 export type DragOrigin = 'hand';
 
 /** A browsable pile whose cards can be listed in the search pop-up. */
-export type PileSource = 'deck' | 'graveyard' | 'replen';
+export type PileSource = 'deck' | 'graveyard' | 'replen' | 'opponentGraveyard' | 'opponentReplen';
 
 export interface DragState {
   cardId: CardId;
@@ -235,8 +235,13 @@ export interface GameState {
   /** An in-progress level-3 tribute summon awaiting material selection, or null.
    * While set, the material-selection modal is open and the card sits in hand. */
   pendingTribute: PendingTribute | null;
-  /** Current turn number (1-based). Increments when advancing past End. */
+  /** Current turn number (1-based). Increments on every turn handoff — the
+   * player takes odd turns, the opponent even turns (Phase 7). */
   turn: number;
+  /** Whose turn it is. The player always goes first; after the player's End the
+   * opponent auto-plays a full turn, then control returns to the player. Drives
+   * the field-border turn highlight and gates player interaction (Phase 7). */
+  activePlayer: 'player' | 'opponent';
   /** The active phase within the current turn. */
   phase: Phase;
   /** Monotonic counter bumped on every phase entry. Drives the phase-transition

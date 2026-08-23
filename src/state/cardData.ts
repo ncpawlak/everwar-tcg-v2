@@ -254,6 +254,7 @@ export function createInitialState(): GameState {
     pendingTribute: null,
     turn: 1,
     phase: 'draw',
+    activePlayer: 'player',
     phaseAnnounce: 0,
     opponentCards: allOpponentCards,
     opponentBoard,

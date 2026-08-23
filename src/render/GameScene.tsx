@@ -13,6 +13,7 @@ import { OpponentField } from './OpponentField';
 import { OpponentHand } from './OpponentHand';
 import { TargetingArrows } from './TargetingArrows';
 import { OpeningDeal } from './OpeningDeal';
+import { FieldTurnHighlight } from './FieldTurnHighlight';
 import { ThreeBridge } from './ThreeBridge';
 
 /**
@@ -41,6 +42,7 @@ export function GameScene() {
         shadow-camera-bottom={-8}
       />
       <BoardView />
+      <FieldTurnHighlight />
       <SlotView />
       <OpponentField />
       <OpponentHand />

@@ -271,3 +271,9 @@ export function opponentSlotCardPose(oppSlotId: OppSlotId): Pose {
 export function opponentGraveyardCardPose(indexFromBottom: number): Pose {
   return mirrorPose(graveyardCardPose(indexFromBottom));
 }
+
+/** Opponent replenish pile pose by index from the bottom (mirror of the
+ * player's replen stack, so it stacks at the opponent's replen anchor). */
+export function opponentReplenCardPose(indexFromBottom: number): Pose {
+  return mirrorPose(replenCardPose(indexFromBottom));
+}

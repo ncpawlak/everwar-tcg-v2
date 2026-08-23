@@ -43,6 +43,17 @@ export const OUTCOME_POPUP_MS = 1600;
  * Only applied when at least one card was destroyed this Resolution. */
 export const GRAVEYARD_TRAVEL_MS = 650;
 
+/** How long (ms) each of the opponent's auto-played phases dwells before the
+ * next, during its turn. Kept ≥ the phase banner's animation length so each
+ * phase announcement plays fully before the next one (Phase 7). */
+export const OPP_PHASE_STEP_MS = 1800;
+
+/** How long (ms) the End phase dwells before auto-handing the turn to the other
+ * player. Lets the End banner + B-discard/replen-shuffle cleanup play before the
+ * turn flips. Applies to the player's End; the opponent's End is paced by
+ * OPP_PHASE_STEP_MS inside its auto-turn (Phase 7). */
+export const END_PHASE_DWELL_MS = 1400;
+
 /**
  * Authoritative Phase 1 game store. State transitions are immediate and
  * deterministic; the animation layer only visualizes the results.
@@ -422,7 +433,45 @@ export function createGameStore(
           beginResolution();
         } else if (next === 'end') {
           runEndPhase();
+          // End auto-advances (Phase 7): after a dwell, hand the turn to the
+          // other player. Only the player's End routes through here; the
+          // opponent's End is handled inside runOpponentTurn.
+          setTimeout(() => {
+            if (get().phase === 'end' && get().activePlayer === 'player') runOpponentTurn();
+          }, END_PHASE_DWELL_MS);
         }
+      };
+
+      /**
+       * Run the opponent's full auto-turn (Phase 7). Control passes here after
+       * the player ends their turn. The opponent takes its own turn number and
+       * steps through the same five phases on a timer — the shared bottom HUD +
+       * phase banner announce each one, and the field-border highlight flips to
+       * the opponent's side. Real opponent draws/summons/attacks arrive in later
+       * slices; for now this drives the turn loop and its presentation. When the
+       * End dwell finishes, control returns to the player for their next turn.
+       */
+      const runOpponentTurn = () => {
+        if (get().activePlayer !== 'player') return; // already running / idempotent
+        set((s) => ({
+          turn: s.turn + 1,
+          activePlayer: 'opponent',
+          phase: 'draw',
+          phaseAnnounce: s.phaseAnnounce + 1,
+        }));
+        const rest: Phase[] = ['main', 'battle', 'resolution', 'end'];
+        rest.forEach((p, i) => {
+          setTimeout(() => {
+            if (get().activePlayer !== 'opponent') return;
+            set((s) => ({ phase: p, phaseAnnounce: s.phaseAnnounce + 1 }));
+          }, OPP_PHASE_STEP_MS * (i + 1));
+        });
+        setTimeout(() => {
+          if (get().activePlayer !== 'opponent') return;
+          // Hand control back to the player for their next (odd) turn.
+          set((s) => ({ turn: s.turn + 1, activePlayer: 'player' }));
+          goToPhase('draw');
+        }, OPP_PHASE_STEP_MS * (rest.length + 1));
       };
 
     return {
@@ -438,6 +487,7 @@ export function createGameStore(
 
     beginDrag: (cardId) =>
       set((s) => {
+        if (s.activePlayer !== 'player') return s; // no input on the opponent's turn
         if (s.dragging !== null) return s;
         if (!s.hand.includes(cardId)) return s;
         return {
@@ -490,6 +540,7 @@ export function createGameStore(
     autoPlaceCard: (cardId) => {
       const s = get();
       // Quick-set is Main-phase only and never interrupts an active drag.
+      if (s.activePlayer !== 'player') return;
       if (s.phase !== 'main' || s.dragging !== null) return;
       if (!s.hand.includes(cardId)) return;
       const card = s.cardsById[cardId];
@@ -571,7 +622,7 @@ export function createGameStore(
         if (cardId === null) {
           return s.selectedCardId === null ? s : { ...s, selectedCardId: null };
         }
-        if (!s.cardsById[cardId]) return s;
+        if (!s.cardsById[cardId] && !s.opponentCards[cardId]) return s;
         if (s.selectedCardId === cardId) return s;
         return { ...s, selectedCardId: cardId };
       }),
@@ -667,15 +718,17 @@ export function createGameStore(
     beginDrawPhase: () => goToPhase('draw'),
 
     advancePhase: () => {
+      if (get().activePlayer !== 'player') return; // opponent auto-plays its turn
       const phase = get().phase;
       if (phase === 'main') goToPhase('battle');
       else if (phase === 'battle') goToPhase('resolution');
-      else if (phase === 'end') goToPhase('draw', true);
+      else if (phase === 'end') runOpponentTurn();
       // Draw and Resolution advance themselves; ignore manual clicks then.
     },
 
     aimAttack: (slotId) =>
       set((s) => {
+        if (s.activePlayer !== 'player') return s;
         if (s.phase !== 'battle') return s;
         if (slotId[0] !== 'A' || !s.board[slotId]) return s;
         // Clicking the source that's already aiming cancels the aim.

@@ -14,12 +14,17 @@ export function TurnHud() {
   const turn = useGameStore((s) => s.turn);
   const phase = useGameStore((s) => s.phase);
   const phaseAnnounce = useGameStore((s) => s.phaseAnnounce);
+  const activePlayer = useGameStore((s) => s.activePlayer);
   const advancePhase = useGameStore((s) => s.advancePhase);
 
   // Hide until the first turn has actually begun (opening deal still running).
   if (phaseAnnounce === 0) return null;
 
-  const autoAdvance = phase === 'draw' || phase === 'resolution';
+  const opponentTurn = activePlayer === 'opponent';
+  // The button is inert during auto-advancing phases (Draw, Resolution, End)
+  // and the whole opponent turn — only Main and Battle need a manual click.
+  const autoAdvance =
+    opponentTurn || phase === 'draw' || phase === 'resolution' || phase === 'end';
 
   return (
     <div data-ui-overlay style={WRAP_STYLE}>
@@ -44,7 +49,7 @@ export function TurnHud() {
         disabled={autoAdvance}
         style={{ ...NEXT_BUTTON_STYLE, ...(autoAdvance ? NEXT_DISABLED_STYLE : null) }}
       >
-        {phase === 'end' ? 'End Turn ▸' : 'Next Phase ▸'}
+        {opponentTurn ? 'Opponent…' : phase === 'end' ? 'Ending…' : 'Next Phase ▸'}
       </button>
     </div>
   );

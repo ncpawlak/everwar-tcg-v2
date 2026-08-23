@@ -14,7 +14,9 @@ import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 
 export function InspectionPanel() {
   const selectedId = useGameStore((s) => s.selectedCardId);
-  const card = useGameStore((s) => (s.selectedCardId ? s.cardsById[s.selectedCardId] : null));
+  const card = useGameStore((s) =>
+    s.selectedCardId ? s.cardsById[s.selectedCardId] ?? s.opponentCards[s.selectedCardId] ?? null : null,
+  );
 
   // Keep showing the last card during the slide-out.
   const [shown, setShown] = useState<Card | null>(null);

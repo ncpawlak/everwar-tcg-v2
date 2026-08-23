@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createGameStore, SUMMON_SHOWCASE_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS } from './gameStore';
+import { createGameStore, SUMMON_SHOWCASE_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS, SHUFFLE_SPREAD_MS, END_PHASE_DWELL_MS } from './gameStore';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState } from './types';
@@ -726,11 +726,10 @@ describe('P4 turn / phase mechanics', () => {
     }
   });
 
-  it('advancePhase steps Main -> Battle -> Resolution -> End, and End starts the next turn Draw', () => {
+  it('phases auto-advance Main -> Battle -> Resolution -> End, and End auto-hands off to the opponent', () => {
     vi.useFakeTimers();
     try {
-      const base = createInitialState();
-      const store = createGameStore({ ...base, phase: 'main' });
+      const store = createGameStore({ ...createInitialState(), phase: 'main' });
 
       store.getState().advancePhase();
       expect(store.getState().phase).toBe('battle');
@@ -739,13 +738,42 @@ describe('P4 turn / phase mechanics', () => {
       expect(store.getState().phase).toBe('resolution');
 
       // With no attackers, Resolution auto-advances to End after a short beat.
-      vi.runAllTimers();
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
       expect(store.getState().phase).toBe('end');
+      expect(store.getState().activePlayer).toBe('player');
 
       const turnBefore = store.getState().turn;
-      store.getState().advancePhase(); // end -> next turn draw
+      // End auto-advances after its dwell, handing control to the opponent.
+      vi.advanceTimersByTime(END_PHASE_DWELL_MS);
+      expect(store.getState().activePlayer).toBe('opponent');
       expect(store.getState().turn).toBe(turnBefore + 1);
       expect(store.getState().phase).toBe('draw');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the opponent auto-plays a full turn then hands control back to the player', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({ ...base, phase: 'end', activePlayer: 'player' });
+      const turnBefore = store.getState().turn;
+
+      store.getState().advancePhase(); // end -> opponent turn
+      expect(store.getState().activePlayer).toBe('opponent');
+      expect(store.getState().turn).toBe(turnBefore + 1);
+
+      // Player input is ignored while the opponent is playing.
+      store.getState().advancePhase();
+      expect(store.getState().activePlayer).toBe('opponent');
+
+      // Let the opponent step through all five phases and hand back.
+      vi.runAllTimers();
+      expect(store.getState().activePlayer).toBe('player');
+      expect(store.getState().turn).toBe(turnBefore + 2);
+      // The player's Draw auto-advances to Main once control returns.
+      expect(store.getState().phase).toBe('main');
     } finally {
       vi.useRealTimers();
     }
@@ -772,7 +800,7 @@ describe('P4 turn / phase mechanics', () => {
       });
 
       store.getState().advancePhase(); // battle -> resolution
-      vi.runAllTimers(); // resolution auto-advances to end (runs runEndPhase)
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400); // -> end (runEndPhase), before hand-off
       const s = store.getState();
       expect(s.phase).toBe('end');
       expect(s.board.B1).toBeNull();
@@ -796,7 +824,7 @@ describe('P4 turn / phase mechanics', () => {
       const deckLen = store.getState().deck.length;
 
       store.getState().advancePhase(); // battle -> resolution
-      vi.runAllTimers(); // -> end, replen folds in + shuffle completes
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + SHUFFLE_SPREAD_MS + 400); // -> end, replen folds in + shuffle completes (before hand-off)
       expect(store.getState().replen).toEqual([]);
       expect(store.getState().deck).toContain('card-A1');
       expect(store.getState().deck).toHaveLength(deckLen + 1);
@@ -818,7 +846,7 @@ describe('P4 turn / phase mechanics', () => {
       const deckBefore = [...store.getState().deck];
 
       store.getState().advancePhase(); // battle -> resolution
-      vi.runAllTimers(); // -> end (runEndPhase); no replen, so no shuffle
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400); // -> end (runEndPhase); no replen, so no shuffle (before hand-off)
       // Deck order is untouched — no needless shuffle fired.
       expect(store.getState().deck).toEqual(deckBefore);
       expect(store.getState().deckSpread).toBe(false);
@@ -959,8 +987,6 @@ describe('P4 turn / phase mechanics', () => {
       vi.advanceTimersByTime(GRAVEYARD_TRAVEL_MS);
       expect(store.getState().phase).toBe('end');
 
-      vi.runAllTimers(); // nothing left pending changes the outcome
-      expect(store.getState().phase).toBe('end');
       // Attack declaration + spent dice are cleared entering End; values persist.
       expect(store.getState().attackTargets).toEqual({});
       expect(store.getState().resolutionRolls).toEqual({});
@@ -976,7 +1002,7 @@ describe('P4 turn / phase mechanics', () => {
       const store = createGameStore({ ...createInitialState(), phase: 'battle' });
       store.getState().advancePhase(); // -> resolution
       expect(store.getState().resolutionRolls).toEqual({});
-      vi.runAllTimers();
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400); // -> end (before hand-off)
       expect(store.getState().phase).toBe('end');
     } finally {
       vi.useRealTimers();
@@ -1005,7 +1031,7 @@ describe('P4 turn / phase mechanics', () => {
       vi.advanceTimersByTime(3100);
       expect(store.getState().destroying).toContain('O1');
 
-      vi.runAllTimers(); // dwell, remove, -> End
+      vi.advanceTimersByTime(OUTCOME_POPUP_MS + GRAVEYARD_TRAVEL_MS + 50); // dwell, remove, -> End (before hand-off)
 
       const s = store.getState();
       expect(s.phase).toBe('end');

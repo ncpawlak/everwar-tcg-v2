@@ -8,7 +8,7 @@ import {
   pickHandIndex,
   projectToBoard,
 } from './pickMath';
-import { handCardPoses, deckCardPose, graveyardCardPose, replenCardPose } from '../board/layout';
+import { handCardPoses, deckCardPose, graveyardCardPose, replenCardPose, opponentGraveyardCardPose, opponentReplenCardPose } from '../board/layout';
 import { boardCardAt, slotAtPoint, oppSlotAtPoint } from './hitTest';
 import { resolveLinkedTarget, resolveAttackerSlot } from '../board/slotRules';
 import type { CardId, OppSlotId, PileSource, SlotId } from '../state/types';
@@ -87,6 +87,18 @@ export function PointerControls() {
       const replenPose = replenCardPose(Math.max(0, s.replen.length - 1));
       if (pickDeck(ndc, camera, replenPose)) {
         press = { kind: 'pile', cardId: null, ...base, pile: 'replen' };
+        return;
+      }
+
+      // 3b) Opponent graveyard / replen pile — click to browse it (view-only).
+      const oppGravePose = opponentGraveyardCardPose(Math.max(0, s.opponentGraveyard.length - 1));
+      if (pickDeck(ndc, camera, oppGravePose)) {
+        press = { kind: 'pile', cardId: null, ...base, pile: 'opponentGraveyard' };
+        return;
+      }
+      const oppReplenPose = opponentReplenCardPose(Math.max(0, s.opponentReplen.length - 1));
+      if (pickDeck(ndc, camera, oppReplenPose)) {
+        press = { kind: 'pile', cardId: null, ...base, pile: 'opponentReplen' };
         return;
       }
 
@@ -212,6 +224,11 @@ export function PointerControls() {
             case 'board':
               // Outside Battle a board click inspects the card.
               s.selectCard(press.cardId);
+              break;
+            case 'opp':
+              // Click an opponent card to inspect it (when not declaring an
+              // attack). Empty opponent slots resolve to null → close panel.
+              if (press.oppSlot) s.selectCard(s.opponentBoard[press.oppSlot]);
               break;
             case 'pile':
               if (press.pile) s.openPileSearch(press.pile);
