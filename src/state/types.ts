@@ -7,6 +7,9 @@
 /** Card/slot type. Phase 2 introduces three typed families: A, B, C. */
 export type CardType = 'A' | 'B' | 'C';
 
+/** Card rarity tier, ordered common -> legendary. Drives the panel's accent. */
+export type Rarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
+
 /** Slot column index within a type family (1-based, 4 per family). */
 export type SlotIndex = 1 | 2 | 3 | 4;
 
@@ -23,10 +26,26 @@ export function slotType(slotId: SlotId): CardType {
   return slotId[0] as CardType;
 }
 
-/** Phase 2 placeholder card — a typed cream card. Real card data comes later. */
+/**
+ * A card's full combat profile (Phase 3). Every card carries display + combat
+ * data even though the rules that consume ATK/DEF/effect land in later slices.
+ */
 export interface Card {
   id: CardId;
   type: CardType;
+  /** Display name shown on the card and in the inspection panel. */
+  name: string;
+  /** Deploy cost (flavor for now; a resource system comes later). */
+  cost: number;
+  /** Attack value. */
+  atk: number;
+  /** Defense value. */
+  def: number;
+  rarity: Rarity;
+  /** Rules text — what the card does. */
+  effect: string;
+  /** Non-mechanical flavor line. */
+  flavor: string;
 }
 
 /** Plain 3-tuple position/rotation, decoupled from THREE.Vector3. */
@@ -59,4 +78,6 @@ export interface GameState {
   dragging: DragState | null;
   /** Hand card currently under the pointer (raised for selection), or null. */
   hoveredCardId: CardId | null;
+  /** Card whose expanded detail view is open (hand or board), or null. */
+  selectedCardId: CardId | null;
 }

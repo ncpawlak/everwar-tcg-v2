@@ -29,6 +29,8 @@ export interface GameActions {
   returnToHand: (cardId: CardId) => void;
   /** Raise a hand card under the pointer (selection hint), or clear with null. */
   hoverCard: (cardId: CardId | null) => void;
+  /** Open the expanded detail view for a card (hand or board), or close with null. */
+  selectCard: (cardId: CardId | null) => void;
   /** Reset to a fresh initial state (used by tests and restart). */
   reset: () => void;
 }
@@ -105,6 +107,20 @@ export function createGameStore(
         const next = cardId !== null && s.dragging === null && s.hand.includes(cardId) ? cardId : null;
         if (next === s.hoveredCardId) return s;
         return { ...s, hoveredCardId: next };
+      }),
+
+    selectCard: (cardId) =>
+      set((s) => {
+        // Only a card that actually exists (in hand or on the board) can be
+        // inspected. null closes the panel.
+        if (cardId === null) {
+          return s.selectedCardId === null ? s : { ...s, selectedCardId: null };
+        }
+        const onBoard = Object.values(s.board).includes(cardId);
+        const inHand = s.hand.includes(cardId);
+        if (!onBoard && !inHand) return s;
+        if (s.selectedCardId === cardId) return s;
+        return { ...s, selectedCardId: cardId };
       }),
 
     reset: () => set(() => ({ ...get(), ...createInitialState() })),

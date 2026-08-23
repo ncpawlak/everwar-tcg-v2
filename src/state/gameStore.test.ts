@@ -143,3 +143,43 @@ describe('P2-S02/S08 game store actions', () => {
     expect(store.getState().hoveredCardId).toBeNull();
   });
 });
+
+describe('P3-S02 card selection (inspection)', () => {
+  it('selects a card that is in the hand', () => {
+    const store = storeWithHand(['card-A1']);
+    store.getState().selectCard('card-A1');
+    expect(store.getState().selectedCardId).toBe('card-A1');
+  });
+
+  it('selects a card that is on the board', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      board: { ...base.board, C3: 'card-C1' },
+    });
+    store.getState().selectCard('card-C1');
+    expect(store.getState().selectedCardId).toBe('card-C1');
+  });
+
+  it('ignores a card that is neither in hand nor on the board', () => {
+    const store = storeWithHand(['card-A1']);
+    // card-B1 is still in the deck.
+    store.getState().selectCard('card-B1');
+    expect(store.getState().selectedCardId).toBeNull();
+  });
+
+  it('closes the panel when passed null', () => {
+    const store = storeWithHand(['card-A1']);
+    store.getState().selectCard('card-A1');
+    expect(store.getState().selectedCardId).toBe('card-A1');
+    store.getState().selectCard(null);
+    expect(store.getState().selectedCardId).toBeNull();
+  });
+
+  it('switches selection from one card to another', () => {
+    const store = storeWithHand(['card-A1', 'card-B1']);
+    store.getState().selectCard('card-A1');
+    store.getState().selectCard('card-B1');
+    expect(store.getState().selectedCardId).toBe('card-B1');
+  });
+});

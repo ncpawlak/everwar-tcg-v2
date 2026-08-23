@@ -3,6 +3,77 @@ import type { Card, CardId, CardType, GameState, SlotId } from './types';
 /** The three typed families, in canonical order. */
 export const CARD_TYPES: readonly CardType[] = ['A', 'B', 'C'];
 
+/**
+ * Static card library. Keyed by `${CardType}${index}` (e.g. `A1`), matching the
+ * generated card ids. Holds every card's display + combat profile. Content is
+ * placeholder-but-themed; rules that read ATK/DEF/effect arrive in later slices.
+ *
+ * Themes: A = Vanguard (aggressive front line), B = Arcane (spell/support),
+ * C = Bulwark (defensive walls).
+ */
+export const CARD_LIBRARY: Record<string, Omit<Card, 'id' | 'type'>> = {
+  A1: {
+    name: 'Ashborne Vanguard', cost: 3, atk: 1800, def: 1200, rarity: 'Rare',
+    effect: 'When this card is set, it gains +200 ATK for each other Vanguard you control.',
+    flavor: 'First through the breach, last to fall.',
+  },
+  A2: {
+    name: 'Emberfang Reaver', cost: 4, atk: 2100, def: 1000, rarity: 'Epic',
+    effect: "Once per turn: discard a card to raise this card's ATK by 500 until end of turn.",
+    flavor: 'It hungers for the clash of steel.',
+  },
+  A3: {
+    name: 'Ironclad Lancer', cost: 2, atk: 1500, def: 1300, rarity: 'Common',
+    effect: 'This card cannot be destroyed by the first attack it faces each turn.',
+    flavor: 'A wall that marches.',
+  },
+  A4: {
+    name: 'Warcry Commander', cost: 5, atk: 2400, def: 1600, rarity: 'Legendary',
+    effect: 'All Vanguard cards you control gain +300 ATK. When summoned, draw one card.',
+    flavor: 'Follow the banner, and fear nothing.',
+  },
+  B1: {
+    name: 'Whisperwind Adept', cost: 2, atk: 900, def: 900, rarity: 'Common',
+    effect: 'When set, look at the top two cards of your deck and rearrange them.',
+    flavor: 'The wind carries every secret.',
+  },
+  B2: {
+    name: 'Runescribe Oracle', cost: 3, atk: 1200, def: 1500, rarity: 'Rare',
+    effect: 'Once per turn: draw a card, then place a card from your hand on top of your deck.',
+    flavor: 'She reads the pages before they are written.',
+  },
+  B3: {
+    name: 'Tempest Weaver', cost: 4, atk: 1600, def: 1400, rarity: 'Epic',
+    effect: 'When this card resolves an effect, deal 300 damage to the opposing card in its column.',
+    flavor: 'Storms answer to her hands.',
+  },
+  B4: {
+    name: 'Astral Archon', cost: 6, atk: 2000, def: 2000, rarity: 'Legendary',
+    effect: 'Once per turn you may return a card you control to your hand to negate an opposing effect.',
+    flavor: 'Between the stars, it judges all.',
+  },
+  C1: {
+    name: 'Stonewatch Sentry', cost: 2, atk: 800, def: 1800, rarity: 'Common',
+    effect: 'While face-up, adjacent cards you control cannot be targeted by effects.',
+    flavor: 'None shall pass its vigil.',
+  },
+  C2: {
+    name: 'Bulwark Warden', cost: 3, atk: 1000, def: 2100, rarity: 'Rare',
+    effect: 'This card takes 500 less damage from every attack.',
+    flavor: 'Set your shields; hold the line.',
+  },
+  C3: {
+    name: 'Gilded Aegis', cost: 4, atk: 1300, def: 2400, rarity: 'Epic',
+    effect: 'Once per turn, prevent battle damage to one card you control.',
+    flavor: 'Forged to outlast empires.',
+  },
+  C4: {
+    name: 'Everwall Colossus', cost: 7, atk: 2200, def: 3000, rarity: 'Legendary',
+    effect: 'Cannot be destroyed by battle. At the start of your turn, restore 500 DEF to a card you control.',
+    flavor: 'The last stone standing when the war is done.',
+  },
+};
+
 /** Slots per type family. */
 export const SLOTS_PER_TYPE = 4;
 
@@ -35,8 +106,10 @@ export function createInitialCards(): {
   const deck: CardId[] = [];
   for (let i = 1; i <= SLOTS_PER_TYPE; i++) {
     for (const type of CARD_TYPES) {
-      const id: CardId = `card-${type}${i}`;
-      cardsById[id] = { id, type };
+      const key = `${type}${i}`;
+      const id: CardId = `card-${key}`;
+      const profile = CARD_LIBRARY[key];
+      cardsById[id] = { id, type, ...profile };
       deck.push(id);
     }
   }
@@ -58,5 +131,6 @@ export function createInitialState(): GameState {
     board: createEmptyBoard(),
     dragging: null,
     hoveredCardId: null,
+    selectedCardId: null,
   };
 }

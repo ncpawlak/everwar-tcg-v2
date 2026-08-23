@@ -44,4 +44,23 @@ describe('P2-S01 initial state', () => {
     const top5 = s.deck.slice(-5).map((id) => s.cardsById[id].type);
     expect(new Set(top5).size).toBeGreaterThan(1);
   });
+
+  it('gives every card a full combat profile', () => {
+    const { cardsById } = createInitialCards();
+    const cards = Object.values(cardsById);
+    expect(cards).toHaveLength(12);
+    const names = new Set<string>();
+    for (const c of cards) {
+      expect(c.name.length).toBeGreaterThan(0);
+      names.add(c.name);
+      expect(c.cost).toBeGreaterThan(0);
+      expect(c.atk).toBeGreaterThanOrEqual(0);
+      expect(c.def).toBeGreaterThanOrEqual(0);
+      expect(['Common', 'Rare', 'Epic', 'Legendary']).toContain(c.rarity);
+      expect(c.effect.length).toBeGreaterThan(0);
+      expect(c.flavor.length).toBeGreaterThan(0);
+    }
+    // Names are unique across the deck.
+    expect(names.size).toBe(12);
+  });
 });

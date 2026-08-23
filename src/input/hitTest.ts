@@ -1,4 +1,4 @@
-import type { SlotId, Vec3 } from '../state/types';
+import type { CardId, SlotId, Vec3 } from '../state/types';
 import { SLOT_HIT_RADIUS, SLOT_POSITIONS } from '../board/boardConfig';
 import { SLOT_IDS } from '../state/cardData';
 
@@ -24,4 +24,16 @@ export function slotAtPoint(point: Vec3): SlotId | null {
     }
   }
   return best;
+}
+
+/**
+ * The id of the card occupying the slot under `point`, or null. Used to inspect
+ * a placed board card on click (placed cards don't move yet).
+ */
+export function boardCardAt(
+  point: Vec3,
+  board: Record<SlotId, CardId | null>,
+): CardId | null {
+  const slot = slotAtPoint(point);
+  return slot ? board[slot] : null;
 }

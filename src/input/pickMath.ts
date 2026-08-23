@@ -74,3 +74,21 @@ export function projectToBoard(ndc: Vector2, camera: Camera): Vec3 | null {
   if (!raycaster.ray.intersectPlane(boardPlane, hit)) return null;
   return [hit.x, 0, hit.z];
 }
+
+/**
+ * Pixel distance a pointer must travel between press and release before the
+ * gesture counts as a drag rather than a click. Below this, a press/release is
+ * a click (inspect); at or beyond it, it's a drag (move a hand card).
+ */
+export const DRAG_THRESHOLD_PX = 6;
+
+/** True when the pointer moved far enough (in client pixels) to be a drag. */
+export function exceededDragThreshold(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  threshold: number = DRAG_THRESHOLD_PX,
+): boolean {
+  return Math.hypot(bx - ax, by - ay) >= threshold;
+}

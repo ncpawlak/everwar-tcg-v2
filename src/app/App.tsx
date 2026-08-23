@@ -1,6 +1,7 @@
 import { Canvas } from '@react-three/fiber';
 import { GameScene } from '../render/GameScene';
 import { PointerControls } from '../input/PointerControls';
+import { InspectionPanel } from '../ui/InspectionPanel';
 import { CAMERA_FOV, CAMERA_POSITION, CAMERA_TARGET } from '../board/boardConfig';
 
 /**
@@ -24,6 +25,7 @@ export function App() {
         <GameScene />
       </Canvas>
       <PointerControls />
+      <InspectionPanel />
     </div>
   );
 }
