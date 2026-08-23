@@ -1,156 +1,163 @@
-# Current Architecture — Everwar Phase 1 Baseline
+# Current Architecture — Everwar
 
-**Phase:** Phase 1 — Card-handling vertical slice  
-**Baseline date:** 2026-08-22  
-**Status:** Approved Gate 1 architecture record for Gate 1.5 planning  
+**Current phase:** Phase 1 — Card-handling vertical slice (tactile handling, no game rules)
+**Landed:** commit `4da6653`
+**Last architecture close-out:** 2026-08-22 (Senior Coder, end-of-Phase-1)
+**Build health at close-out:** `npm run typecheck` green · `npx vitest run` green (34 tests, 7 files)
 
-Everwar's vision is mutable. This document is a living architecture log and must evolve per phase. Each future feature addition, change, or removal should update the phase history below and the affected seams.
+Everwar's vision is mutable. This is a living architecture log and evolves per phase. Every feature addition, change, or removal updates the phase history below and the affected seams. This document now reflects the **actual, as-built** Phase 1 architecture (superseding the Gate-1 proposal that preceded implementation).
 
 ## Phase history
 
 | Phase | Change type | Summary |
 |---|---:|---|
-| Phase 1 | Added | Baseline browser-first tactile card-handling architecture: deck, hand, dragging, three placement slots, procedural cards, state-driven animation, mouse input only. |
+| Phase 1 | Added | Browser-first tactile card-handling slice: 10-card deck, auto-dealt opening hand of 5, camera-facing hand fan, drag-to-place into 3 board slots, invalid-drop return, procedural cards, state-driven interruptible spring animation. **Input is DOM-driven (not R3F events)** and picking uses a manual raycaster against the live camera. |
 
-## Architectural principles
-
-- **State is authoritative; animation only visualizes state.** Domain state decides where cards belong. Animation interpolates render transforms toward target poses.
-- **Keep layers replaceable.** State, layout math, rendering, animation, and input/raycasting are separate modules with narrow interfaces.
-- **Favor normalized data.** Cards, zones, slots, and transient interaction state should be represented by IDs and plain serializable objects, not renderer objects.
-- **Write tests first for pure logic.** Draw order, valid-drop rules, slot occupancy, drag state transitions, and fan-layout math are unit/regression tested before render work.
-- **Phase-tag everything.** Features and docs must record the phase in which behavior was added, changed, or removed.
-
-## Proposed `src\` module layout
+## As-built `src\` module layout
 
 ```text
 src\
+  main.tsx                     # React entry; mounts <App/>
   app\
-    App.tsx                 # Phase 1 app shell, providers, scene mount
-  state\
-    gameStore.ts            # Zustand store; authoritative deck/hand/board/dragging state
-    actions.ts              # Pure/action helpers where practical
-    selectors.ts            # Derived state for render/input, no Three.js imports
-    types.ts                # Domain types: CardId, SlotId, Zone, DragState
+    App.tsx                    # Shell: R3F <Canvas> (fixed angled camera) + <GameScene/> + <PointerControls/> (DOM sibling, OUTSIDE Canvas)
+  state\                       # Authoritative, serializable domain state — no Three.js, no React in the core
+    types.ts                   # CardId, SlotId, Card, Vec3, Pose, DragState, GameState
+    cardData.ts                # SLOT_IDS, DECK_SIZE=10, OPENING_HAND_SIZE=5, createInitialState()
+    gameStore.ts               # createGameStore() factory (zustand/vanilla) + GameActions
+    useGameStore.ts            # Shared app store instance `gameStore` + useGameStore(selector) hook
+  board\                       # Pure constants, rules, and layout math — no React/Three components
+    boardConfig.ts             # Camera framing, card footprint, slot/deck/hand anchors, fan tuning constants
+    slotRules.ts               # isSlotEmpty / emptySlots / canDrop (drop validity)
+    layout.ts                  # deckCardPose / handCardPoses / slotCardPose + fan basis (FAN_RIGHT/UP/NORMAL)
   cards\
-    cardData.ts             # Phase 1 generated placeholder cards 1-10
-    CardView.tsx            # Mesh composition for a card, render-only
-    cardGeometry.ts         # Procedural beveled card geometry/material helpers
-  board\
-    boardConfig.ts          # Slot IDs, board/deck/hand anchor positions, plane constants
-    slotRules.ts            # Pure valid-drop and occupancy rules
-    layout.ts               # Pure deck stack, hand fan, slot target-pose math
-  scene\
-    GameScene.tsx           # R3F scene composition
-    BoardView.tsx           # Playmat, slot markers, deck zone visuals
-    DeckView.tsx            # Deck stack rendering and deck click target
-    HandView.tsx            # Hand card views driven by layout selectors
-    SlotView.tsx            # Board slot visual/highlight rendering
-    camera.ts               # Phase 1 fixed angled camera/light presets
-  animation\
-    MotionCard.tsx          # Tween/spring wrapper around target card poses
-    motionConfig.ts         # Timing/easing constants
-    poseSelectors.ts        # Maps state + layout to visual target poses
-  input\
-    PointerController.tsx   # Pointer event wiring; converts picks to actions
-    dragPlane.ts            # Ray-to-board-plane projection helpers
-    hitTest.ts              # Pure slot hit-testing from projected point
-  tests\
-    ...                     # Unit/regression tests colocated or mirrored by module
+    CardView.tsx               # Procedural beveled card mesh (RoundedBox + number Text + back accent). Render-only. Local faces: front=+Z, back=-Z
+  animation\                   # Maps state -> visual target, then interpolates
+    poseSelectors.ts           # selectCardVisual(state, id, hoveredId) -> { pose, faceUp, zone, config }
+    motionConfig.ts            # SPRING presets, DRAG_LIFT, OPENING_DEAL_STAGGER_MS (phase-tagged feel)
+    MotionCard.tsx             # @react-spring/three wrapper; interruptible retarget of position/rotation
+  input\                       # DOM-driven picking + raycast (NOT R3F onPointer*)
+    threeAccess.ts             # Mutable bridge object { camera, canvas } shared Canvas <-> DOM
+    PointerControls.tsx        # Window pointerdown/move/up listeners -> store actions. Renders null
+    pickMath.ts                # clientToNdc, cardRayT, pickHandIndex, pickDeck, projectToBoard (THREE.Raycaster)
+    hitTest.ts                 # Pure slotAtPoint(point) nearest-slot-within-radius (no Three.js)
+  render\                      # R3F scene composition, presentational only
+    GameScene.tsx              # Lights + BoardView + SlotView + one CardEntity per card + OpeningDeal + ThreeBridge
+    ThreeBridge.tsx            # Publishes live camera + gl.domElement to threeAccess. Renders null
+    CardEntity.tsx             # Per-card: selectCardVisual -> MotionCard -> CardView
+    BoardView.tsx              # Playmat plane (shadow catcher)
+    SlotView.tsx               # 3 slot markers; gold outline on EMPTY slots while dragging
+    OpeningDeal.tsx            # Mounts once, staggers 5 drawCard() calls; guarded against StrictMode double-deal
 ```
 
-## Layer responsibilities and boundaries
+Tests are colocated (`*.test.ts`) next to the pure modules they lock down: `state\gameStore`, `state\cardData`, `board\slotRules`, `board\layout`, `input\hitTest`, `animation\poseSelectors`, plus `smoke`.
 
-| Layer | Single responsibility | Must not know about | Interface boundary |
+## Layered decomposition & boundaries
+
+| Layer | Single responsibility | Must NOT know about | Boundary |
 |---|---|---|---|
-| `state\` | Authoritative game/interaction state and actions. | Three.js meshes, springs, DOM events. | Plain IDs, positions, action calls, selectors. |
-| `board\` | Pure board constants, slot rules, and layout math. | React components, Zustand internals, animation library. | Pure functions returning occupancy, validity, and target poses. |
-| `cards\` | Phase 1 placeholder card visuals/data. | Rules engine, network, slot validity. | `CardId` + render props such as face/back and pose. |
-| `scene\` | Compose R3F board, deck, hand, slots, camera, lighting. | Mutation of domain state except through input callbacks/actions. | Subscribe to selectors and render target views. |
-| `animation\` | Interruptible interpolation of visual transforms. | Business rules and final state decisions. | Receives target poses, emits only optional visual callbacks. |
-| `input\` | Mouse pointer picking, drag-plane projection, slot hover detection. | State mutation details beyond public action API. | Converts pointer events to `beginDrag`, `updateDrag`, `hoverSlot`, `dropCard`. |
-| tests | Lock down pure behavior and regression cases. | Browser-only feel judgments. | Vitest for pure modules; rendered verification for R3F feel. |
+| `state\` | Authoritative game/interaction state + actions. Immediate, deterministic transitions. | Three.js, springs, DOM events. | Plain IDs / `Vec3` / `Pose`; action calls; selectors. |
+| `board\` | Pure constants, drop rules, and pose/layout math. | React, zustand internals, animation lib. | Pure functions -> occupancy, validity, `Pose`. |
+| `cards\` | Placeholder card visual. | Rules, state, slot validity. | `number` + `pickable` props. |
+| `animation\` | State -> visual target, then interruptible interpolation. | Business/legal decisions. | `selectCardVisual` output; `MotionCard` target pose. |
+| `input\` | Pointer picking, raycast projection, slot hover — DOM-driven. | State internals beyond the public action API. | Reads `threeAccess`; calls `beginDrag/updateDrag/hoverSlot/hoverCard/dropCard/drawCard`. |
+| `render\` | Compose R3F scene; subscribe to selectors; publish camera bridge. | Mutating state except via the action layer. | Subscribes to store; renders target views. |
+| tests | Lock pure behavior + layout invariants. | Browser feel judgments. | Vitest over pure modules. |
 
-## Phase 1 authoritative state model
+**Principles (unchanged, now enforced in code):** state is authoritative and animation only visualizes it; layers are replaceable behind narrow interfaces; data is normalized/serializable (IDs + plain tuples, never renderer objects in state); pure logic is unit-tested; everything is phase-tagged.
 
-The store should stay serializable and normalized. Phase 1 can expose the spec's simple model while keeping room for richer cards later:
+## Core data flow: authoritative state → pose selector → spring visual
+
+This is the spine of the whole slice and the pattern Phase 2 must preserve.
+
+```
+gameStore (authoritative)                     poseSelectors                 animation                render
+  deck[] / hand[] / board{} / dragging  --->  selectCardVisual(state,id) --> MotionCard(pose,cfg) --> CardView
+  hoveredCardId                               = { pose, faceUp, zone, config }   (springs)            (mesh)
+        ^                                                                                                
+        |  actions (beginDrag/updateDrag/hoverSlot/hoverCard/dropCard/drawCard)                          
+   PointerControls (DOM) <--- threeAccess.camera/canvas <--- ThreeBridge (inside Canvas)                 
+        ^                                                                                                
+   window pointer events + THREE.Raycaster (pickMath) + slotAtPoint (hitTest)                            
+```
+
+1. **State is the single source of truth.** A card's zone is wherever the store says it is: `board[slot]===id` → board; `dragging.cardId===id` → dragging; `hand.indexOf(id)>=0` → hand; else deck. No zone flag is stored; zone is *derived*.
+2. **`selectCardVisual` is the one and only place** that turns state into a drawable target (`pose` + `faceUp` + `zone` + spring `config`). The scene is otherwise "dumb." Board→`slotCardPose`, dragging→projected pointer + `DRAG_LIFT`, hand→`handCardPoses[idx]` (+ optional hover lift along `FAN_UP`), deck→`deckCardPose(index)`.
+3. **`MotionCard` interpolates** toward that target with an interruptible `@react-spring/three` spring. Retargeting mid-flight (grab during reflow) is automatic — the target simply changes and the spring re-aims. No imperative tween bookkeeping.
+4. **Input is a closed loop back into state.** `PointerControls` (DOM) raycasts via `pickMath` against poses recomputed from the same layout math, calls actions, state changes, selectors recompute, springs re-aim. Picking never traverses the animated scene graph — it recomputes authoritative poses, so it is immune to in-flight spring matrices.
+
+## Integration points (the seams that bind the layers)
+
+- **`state/useGameStore.ts` `gameStore`** — the shared vanilla store. React reads via `useGameStore(selector)`; DOM input and `OpeningDeal` read/write via `gameStore.getState()`. Single instance; tests use `createGameStore()` for isolation.
+- **`input/threeAccess.ts`** — the ONLY bridge between the R3F world (inside `<Canvas>`) and the DOM world (outside it). `ThreeBridge` (in-scene) writes `camera`/`canvas`; `PointerControls` (DOM) reads them. Nulled on unmount.
+- **`board/boardConfig.ts`** — single source of truth for camera framing (`CAMERA_POSITION/TARGET/FOV`, consumed by both `App` and `layout.ts`), card footprint, anchors, and fan tuning. Layout math, hit-testing, picking, and the scene all read these same constants — no duplicated magic numbers.
+- **`board/layout.ts`** — pose math shared by BOTH render (`selectCardVisual`) and input (`PointerControls` recomputes `handCardPoses`/`deckCardPose` to raycast against). This shared use is why picking and rendering can never disagree about where a card "is."
+- **`CAMERA_POSITION`/`CAMERA_TARGET`** are baked into the fan basis at module load (`TO_CAMERA`). The fan is only correct for the fixed Phase 1 camera — see Phase-2 risks.
+
+## Phase 1 authoritative state model (as built)
 
 ```ts
-cardsById: Record<CardId, { id: CardId; number: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 }>
-deck: CardId[] // ordered stack, top = last element
-hand: CardId[] // ordered left-to-right; drives fan layout
-board: Record<SlotId, CardId | null> // slotA, slotB, slotC
-dragging: {
-  cardId: CardId
-  origin: 'hand'
-  projectedPoint: Vec3Like
-  hoveredSlotId: SlotId | null
-} | null
+cardsById: Record<CardId, { id: CardId; number: 1..10 }>   // fixed after init (stable ref — see R-001)
+deck:   CardId[]   // bottom..top; top = last element
+hand:   CardId[]   // left..right; drives the fan
+board:  Record<SlotId, CardId | null>   // slotA/slotB/slotC
+dragging: { cardId; origin: 'hand'; projectedPoint: Vec3; hoveredSlotId: SlotId | null } | null
+hoveredCardId: CardId | null            // hand hover-raise hint
 ```
 
-### Phase 1 action API
+### Action API (as built, `gameStore.ts`)
 
-- `drawCard()` — moves the current top deck card into hand; no-op when empty.
-- `beginDrag(id)` — starts dragging only for a card currently in hand.
-- `updateDrag(pointer)` — records the projected drag position for the active card.
-- `hoverSlot(id | null)` — records the currently hovered slot while dragging.
-- `dropCard(id, slotId | null)` — if the slot is empty, moves card from hand to board and fills the slot; otherwise routes to return behavior.
-- `returnToHand(id)` — cancels drag and leaves the card in its hand order.
+`drawCard` · `beginDrag(id)` · `updateDrag(point)` · `hoverSlot(id|null)` · `hoverCard(id|null)` · `dropCard(id, slotId|null)` · `returnToHand(id)` · `reset()`. Transitions are immediate and deterministic; `dropCard` consults `canDrop` (empty-slot only) and otherwise silently returns the card to hand order. Animation makes those instantaneous transitions *look* like draws, snaps, and reflows.
 
-State transitions happen immediately and deterministically. The animation layer is responsible for making those transitions look like pop-off draws, snap-ins, smooth returns, and hand reflows.
+## Architecturally significant decisions (Phase 1)
 
-## Animation approach
+Two decisions define this phase. Both are recorded in full, with reasoning and file:line references, in the dated decision record **`2026-08-22-phase-1-decisions.md`** alongside this file. Summary:
 
-**Phase:** Phase 1  
+### D1 — R3F pointer events are dead in this runtime → DOM-driven input + manual raycaster (PERMANENT CONSTRAINT)
 
-- Use an adapter around `@react-spring/three` or GSAP so components depend on a local motion abstraction, not a global animation API.
-- Derive each card's target pose from state via selectors:
-  - deck card pose from deck index;
-  - hand card pose from fan-layout math;
-  - dragging card pose from projected pointer position;
-  - board card pose from occupied slot.
-- All tweens/springs must be **interruptible**. If a card is grabbed during a reflow, the active card's target switches to dragging pose and the previous tween is cancelled/replaced.
-- Motion config lives in `animation\motionConfig.ts` and is phase-tagged so feel changes are tracked without changing business logic.
-- Animation must not decide legality. It may request a visual return path after an invalid drop, but state remains the source of the card's zone.
+R3F `onPointer*` handlers do **not** fire reliably here — in both the embedded Copilot canvas and the user's real browser. `eventSource` + `eventPrefix="client"` fired exactly once then died. **Never rely on R3F `onPointer*` in this project.** The as-built input path is: `PointerControls` (`src\input\PointerControls.tsx`, a DOM sibling *outside* `<Canvas>` in `App.tsx:26`) attaches `window` pointer listeners and drives the store; it raycasts with a manual `THREE.Raycaster` (`src\input\pickMath.ts:13`) against the live camera published through `ThreeBridge` (`src\render\ThreeBridge.tsx`) → `threeAccess` (`src\input\threeAccess.ts`). Picking targets are poses recomputed from `layout.ts`, not scene meshes, so input is decoupled from the animated graph. See D1 in the decision record.
 
-## Input and raycasting approach
+### D2 — Hand-fan occlusion via parallel camera-facing planes laid out in the view plane (PERMANENT PATTERN)
 
-**Phase:** Phase 1 — mouse only  
+The fan is laid out in the camera's **view plane** using an orthonormal basis (`FAN_RIGHT` = screen-horizontal spread, `FAN_UP` = screen-vertical arc dip, `FAN_NORMAL`/`TO_CAMERA` = depth), `src\board\layout.ts:54-64`. Every card faces the camera and splay roll is applied **about the view normal** (`handRotation`, `layout.ts:72-76`) so all cards stay **parallel planes**. Depth (which card wins an overlap) is controlled *solely* by a per-card step along the view normal (`HAND_LAYER_STEP`, `boardConfig.ts:52`; `layout.ts:112,115-117`), giving strict "each card under the card to its right" with zero interpenetration/ghosting. Crucially, arc dip moves cards only *within* the view plane, so it can **never** flip depth order. **Anti-patterns (do not reintroduce):** dipping cards in world-Y (end cards fell behind the middle under the overhead camera) and layering along world-Z (produced a diagonal "staircase"). See D2 in the decision record.
 
-- R3F pointer events identify deck/card meshes by domain IDs stored in render props.
-- `PointerController` owns pointer-down/move/up orchestration and calls the public state action API.
-- Dragging projects the pointer ray onto a fixed board drag plane from `input\dragPlane.ts`; the projected point is stored as plain coordinates.
-- Slot detection uses pure hit-testing against configured slot bounds from `board\boardConfig.ts`.
-- Empty-slot highlighting is state/layout driven: when `dragging !== null`, render gold outlines only for slots where `board[slotId] === null`.
-- Filled board cards do not register Phase 1 drag-start behavior. Re-pickup is intentionally out of scope.
+## Architectural quality pass — tech debt, coupling, tests (actionable, for Phase 2)
+
+### Coupling / debt
+
+1. **`CardEntity` subscribes to the WHOLE store** — `useGameStore((s) => s)` (`src\render\CardEntity.tsx:14`). Every card re-runs `selectCardVisual` on *any* state change (every `updateDrag` during a drag = 10 cards recompute per pointer-move). Fine at 10 cards; will not scale. **Recommendation (Phase 2):** subscribe narrowly (derive per-card visual via a memoized selector, or split `dragging`/`hand`/`board` subscriptions) before card counts or per-frame update rate grow.
+
+2. **Fan basis is frozen at module load to the fixed camera** — `TO_CAMERA`/`RIGHT`/`VIEW_UP` are computed once from `CAMERA_POSITION`/`HAND_ANCHOR` (`src\board\layout.ts:29-55`). If Phase 2 introduces any camera movement (orbit, zoom, per-player views), the billboard fan and the picking that recomputes it both break silently. **Recommendation:** when the camera stops being fixed, make the fan basis a function of the live camera (compute from `threeAccess.camera` / passed-in camera), and add a test that the fan re-billboards for a second camera pose.
+
+3. **`projectedPoint` is a board-plane hit only** — `projectToBoard` intersects `y=0` (`src\input\pickMath.ts:14,71-76`), while the dragged card floats at `DRAG_LIFT=0.55`. The card visually leads/lags the cursor in screen space because the pick point is on the mat, not the lift plane. Acceptable now; **recommendation:** if drag precision matters in Phase 2, project onto a plane at the lift height (or offset the ray) so the card tracks the cursor exactly.
+
+4. **`returnToHand` action is unused** — defined in `gameStore.ts:95-99` but `dropCard` handles invalid drops inline and `PointerControls` never calls it. **Recommendation:** either route invalid drops through it (single responsibility for "end drag, keep in hand") or delete it to avoid dead API surface. Low priority.
+
+5. **Two overlapping "hover" concepts** — `hoverCard`/`hoveredCardId` (hand raise) and `dragging.hoveredSlotId` (slot highlight). Names are close enough to invite confusion as interactions grow. **Recommendation:** keep, but document the distinction at the type site (`state\types.ts`) if Phase 2 adds more hover states.
+
+6. **Magic depth-bias offsets in render are scattered** — `BoardView` at `BOARD_Y-0.011`, slot planes at `y-0.009`, card front text at `+0.002` (`BoardView.tsx:7`, `SlotView.tsx:22`, `CardView.tsx:27`). These hand-tuned z-fight nudges live across components. **Recommendation:** if layering bugs recur, centralize these offsets in `boardConfig.ts` like the fan constants.
+
+### Missing / thin test coverage
+
+7. **No test covers the DOM input orchestration** — `dropCard` on a filled/`null` slot is unit-tested in `gameStore.test.ts`, but `PointerControls` (the pickdown→drag→drop loop) has **zero coverage** and is the largest untested surface and the one most likely to regress. **Recommendation:** inject `threeAccess`/camera into the handlers (they're nearly pure already) and unit-test the loop against a stub camera.
+
+8. **`pickMath`/`cardRayT` has no direct test** — the raycast-vs-oriented-rectangle math (`pickMath.ts:29-43`) underpins *all* picking and is untested. **Recommendation:** add a Vitest with a fixed camera + known pose asserting a hit inside the rect and a miss just outside `CARD_WIDTH/2`.
+
+9. **`OpeningDeal` timing guard is untestable as written** — real `setTimeout` + module-level `gameStore` (`OpeningDeal.tsx`). **Recommendation:** if the deal logic grows, lift the guarded "deal N" into a pure sequencer the test can drive with fake timers.
+
+10. **Layout tests are the D2 regression anchor** — `board\layout.test.ts` covers centering, splay symmetry, in-plane arc, strict view-normal depth ordering, and compression, directly guarding D2's anti-patterns. Keep them; add the second-camera billboard test (item 2) when the camera moves.
 
 ## Future extension seams
 
-| Future phase capability | Phase 1 seam to extend | Expected localized change |
+| Future capability | Seam to extend | Expected localized change |
 |---|---|---|
-| Re-pickup placed cards | `state\actions.ts`, `board\slotRules.ts`, `input\PointerController.tsx` | Allow `beginDrag` from board origins and clear/refill slots; render stays state-driven. |
-| Touch/mobile input | `input\` layer | Add a touch/pointer adapter while preserving action API and hit-test/layout modules. |
-| Real card data | `cards\cardData.ts` and `state\types.ts` | Replace generated numbers with loaded card records; `CardView` receives face data without changing zone state. |
-| Authored models/art | `cards\CardView.tsx` / `cardGeometry.ts` | Swap procedural mesh for glTF/material assets behind the same `CardId + pose` props. |
-| Rules/turn engine | New `rules\` layer between UI intents and state actions | Validate/transform requested moves before committing store mutations. |
-| Opponent/multiple zones | `board\boardConfig.ts`, `state\types.ts`, `layout.ts` | Add zone/slot definitions and selectors; scene composes more views. |
-| Networking/multiplayer | Store action dispatch boundary | Send intents/events through a sync adapter; keep render/input unaware of transport. |
-| Desktop wrapper | App shell/build layer | Wrap Vite app with Tauri/Electron; no state/render rewrite. |
-| Audio or particle VFX | New `effects\` layer subscribing to state/action events | Add optional side effects without coupling animation/state. |
+| Game-board setup (Phase 2) | `board\boardConfig.ts`, `state\types.ts`, `render\` | Add zones/slots + selectors; compose more views. Keep state→selector→spring spine. |
+| Camera movement / multiple views | `board\layout.ts` fan basis, `input\pickMath.ts` | Make fan basis + picking a function of the live camera (see debt #2). |
+| Re-pickup placed cards | `gameStore.ts`, `board\slotRules.ts`, `input\PointerControls.tsx` | Allow `beginDrag` from board; clear/refill slot. Render stays state-driven. |
+| Touch/mobile | `input\PointerControls.tsx` | Pointer events already unify mouse/touch; verify + tune hit radius. |
+| Real card data / art | `state\types.ts`, `cards\CardView.tsx` | Extend `Card`; swap procedural mesh behind `number`/face props. |
+| Rules / turn engine | New `rules\` layer between input intents and store actions | Validate/transform moves before committing. |
+| Networking | Store action dispatch boundary | Route intents through a sync adapter; render/input stay transport-unaware. |
 
-## Tech-stack rationale
+## Tech stack
 
-**Phase:** Phase 1  
-
-- **React + Vite + TypeScript** gives fast browser iteration, typing, and an easy desktop-wrapper path later.
-- **Three.js via R3F + drei** supports tactile 3D cards with React composition and practical pointer/raycast integration.
-- **Zustand** keeps the authoritative state small, explicit, and easy to test.
-- **`@react-spring/three` or GSAP behind an adapter** supports premium, interruptible card motion while remaining replaceable.
-- **Vitest** is the natural TDD runner for Vite/TypeScript pure logic and regression tests.
-
-## Key risks and recommended de-risking order
-
-1. **State correctness risk:** draw order, zone transitions, slot occupancy, and invalid-drop behavior. De-risk first with pure Vitest tests.
-2. **Layout/math risk:** hand fan and slot hit-testing must be deterministic and independent of rendering. De-risk with pure tests before R3F components.
-3. **3D input risk:** pointer ray projection and slot hit-testing can feel off. De-risk with a single draggable card on the board plane.
-4. **Animation interruptibility risk:** reflow/draw/drag transitions may fight each other. De-risk with a single card, then hand reflow, then opening deal.
-5. **Performance/feel risk:** 60 FPS and premium motion require rendered review. De-risk last with browser verification after the core flow exists.
+React 18 + Vite + TypeScript · Three.js via @react-three/fiber v8 + drei · Zustand (vanilla store) · @react-spring/three · Vitest. Rationale unchanged from Gate 1: fast browser iteration + typing, tactile 3D with React composition, a small explicit testable store, interruptible premium motion behind a local `MotionCard` abstraction, and Vitest for pure-logic TDD.

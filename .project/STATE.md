@@ -10,12 +10,12 @@
 
 | Field | Value |
 |-------|-------|
-| **Current phase / gate** | Everwar TCG · **Phase 1** — **Gate 2** (TDD build loop in progress) |
-| **Active branch** | `npawlakel-tcg-phase-1-card-animations` (worktree; base `main`) |
-| **In-flight** | Card-handling vertical slice: scaffold + state + board logic + render + drag/drop all landed; 30 tests green; dev server + preview running |
-| **Last milestone** | Playable Phase 1 slice: deck of 10, staggered deal of 5, click-draw, hover-lift, drag, gold slot highlight, snap/return |
-| **Blocked on** | User rendered-verification of feel (Constraint #14), then Reviewer full pass → Gate 2.5 push approval |
-| **Next up** | Visual review → feel/polish + interruptibility tuning (P1-S17) → full regression → Gate 2.5 |
+| **Current phase / gate** | Everwar TCG · **Phase 1 COMPLETE** — Gate 3 closed (Senior + Learner close-out landed). Next: **Phase 2** planning (Gate 1) |
+| **Active branch** | worktree branch off `main` (Phase 1 committed locally: `4da6653` + close-out commit) |
+| **In-flight** | Nothing in flight — Phase 1 shipped: 34 tests green, user-approved feel |
+| **Last milestone** | Phase 1 card-handling vertical slice: deck of 10, staggered deal of 5, click-draw, camera-facing fan (strict left-under-right, no ghosting), hover-to-raise, drag + gold slot highlight, snap/return |
+| **Blocked on** | Nothing — awaiting Phase 2 kickoff ("game board setup"). Gate 2.5 remote push still pending user approval |
+| **Next up** | Phase 2 planning: Planner + Senior Coder scope "game board setup" (vision/spec + taskboard) |
 | **Last updated** | 2026-08-22 — Orchestrator |
 
 ### Project snapshot

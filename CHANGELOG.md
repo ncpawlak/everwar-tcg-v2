@@ -20,20 +20,6 @@
 
 ## [Unreleased]
 
-### Everwar — Phase 1: Card-Handling Vertical Slice (in progress)
-
-> Phase 1 builds the tactile 3D card experience only — no game rules. Feel bar: YuGiOh Master Duel. Stack: TypeScript · React + Vite · Three.js / React Three Fiber + drei · Zustand · @react-spring/three · Vitest.
-
-#### Added (Phase 1)
-- **Project scaffold** — Vite + React + TypeScript app, R3F/drei canvas, Zustand, react-spring, Vitest. Angled 3D camera over a playmat (`src/app/App.tsx`, `src/render/`).
-- **Authoritative game state** — normalized deck/hand/board/dragging store with `drawCard`, `beginDrag`, `updateDrag`, `hoverSlot`, `dropCard`, `returnToHand` (`src/state/`). State is authoritative; animation only visualizes it.
-- **Pure board logic** — slot occupancy/valid-drop rules, deck-stack + hand-fan + slot pose math, and pointer→slot hit-testing (`src/board/`, `src/input/hitTest.ts`). Fully unit-tested.
-- **Procedural placeholder cards** — thin beveled card with a front number 1–10 and a distinct back (`src/cards/CardView.tsx`).
-- **Deck of 10 + staggered opening deal of 5** — cards pop off the deck into a fanned hand; clicking the deck draws the rest one at a time (`src/render/OpeningDeal.tsx`, `DeckView.tsx`).
-- **Hover-lift, drag, and placement** — grab a hand card and drag it (projected onto the board plane); the 3 empty slots show a gold outline; drop snaps into an empty slot (place-and-stay) or smoothly returns to hand (`src/render/CardEntity.tsx`, `src/input/DragLayer.tsx`, `src/render/SlotView.tsx`).
-- **Interruptible spring animation layer** driven by state-derived target poses (`src/animation/`).
-- **30 unit/regression tests** covering state transitions, draw order, slot rules, layout math, hit-testing, and pose selection.
-
 ### Harness
 
 ### Added
@@ -47,6 +33,32 @@
 - Finalize now treats **security** as a first-class audit dimension (injection, authz, secrets, unsafe deserialization, SSRF/path-traversal, supply-chain, sensitive-data exposure) in both `agents.md` and the Senior Coder role — was a single thin bullet.
 - Skill auto-load scan now explicitly **excludes `README.md`** (it documents the format; it is not a loadable skill) in Constraint #4 and the skills README.
 - Fixed the stale README structure diagram (removed a dead `.agent/vision/` path; added `.project/vision.md`, `STATE.md`, `backlog/`, and `.agent/tools/`).
+
+## [0.2.0] — 2026-08-22
+
+### Everwar — Phase 1: Card-Handling Vertical Slice ✅
+
+> Phase 1 is the tactile 3D card-handling experience — no game rules, just the pure feel of picking up, dragging, and placing cards. Feel bar: Yu-Gi-Oh Master Duel. Stack: TypeScript · React + Vite · Three.js / React Three Fiber v8 + drei · Zustand · @react-spring/three · Vitest.
+
+#### Added
+
+- **Procedural card deck** — 10 placeholder cards numbered 1–10, rendered as thin beveled 3D meshes with a numbered face and a distinct back face (`src/cards/CardView.tsx`).
+- **Opening staggered auto-deal** — on scene load, 5 cards pop off the deck into the hand with a 260 ms stagger per card (`src/render/OpeningDeal.tsx`). Guarded against React StrictMode double-invocation.
+- **Camera-facing hand fan** — a fully view-plane-correct fan arc (`src/board/layout.ts`, `src/board/boardConfig.ts`). Each card's position is decomposed into RIGHT (horizontal spread), VIEW_UP (arc dip), and TO_CAMERA (depth layer) vectors — the depth term alone controls painter order, guaranteeing strict right-over-left occlusion with no z-fighting or ghosting. Fan compresses as the hand grows and spreads as it shrinks.
+- **Hover-to-raise** — moving the pointer over a hand card lifts it straight up along the VIEW_UP axis by 50% of the card height as a selection hint. Does not affect drag priority or hand state.
+- **Click-to-draw** — after the opening deal, clicking the deck draws one remaining card per click until exhausted. Deck click is guarded during an active drag.
+- **Click-drag on board plane** — grab a hand card and drag it; the projected pointer position is tracked on the y = 0 board plane and drives the card's world position in real time.
+- **Three placement slots with gold highlights** — `slotA`, `slotB`, `slotC` show a gold outline during a drag whenever they are empty. Filled slots never highlight.
+- **Valid-drop snap** — releasing over an empty slot snaps the card to the slot pose (place-and-stay). Placed cards cannot be re-dragged in Phase 1. Hand reflows automatically.
+- **Invalid-drop spring-back** — releasing over a filled slot, or outside all slots, leaves the card in the hand and springs it back to its fan pose.
+- **Interruptible spring animation** — all visual motion is driven by `@react-spring/three` targeting poses derived directly from authoritative state. Retargeting mid-flight (e.g. grabbing a card during a reflow) is smooth by construction (`src/animation/MotionCard.tsx`, `src/animation/motionConfig.ts`).
+- **Authoritative game store** — normalized Zustand vanilla store (`src/state/gameStore.ts`) with actions: `drawCard`, `beginDrag`, `updateDrag`, `hoverSlot`, `dropCard`, `returnToHand`, `hoverCard`, `reset`. State is the single source of truth; the animation layer only visualizes it.
+- **DOM-driven input pipeline** — R3F's `onPointer*` events are unreliable in embedded canvas runtimes. The fix: `src/input/PointerControls.tsx` attaches `window` pointer listeners, `src/input/pickMath.ts` manually raycasts against authoritative poses using the camera from `src/input/threeAccess.ts` (populated by `src/render/ThreeBridge.tsx`). This is a permanent project constraint.
+- **34 unit/regression tests** green (`npx vitest run`) — covering state transitions, draw order, slot rules, layout math, hit-testing, and pose selection.
+
+#### Changed
+
+- Input architecture reworked from attempted R3F `onPointer*` handlers to a fully DOM-driven pipeline. Files `DragLayer.tsx` and `DeckView.tsx` were removed; their responsibilities now live in `PointerControls.tsx`, `pickMath.ts`, `threeAccess.ts`, and `ThreeBridge.tsx`.
 
 ---
 
