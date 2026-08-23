@@ -11,7 +11,7 @@ export type CardType = 'A' | 'B' | 'C';
 export type Rarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
 
 /** The three combat stats a card carries and a C-card boost can target. */
-export type StatKey = 'hp' | 'atk' | 'def';
+export type StatKey = 'hp' | 'dmg' | 'acc';
 
 /**
  * A B-card's on-play ability. Enacted the moment the card is set in a B slot.
@@ -70,6 +70,13 @@ export function slotType(slotId: SlotId): CardType {
 }
 
 /**
+ * Opponent Vanguard slot identifier (far row). Four columns, O1..O4. The
+ * opponent only fields A-type cards in this simulation, so these have no
+ * type-letter prefix like the player's typed slots.
+ */
+export type OppSlotId = 'O1' | 'O2' | 'O3' | 'O4';
+
+/**
  * A card's full combat profile (Phase 3). Every card carries display + combat
  * data even though the rules that consume ATK/DEF/effect land in later slices.
  */
@@ -80,10 +87,12 @@ export interface Card {
   name: string;
   /** Deploy cost (flavor for now; a resource system comes later). */
   cost: number;
-  /** Attack value. Only A (Vanguard) cards carry combat stats. */
-  atk?: number;
-  /** Defense value. Only A (Vanguard) cards carry combat stats. */
-  def?: number;
+  /** Damage dealt on a normal hit (base-10). Only A (Vanguard) cards carry
+   * combat stats. Scaled by the Resolution roll (glancing ×0.5, crit ×2). */
+  dmg?: number;
+  /** Accuracy (base-10, ≤200). Only A (Vanguard) cards carry combat stats.
+   * Sets the hit/miss thresholds on the d20 (threshold = acc / 10). */
+  acc?: number;
   /** Max health. Only A (Vanguard) cards carry combat stats. The floating
    * A-zone stat bar reads current/max from here; combat (a later slice) will
    * track a separate current-HP value. */
@@ -154,6 +163,18 @@ export interface DiceState {
   rolling: boolean;
 }
 
+/** How a Resolution d20 roll landed against a card's accuracy. */
+export type RollOutcome = 'glancing' | 'normal' | 'miss' | 'crit';
+
+/** The resolved combat result of one attacker's Resolution roll. */
+export interface RollResult {
+  /** The d20 face (1-20). */
+  roll: number;
+  outcome: RollOutcome;
+  /** Damage this roll deals (DMG scaled by the outcome; 0 on a miss). */
+  damage: number;
+}
+
 export interface GameState {
   cardsById: Record<CardId, Card>;
   /** Ordered stack; the top of the deck is the LAST element. */
@@ -186,15 +207,51 @@ export interface GameState {
   /** Monotonic counter bumped on every phase entry. Drives the phase-transition
    * banner: the announcement re-plays whenever this changes. */
   phaseAnnounce: number;
-  /** A-slot ids the player has declared as attackers during the Battle phase
-   * (toggled by clicking the card; shown with a gold outline). Rolled in
-   * Resolution, then cleared at End. */
-  attackers: SlotId[];
-  /** Active per-attacker D20 rolls during the Resolution phase, keyed by A-slot
-   * id. Each die is shown over that card's A/C link area. Empty outside
-   * Resolution. */
+  /** The opponent's Vanguard (A) cards for this simulation, keyed by card id.
+   * Separate from `cardsById` so the player's deck/hand/graveyard machinery is
+   * untouched. Pre-seeded across the far row; the target of the player's attacks. */
+  opponentCards: Record<CardId, Card>;
+  /** Which opponent A-card occupies each far-row slot (O1..O4), or null. A card
+   * whose HP hits 0 is removed (set to null) — it slashes and vanishes. */
+  opponentBoard: Record<OppSlotId, CardId | null>;
+  /** Attack declarations made during Battle: each of the player's attacking
+   * A-slots mapped to the opponent slot it is aiming at. An A-card attacks only
+   * if it has an entry here; its rolled damage lands on that target. Cleared at
+   * End. Multiple sources may point at the same opponent slot. */
+  attackTargets: Partial<Record<SlotId, OppSlotId>>;
+  /** The player's A-slot currently "aiming" (awaiting a target click) during
+   * Battle, or null. While set, the opponent row is selectable as the target. */
+  targeting: SlotId | null;
+  /** Live board-plane point the aiming arrow's tip follows while `targeting` is
+   * set (updated as the pointer moves during Battle), or null. Lets the arrow
+   * rubber-band from the attacker to the cursor until a target is locked. */
+  aimPoint: Vec3 | null;
+  /** Active per-attacker D20 rolls during the Resolution phase, keyed by the
+   * attacking A-slot id. Each die is shown over that card's A/C link area. Empty
+   * outside Resolution. */
   resolutionRolls: Record<string, DiceState>;
   /** The most recent Resolution results absorbed into the engine, keyed by
    * A-slot id (1..20). Unused by rules for now; kept for later Battle logic. */
   lastRolls: Record<string, number>;
+  /** The resolved combat outcome per attacker for the current Resolution (hit
+   * type + damage), keyed by the attacking A-slot id. Shown over each die once it
+   * settles; cleared entering End. */
+  resolutionResults: Record<string, RollResult>;
+  /** Outcome-announcement pop-ups, keyed by the attacking A-slot id. Populated
+   * the instant the dice disappear so a big HIT / MISS / GLANCING / CRITICAL
+   * label pops in above each of YOUR attackers, then self-clears. */
+  outcomePopups: Record<string, RollResult>;
+  /** Aggregated incoming damage per opponent slot for the current Resolution
+   * (summed across every attacker aiming at it), keyed by opponent slot id.
+   * Drives the red `-{n}` pop-up over each damaged opponent card. Cleared with
+   * the dice/outcome pop-ups. */
+  damagePopups: Partial<Record<OppSlotId, number>>;
+  /** Current HP per card, keyed by card id (opponent cards in this sim). A card
+   * absent from this map is at full health (its max HP); an entry is written the
+   * first time the card takes damage. Drives the animated HP bar fill + color. */
+  currentHp: Record<CardId, number>;
+  /** Opponent slots whose card is being destroyed this Resolution (HP hit 0).
+   * Set the instant lethal damage is applied and cleared when the cards vanish;
+   * drives the red slash destruction FX drawn over each doomed opponent card. */
+  destroying: OppSlotId[];
 }

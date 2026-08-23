@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createGameStore, SUMMON_SHOWCASE_MS, SHUFFLE_SPREAD_MS, DICE_ROLL_MS, RESOLUTION_ROLL_DELAY_MS } from './gameStore';
+import { createGameStore, SUMMON_SHOWCASE_MS, SHUFFLE_SPREAD_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS } from './gameStore';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState } from './types';
@@ -113,7 +113,7 @@ describe('P2-S02/S08 game store actions', () => {
     expect(s.board.C1).toBe('card-C1');
     const buff = s.cardsById['card-C1'].buff;
     expect(buff).toBeDefined();
-    expect(['hp', 'atk', 'def']).toContain(buff!.stat);
+    expect(['hp', 'dmg', 'acc']).toContain(buff!.stat);
     expect(buff!.amount).toBeGreaterThan(0);
   });
 
@@ -187,6 +187,44 @@ describe('P2-S02/S08 game store actions', () => {
 
     expect(store.getState().hand).toEqual(handBefore);
     expect(store.getState().dragging).toBeNull();
+  });
+
+  it('autoPlaceCard quick-sets a hand card into the first legal slot', () => {
+    const store = storeWithHand(['card-A1']);
+    store.getState().autoPlaceCard('card-A1');
+    const s = store.getState();
+    // A cards fill A1 first (board order).
+    expect(s.board.A1).toBe('card-A1');
+    expect(s.hand).not.toContain('card-A1');
+  });
+
+  it('autoPlaceCard fills the NEXT free slot when earlier ones are taken', () => {
+    const store = storeWithHand(['card-A1', 'card-A2']);
+    store.getState().autoPlaceCard('card-A1'); // -> A1
+    store.getState().autoPlaceCard('card-A2'); // -> A2 (A1 now taken)
+    const s = store.getState();
+    expect(s.board.A1).toBe('card-A1');
+    expect(s.board.A2).toBe('card-A2');
+  });
+
+  it('autoPlaceCard does nothing when the card has no legal slot (C with no A)', () => {
+    const store = storeWithHand(['card-C1']);
+    const handBefore = [...store.getState().hand];
+    store.getState().autoPlaceCard('card-C1'); // no A card on field -> illegal
+    expect(store.getState().hand).toEqual(handBefore);
+    expect(Object.values(store.getState().board).every((v) => v !== 'card-C1')).toBe(true);
+  });
+
+  it('autoPlaceCard is blocked outside the Main phase', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-A1'],
+      deck: base.deck.filter((id) => id !== 'card-A1'),
+      phase: 'battle',
+    });
+    store.getState().autoPlaceCard('card-A1');
+    expect(store.getState().hand).toContain('card-A1');
   });
 
   it('updateDrag and hoverSlot record drag details', () => {
@@ -667,7 +705,7 @@ describe('P4 turn / phase mechanics', () => {
     expect(store.getState().dragging).toBeNull();
   });
 
-  it('toggleAttacker selects and deselects A-slot cards during Battle only', () => {
+  it('aimAttack begins targeting and assignTarget commits an opponent target during Battle', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
@@ -675,13 +713,24 @@ describe('P4 turn / phase mechanics', () => {
       board: { ...base.board, A1: 'card-A1' },
     });
 
-    store.getState().toggleAttacker('A1');
-    expect(store.getState().attackers).toEqual(['A1']);
-    store.getState().toggleAttacker('A1'); // deselect
-    expect(store.getState().attackers).toEqual([]);
+    store.getState().aimAttack('A1');
+    expect(store.getState().targeting).toBe('A1');
+
+    store.getState().assignTarget('O1');
+    expect(store.getState().targeting).toBeNull();
+    expect(store.getState().attackTargets).toEqual({ A1: 'O1' });
+
+    // Re-aiming the same source drops its old target until a new one is picked.
+    store.getState().aimAttack('A1');
+    expect(store.getState().targeting).toBe('A1');
+    expect(store.getState().attackTargets).toEqual({});
+
+    // Clicking the aiming source again cancels the aim.
+    store.getState().aimAttack('A1');
+    expect(store.getState().targeting).toBeNull();
   });
 
-  it('toggleAttacker ignores empty A-slots, non-A slots, and non-Battle phases', () => {
+  it('aimAttack/assignTarget ignore empty A-slots, non-A slots, empty opponents, and non-Battle', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
@@ -689,20 +738,25 @@ describe('P4 turn / phase mechanics', () => {
       board: { ...base.board, A1: 'card-A1', B1: 'card-B1' },
     });
 
-    store.getState().toggleAttacker('A2'); // empty
-    store.getState().toggleAttacker('B1'); // non-A
-    expect(store.getState().attackers).toEqual([]);
+    store.getState().aimAttack('A2'); // empty A-slot
+    store.getState().aimAttack('B1'); // non-A slot
+    expect(store.getState().targeting).toBeNull();
+
+    store.getState().aimAttack('A1');
+    store.getState().assignTarget('O4'); // O4 is empty in the initial seed
+    expect(store.getState().attackTargets).toEqual({});
+    expect(store.getState().targeting).toBe('A1'); // still aiming, no target set
 
     const mainStore = createGameStore({
       ...base,
       phase: 'main',
       board: { ...base.board, A1: 'card-A1' },
     });
-    mainStore.getState().toggleAttacker('A1'); // not Battle
-    expect(mainStore.getState().attackers).toEqual([]);
+    mainStore.getState().aimAttack('A1'); // not Battle
+    expect(mainStore.getState().targeting).toBeNull();
   });
 
-  it('Resolution rolls a die per attacker, absorbs values, then auto-advances to End', () => {
+  it('Resolution rolls a die per attacker, drains the targeted opponent, then advances to End', () => {
     vi.useFakeTimers();
     try {
       const base = createInitialState();
@@ -710,7 +764,8 @@ describe('P4 turn / phase mechanics', () => {
         ...base,
         phase: 'battle',
         board: { ...base.board, A1: 'card-A1', A2: 'card-A2' },
-        attackers: ['A1', 'A2'],
+        // Both attackers aim at the same opponent; their damage stacks onto O1.
+        attackTargets: { A1: 'O1', A2: 'O1' },
       });
 
       store.getState().advancePhase(); // battle -> resolution
@@ -725,17 +780,52 @@ describe('P4 turn / phase mechanics', () => {
         expect(rolls[slot].rolling).toBe(true);
         expect(rolls[slot].value).toBeGreaterThanOrEqual(1);
         expect(rolls[slot].value).toBeLessThanOrEqual(20);
-        // Value is absorbed into the engine once the roll begins.
         expect(store.getState().lastRolls[slot]).toBe(rolls[slot].value);
       }
 
       vi.advanceTimersByTime(DICE_ROLL_MS);
       expect(store.getState().resolutionRolls.A1.rolling).toBe(false);
 
-      vi.runAllTimers(); // settle hold -> auto-advance to End
+      // Dice settle-hold, then the outcome pop-up snapshots. We STAY in Resolution
+      // while the die values + pop-up linger, so the End banner can't collide.
+      vi.advanceTimersByTime(DICE_HOLD_MS);
+      expect(store.getState().phase).toBe('resolution');
+      expect(Object.keys(store.getState().outcomePopups).sort()).toEqual(['A1', 'A2']);
+      for (const slot of ['A1', 'A2'] as const) {
+        expect(['glancing', 'normal', 'miss', 'crit']).toContain(
+          store.getState().outcomePopups[slot].outcome,
+        );
+      }
+
+      // Both attackers targeted O1: its HP drops by their combined damage and a
+      // single red -total pop-up appears over the opponent.
+      const s = store.getState();
+      const totalDmg =
+        (s.outcomePopups['A1'].damage ?? 0) + (s.outcomePopups['A2'].damage ?? 0);
+      const oppId = createInitialState().opponentBoard.O1!;
+      const maxHp = createInitialState().opponentCards[oppId].hp!;
+      if (totalDmg > 0) {
+        expect(s.currentHp[oppId]).toBe(Math.max(0, maxHp - totalDmg));
+        expect(s.damagePopups.O1).toBe(totalDmg);
+      } else {
+        expect(s.currentHp[oppId]).toBeUndefined();
+        expect(s.damagePopups).toEqual({});
+      }
+
+      // After the dwell the dice + pop-ups clear together...
+      vi.advanceTimersByTime(OUTCOME_POPUP_MS);
+      expect(store.getState().outcomePopups).toEqual({});
+      expect(store.getState().resolutionRolls).toEqual({});
+      expect(store.getState().damagePopups).toEqual({});
+      // ...then it advances to End (held briefly for the slash travel if the
+      // opponent was destroyed this Resolution).
+      vi.advanceTimersByTime(GRAVEYARD_TRAVEL_MS);
+      expect(store.getState().phase).toBe('end');
+
+      vi.runAllTimers(); // nothing left pending changes the outcome
       expect(store.getState().phase).toBe('end');
       // Attack declaration + spent dice are cleared entering End; values persist.
-      expect(store.getState().attackers).toEqual([]);
+      expect(store.getState().attackTargets).toEqual({});
       expect(store.getState().resolutionRolls).toEqual({});
       expect(Object.keys(store.getState().lastRolls).sort()).toEqual(['A1', 'A2']);
     } finally {
@@ -752,6 +842,43 @@ describe('P4 turn / phase mechanics', () => {
       vi.runAllTimers();
       expect(store.getState().phase).toBe('end');
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an opponent reduced to 0 HP is slashed, then removed from the field', () => {
+    vi.useFakeTimers();
+    // Force a mid-range roll (11) so the attack is a normal hit, not a miss.
+    const rand = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      const base = createInitialState();
+      const oppId = base.opponentBoard.O1!;
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        board: { ...base.board, A1: 'card-A1' },
+        attackTargets: { A1: 'O1' },
+        // O1 is dropped to 1 HP, so any hit is lethal.
+        currentHp: { [oppId]: 1 },
+      });
+
+      store.getState().advancePhase(); // battle -> resolution
+      // Advance through roll + settle + damage apply (banner 1700 + roll 800 +
+      // hold 600 = 3100ms): the doomed opponent is now flagged for the slash FX.
+      vi.advanceTimersByTime(3100);
+      expect(store.getState().destroying).toContain('O1');
+
+      vi.runAllTimers(); // dwell, remove, -> End
+
+      const s = store.getState();
+      expect(s.phase).toBe('end');
+      // The dead opponent leaves the field (no opponent graveyard yet)...
+      expect(s.opponentBoard.O1).toBeNull();
+      expect(s.currentHp[oppId]).toBeUndefined();
+      // ...and the slash-FX flag clears once the card actually leaves.
+      expect(s.destroying).toEqual([]);
+    } finally {
+      rand.mockRestore();
       vi.useRealTimers();
     }
   });

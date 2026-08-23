@@ -123,8 +123,8 @@ export function InspectionPanel() {
             {shown.type === 'A' ? (
               <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
                 <Stat label="HP" value={shown.hp ?? 0} color="#2f9e46" />
-                <Stat label="ATK" value={shown.atk ?? 0} color="#e0663d" />
-                <Stat label="DEF" value={shown.def ?? 0} color="#3d9be0" />
+                <Stat label="DMG" value={shown.dmg ?? 0} color="#e0663d" />
+                <Stat label="ACC" value={shown.acc ?? 0} color="#3d9be0" />
               </div>
             ) : shown.type === 'B' ? (
               <div

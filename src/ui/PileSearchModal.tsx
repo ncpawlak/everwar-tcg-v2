@@ -84,13 +84,13 @@ function CardTile({ card, onSelect }: { card: Card | undefined; onSelect: () => 
   );
 }
 
-/** Compact per-type footer for a pile tile: A = ATK/DEF, B = ability, C = boost. */
+/** Compact per-type footer for a pile tile: A = DMG/ACC, B = ability, C = boost. */
 function tileFoot(card: Card) {
   if (card.type === 'A') {
     return (
       <>
-        <span style={{ color: '#e07a5f' }}>{card.atk}</span>
-        <span style={{ color: '#6aa9e0' }}>{card.def}</span>
+        <span style={{ color: '#e07a5f' }}>{card.dmg}</span>
+        <span style={{ color: '#6aa9e0' }}>{card.acc}</span>
       </>
     );
   }

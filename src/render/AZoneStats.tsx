@@ -40,7 +40,14 @@ export function AZoneStats() {
         const [ax, ay, az] = SLOT_POSITIONS[aSlot];
         const [cx] = SLOT_POSITIONS[`C${i}` as SlotId];
         const position: Vec3 = [(ax + cx) / 2, ay + Y_OFFSET, az + Z_OFFSET];
-        return <StatOverlay key={aSlot} stats={effectiveStats(state, aSlot)} position={position} />;
+        return (
+          <StatOverlay
+            key={aSlot}
+            stats={effectiveStats(state, aSlot)}
+            position={position}
+            currentHp={state.currentHp[board[aSlot]!]}
+          />
+        );
       })}
     </>
   );

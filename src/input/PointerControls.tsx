@@ -9,9 +9,9 @@ import {
   projectToBoard,
 } from './pickMath';
 import { handCardPoses, deckCardPose, graveyardCardPose, replenCardPose } from '../board/layout';
-import { boardCardAt, slotAtPoint } from './hitTest';
+import { boardCardAt, slotAtPoint, oppSlotAtPoint } from './hitTest';
 import { resolveLinkedTarget, resolveAttackerSlot } from '../board/slotRules';
-import type { CardId, PileSource, SlotId } from '../state/types';
+import type { CardId, OppSlotId, PileSource, SlotId } from '../state/types';
 
 /**
  * DOM-driven pointer input. Attaches window pointer listeners and drives the
@@ -26,7 +26,7 @@ import type { CardId, PileSource, SlotId } from '../state/types';
  * click open the inspection panel without disturbing drag-to-place.
  */
 
-type PressKind = 'hand' | 'board' | 'deck' | 'pile' | 'empty';
+type PressKind = 'hand' | 'board' | 'deck' | 'pile' | 'opp' | 'empty';
 interface Press {
   kind: PressKind;
   cardId: CardId | null;
@@ -34,6 +34,8 @@ interface Press {
   pile: PileSource | null;
   /** The board slot under the pointer at press time ('board'/'empty' presses). */
   slotId: SlotId | null;
+  /** The opponent slot under the pointer at press time ('opp' presses). */
+  oppSlot: OppSlotId | null;
   downX: number;
   downY: number;
   startedDrag: boolean;
@@ -56,7 +58,7 @@ export function PointerControls() {
       if (s.dragging) return;
 
       const ndc = clientToNdc(e.clientX, e.clientY, canvas);
-      const base = { downX: e.clientX, downY: e.clientY, startedDrag: false, pile: null, slotId: null };
+      const base = { downX: e.clientX, downY: e.clientY, startedDrag: false, pile: null, slotId: null, oppSlot: null };
 
       // 1) Hand card — candidate for either inspect (click) or drag.
       const handPoses = handCardPoses(s.hand.length);
@@ -99,8 +101,15 @@ export function PointerControls() {
         return;
       }
 
+      // 4b) An opponent Vanguard card — a Battle-phase attack target.
+      const oppSlot = point ? oppSlotAtPoint(point) : null;
+      if (oppSlot) {
+        press = { kind: 'opp', cardId: null, ...base, oppSlot };
+        return;
+      }
+
       // 5) Empty space — click to close the inspection panel (or, in Battle,
-      // toggle an attacker via its empty linked zone).
+      // start/cancel an attack aim via its linked zone).
       press = { kind: 'empty', cardId: null, ...base, slotId: slot };
     };
 
@@ -120,6 +129,14 @@ export function PointerControls() {
         const cardType = s.cardsById[s.dragging.cardId]?.type;
         const raw = slotAtPoint(point);
         s.hoverSlot(cardType ? resolveLinkedTarget(s.board, raw, cardType) : raw);
+        return;
+      }
+
+      // Aiming an attack: the arrow tip rubber-bands to the pointer over the mat.
+      if (s.targeting) {
+        const point = projectToBoard(ndc, camera);
+        if (point) s.setAimPoint(point);
+        document.body.style.cursor = 'crosshair';
         return;
       }
 
@@ -163,17 +180,29 @@ export function PointerControls() {
       if (press && !press.startedDrag) {
         const isDrag = exceededDragThreshold(press.downX, press.downY, e.clientX, e.clientY);
         if (!isDrag) {
-          // During Battle, clicking either zone of an occupied A/C column
-          // toggles that column's A card as a declared attacker (gold outline).
-          if (
-            s.phase === 'battle' &&
-            (press.kind === 'board' || press.kind === 'empty')
-          ) {
-            const attacker = resolveAttackerSlot(s.board, press.slotId);
-            if (attacker) {
-              s.toggleAttacker(attacker);
-              press = null;
-              return;
+          // Battle-phase attack declaration by targeting:
+          //  - click one of your occupied A columns to start aiming it,
+          //  - then click an opponent card to lock the target (draws an arrow),
+          //  - clicking elsewhere while aiming cancels.
+          if (s.phase === 'battle') {
+            if (press.kind === 'opp' && press.oppSlot) {
+              if (s.targeting) {
+                s.assignTarget(press.oppSlot);
+                press = null;
+                return;
+              }
+            } else if (press.kind === 'board' || press.kind === 'empty') {
+              const attacker = resolveAttackerSlot(s.board, press.slotId);
+              if (attacker) {
+                s.aimAttack(attacker);
+                press = null;
+                return;
+              }
+              if (s.targeting) {
+                s.cancelTargeting();
+                press = null;
+                return;
+              }
             }
           }
           switch (press.kind) {
@@ -198,13 +227,28 @@ export function PointerControls() {
       press = null;
     };
 
+    const onDblClick = (e: PointerEvent | MouseEvent) => {
+      const { camera, canvas } = threeAccess;
+      if (!camera || !canvas) return;
+      if (overUi(e as PointerEvent)) return;
+      const s = gameStore.getState();
+      if (s.dragging) return;
+      // Double-clicking a hand card in Main quick-sets it into the next legal
+      // slot for its type; a no-op if it can't be placed anywhere.
+      const ndc = clientToNdc(e.clientX, e.clientY, canvas);
+      const idx = pickHandIndex(ndc, camera, handCardPoses(s.hand.length));
+      if (idx >= 0) s.autoPlaceCard(s.hand[idx]);
+    };
+
     window.addEventListener('pointerdown', onDown);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('dblclick', onDblClick);
     return () => {
       window.removeEventListener('pointerdown', onDown);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('dblclick', onDblClick);
     };
   }, []);
 

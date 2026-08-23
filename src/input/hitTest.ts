@@ -1,5 +1,5 @@
-import type { CardId, SlotId, Vec3 } from '../state/types';
-import { SLOT_HIT_RADIUS, SLOT_POSITIONS } from '../board/boardConfig';
+import type { CardId, OppSlotId, SlotId, Vec3 } from '../state/types';
+import { OPP_SLOT_IDS, OPP_SLOT_POSITIONS, SLOT_HIT_RADIUS, SLOT_POSITIONS } from '../board/boardConfig';
 import { SLOT_IDS } from '../state/cardData';
 
 /**
@@ -18,6 +18,21 @@ export function slotAtPoint(point: Vec3): SlotId | null {
   let bestDist = SLOT_HIT_RADIUS;
   for (const slotId of SLOT_IDS) {
     const d = distanceXZ(point, SLOT_POSITIONS[slotId]);
+    if (d <= bestDist) {
+      best = slotId;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
+/** The nearest opponent Vanguard slot within hit radius of `point`, or null.
+ * Used during Battle to pick the target of an attack declaration. */
+export function oppSlotAtPoint(point: Vec3): OppSlotId | null {
+  let best: OppSlotId | null = null;
+  let bestDist = SLOT_HIT_RADIUS;
+  for (const slotId of OPP_SLOT_IDS) {
+    const d = distanceXZ(point, OPP_SLOT_POSITIONS[slotId]);
     if (d <= bestDist) {
       best = slotId;
       bestDist = d;

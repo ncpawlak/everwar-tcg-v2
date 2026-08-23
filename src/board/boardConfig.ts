@@ -1,4 +1,4 @@
-import type { CardType, SlotId, Vec3 } from '../state/types';
+import type { CardType, OppSlotId, SlotId, Vec3 } from '../state/types';
 
 /**
  * Phase 2 board constants. Pure data used by layout math, hit-testing, and the
@@ -57,6 +57,23 @@ function buildSlotPositions(): Record<SlotId, Vec3> {
 
 /** World-space center of each of the 12 typed placement slots. */
 export const SLOT_POSITIONS: Record<SlotId, Vec3> = buildSlotPositions();
+
+/** Depth (world z) of the opponent's Vanguard row, across the field from the
+ * player's A/C row (which sits at TOP_ROW_Z = -0.3). Far enough back to read as
+ * the enemy side, still comfortably inside the camera framing. */
+const OPP_ROW_Z = -1.62;
+
+/** The four opponent Vanguard slot ids, left-to-right. */
+export const OPP_SLOT_IDS = ['O1', 'O2', 'O3', 'O4'] as const;
+
+/** World-space center of each opponent Vanguard slot — one per column-pair
+ * center, mirrored across the field on the opponent row. */
+export const OPP_SLOT_POSITIONS: Record<OppSlotId, Vec3> = {
+  O1: [PAIR_CENTERS_X[0], BOARD_Y, OPP_ROW_Z],
+  O2: [PAIR_CENTERS_X[1], BOARD_Y, OPP_ROW_Z],
+  O3: [PAIR_CENTERS_X[2], BOARD_Y, OPP_ROW_Z],
+  O4: [PAIR_CENTERS_X[3], BOARD_Y, OPP_ROW_Z],
+};
 
 /** Radius (world units) around a slot center that counts as a hover/drop hit. */
 export const SLOT_HIT_RADIUS = 0.34;

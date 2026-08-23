@@ -27,7 +27,8 @@ export function SlotView() {
   const dragType = useGameStore((s) =>
     s.dragging ? (s.cardsById[s.dragging.cardId]?.type ?? null) : null,
   );
-  const attackers = useGameStore((s) => s.attackers);
+  const attackTargets = useGameStore((s) => s.attackTargets);
+  const targeting = useGameStore((s) => s.targeting);
   const phase = useGameStore((s) => s.phase);
 
   return (
@@ -38,12 +39,14 @@ export function SlotView() {
           dragCardId !== null &&
           dragType !== null &&
           slotHighlighted(board, slotId, dragType);
-        // A declared attacker lights up its whole linked column (A + C zone)
-        // through Battle/Resolution.
+        // A declared attacker (or the column currently being aimed) lights up its
+        // whole linked column (A + C zone) through Battle/Resolution.
+        const col = `A${slotId[1]}` as SlotId;
+        const isAC = slotType(slotId) === 'A' || slotType(slotId) === 'C';
         const attackHighlight =
           (phase === 'battle' || phase === 'resolution') &&
-          (slotType(slotId) === 'A' || slotType(slotId) === 'C') &&
-          attackers.includes(`A${slotId[1]}` as SlotId);
+          isAC &&
+          (col in attackTargets || targeting === col);
         const highlight = dragHighlight || attackHighlight;
         return (
           <group key={slotId} position={[x, y - 0.009, z]}>

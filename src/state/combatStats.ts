@@ -7,7 +7,7 @@ import type { GameState, SlotId, StatBuff, StatKey } from './types';
  * assert the buff math directly.
  */
 
-export const STAT_KEYS: readonly StatKey[] = ['hp', 'atk', 'def'];
+export const STAT_KEYS: readonly StatKey[] = ['hp', 'dmg', 'acc'];
 
 /** Amounts a C-card boost can roll (world units, hundreds like the base stats). */
 export const BUFF_AMOUNTS: readonly number[] = [100, 200, 300, 400, 500, 600];
@@ -37,12 +37,12 @@ export interface StatLine {
 
 export interface EffectiveStats {
   hp: StatLine;
-  atk: StatLine;
-  def: StatLine;
+  dmg: StatLine;
+  acc: StatLine;
 }
 
 /**
- * Effective stats for the A card in `aSlot`: its base hp/atk/def plus the boost
+ * Effective stats for the A card in `aSlot`: its base hp/dmg/acc plus the boost
  * from the linked C card, if that C slot holds a card carrying a buff. Because
  * this reads live board occupancy, removing the C card reverts the boost.
  */
@@ -51,8 +51,8 @@ export function effectiveStats(state: GameState, aSlot: SlotId): EffectiveStats 
   const card = aId ? state.cardsById[aId] : undefined;
   const base = {
     hp: card?.hp ?? 0,
-    atk: card?.atk ?? 0,
-    def: card?.def ?? 0,
+    dmg: card?.dmg ?? 0,
+    acc: card?.acc ?? 0,
   };
 
   const cId = state.board[linkedCSlot(aSlot)];
@@ -63,5 +63,5 @@ export function effectiveStats(state: GameState, aSlot: SlotId): EffectiveStats 
     return { value: base[stat] + delta, delta };
   };
 
-  return { hp: line('hp'), atk: line('atk'), def: line('def') };
+  return { hp: line('hp'), dmg: line('dmg'), acc: line('acc') };
 }

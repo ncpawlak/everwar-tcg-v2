@@ -6,7 +6,7 @@ import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from './cardTheme';
 
 /**
  * Procedural card face (Slice 1). Renders the same information as the inspection
- * panel — name, cost, rarity, type, effect, ATK/DEF — directly on the 3D card so
+ * panel — name, cost, rarity, type, effect, DMG/ACC — directly on the 3D card so
  * hand and board cards read like real cards. Local faces: front = +Z, back = -Z.
  * The layout is authored in the hand-scale local space; board cards inherit it
  * via the group scale in MotionCard.
@@ -202,7 +202,7 @@ export function CardView({ card, pickable = true }: { card: Card; pickable?: boo
             anchorX="left"
             anchorY="middle"
           >
-            {`ATK ${card.atk}`}
+            {`DMG ${card.dmg}`}
           </Text>
           <Text
             position={[HALF_W - 0.08, -HALF_H + 0.075, ZF + 0.001]}
@@ -211,7 +211,7 @@ export function CardView({ card, pickable = true }: { card: Card; pickable?: boo
             anchorX="right"
             anchorY="middle"
           >
-            {`DEF ${card.def}`}
+            {`ACC ${card.acc}`}
           </Text>
         </>
       )}

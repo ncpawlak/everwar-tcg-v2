@@ -17,9 +17,13 @@ import type { DiceState, SlotId, Vec3 } from '../state/types';
  */
 
 /** Radius of the icosahedron (D20 shape). */
-const DIE_RADIUS = 0.34;
-/** How far above the row the die floats, and its nudge toward the camera. */
-const Y_OFFSET = 0.55;
+const DIE_RADIUS = 0.2;
+/**
+ * How far above the row the die floats, and its nudge toward the camera. Kept
+ * low enough that the die (radius 0.2) sits fully UNDERNEATH the stat plate,
+ * whose bottom edge is ~0.56 above the row (plate at +0.9, half-height 0.34).
+ */
+const Y_OFFSET = 0.2;
 const Z_OFFSET = 0.15;
 
 export function ResolutionDice() {
@@ -40,7 +44,13 @@ export function ResolutionDice() {
   );
 }
 
-function ResolutionDie({ position, state }: { position: Vec3; state: DiceState }) {
+function ResolutionDie({
+  position,
+  state,
+}: {
+  position: Vec3;
+  state: DiceState;
+}) {
   const ref = useRef<Mesh>(null);
   const vel = useRef({ x: 8.5, y: 12.5, z: 6.5 });
   const target = useRef<Quaternion | null>(null);
@@ -120,7 +130,7 @@ function ResolutionDie({ position, state }: { position: Vec3; state: DiceState }
       <Billboard>
         <Text
           position={[0, 0, DIE_RADIUS + 0.06]}
-          fontSize={0.34}
+          fontSize={DIE_RADIUS * 0.9}
           color={rolling ? '#f5e6c8' : '#ffffff'}
           anchorX="center"
           anchorY="middle"

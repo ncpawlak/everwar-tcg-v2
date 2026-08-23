@@ -56,14 +56,18 @@ describe('P2-S01 initial state', () => {
       expect(c.cost).toBeGreaterThan(0);
       // A (Vanguard) cards carry combat stats; B carry an ability; C a boost.
       if (c.type === 'A') {
-        expect(c.atk).toBeGreaterThanOrEqual(0);
-        expect(c.def).toBeGreaterThanOrEqual(0);
+        expect(c.dmg).toBeGreaterThanOrEqual(0);
+        expect(c.acc).toBeGreaterThanOrEqual(0);
+        expect(c.acc).toBeLessThanOrEqual(200);
+        // ACC and DMG are base-10 (multiples of 10).
+        expect((c.acc ?? 0) % 10).toBe(0);
+        expect((c.dmg ?? 0) % 10).toBe(0);
         expect(c.hp).toBeGreaterThanOrEqual(0);
       } else if (c.type === 'B') {
         expect(c.ability).toBeDefined();
-        expect(c.atk).toBeUndefined();
+        expect(c.dmg).toBeUndefined();
       } else {
-        expect(c.atk).toBeUndefined();
+        expect(c.dmg).toBeUndefined();
       }
       expect(['Common', 'Rare', 'Epic', 'Legendary']).toContain(c.rarity);
       expect(c.effect.length).toBeGreaterThan(0);

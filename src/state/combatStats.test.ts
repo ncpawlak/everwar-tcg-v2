@@ -24,14 +24,14 @@ describe('combatStats', () => {
     const state: GameState = { ...base, board: { ...base.board, A1: 'card-A1' } };
     const card = state.cardsById['card-A1'];
     const eff = effectiveStats(state, 'A1');
-    expect(eff.atk).toEqual({ value: card.atk, delta: 0 });
-    expect(eff.def).toEqual({ value: card.def, delta: 0 });
+    expect(eff.dmg).toEqual({ value: card.dmg, delta: 0 });
+    expect(eff.acc).toEqual({ value: card.acc, delta: 0 });
     expect(eff.hp).toEqual({ value: card.hp, delta: 0 });
   });
 
   it('effectiveStats adds the linked C card buff to the matching stat only', () => {
     const base = createInitialState();
-    const buffed = { ...base.cardsById['card-C1'], buff: { stat: 'atk' as const, amount: 300 } };
+    const buffed = { ...base.cardsById['card-C1'], buff: { stat: 'dmg' as const, amount: 300 } };
     const state: GameState = {
       ...base,
       board: { ...base.board, A1: 'card-A1', C1: 'card-C1' },
@@ -39,22 +39,22 @@ describe('combatStats', () => {
     };
     const card = state.cardsById['card-A1'];
     const eff = effectiveStats(state, 'A1');
-    expect(eff.atk).toEqual({ value: card.atk! + 300, delta: 300 });
-    expect(eff.def).toEqual({ value: card.def, delta: 0 });
+    expect(eff.dmg).toEqual({ value: card.dmg! + 300, delta: 300 });
+    expect(eff.acc).toEqual({ value: card.acc, delta: 0 });
     expect(eff.hp).toEqual({ value: card.hp, delta: 0 });
   });
 
   it('removing the C card reverts the boost (buff is presence-based)', () => {
     const base = createInitialState();
-    const buffed = { ...base.cardsById['card-C1'], buff: { stat: 'def' as const, amount: 500 } };
+    const buffed = { ...base.cardsById['card-C1'], buff: { stat: 'acc' as const, amount: 500 } };
     const withC: GameState = {
       ...base,
       board: { ...base.board, A1: 'card-A1', C1: 'card-C1' },
       cardsById: { ...base.cardsById, 'card-C1': buffed },
     };
-    expect(effectiveStats(withC, 'A1').def.delta).toBe(500);
+    expect(effectiveStats(withC, 'A1').acc.delta).toBe(500);
     // C1 removed from the board -> no boost, even though the card still carries buff data.
     const withoutC: GameState = { ...withC, board: { ...withC.board, C1: null } };
-    expect(effectiveStats(withoutC, 'A1').def.delta).toBe(0);
+    expect(effectiveStats(withoutC, 'A1').acc.delta).toBe(0);
   });
 });

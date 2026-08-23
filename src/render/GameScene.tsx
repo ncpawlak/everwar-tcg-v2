@@ -5,6 +5,11 @@ import { CardEntity } from './CardEntity';
 import { AZoneStats } from './AZoneStats';
 import { SummonRipple } from './SummonRipple';
 import { ResolutionDice } from './ResolutionDice';
+import { OutcomePopups } from './OutcomePopups';
+import { DamagePopups } from './DamagePopups';
+import { DestructionFx } from './DestructionFx';
+import { OpponentBoard } from './OpponentBoard';
+import { TargetingArrows } from './TargetingArrows';
 import { OpeningDeal } from './OpeningDeal';
 import { ThreeBridge } from './ThreeBridge';
 
@@ -35,12 +40,17 @@ export function GameScene() {
       />
       <BoardView />
       <SlotView />
+      <OpponentBoard />
       {cardIds.map((id) => (
         <CardEntity key={id} cardId={id} />
       ))}
       <AZoneStats />
       <SummonRipple />
+      <TargetingArrows />
       <ResolutionDice />
+      <OutcomePopups />
+      <DamagePopups />
+      <DestructionFx />
       <OpeningDeal />
     </>
   );

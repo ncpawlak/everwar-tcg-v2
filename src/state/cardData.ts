@@ -1,4 +1,4 @@
-import type { Card, CardId, CardType, GameState, SlotId } from './types';
+import type { Card, CardId, CardType, GameState, OppSlotId, SlotId } from './types';
 
 /** The three typed families, in canonical order. */
 export const CARD_TYPES: readonly CardType[] = ['A', 'B', 'C'];
@@ -13,23 +13,23 @@ export const CARD_TYPES: readonly CardType[] = ['A', 'B', 'C'];
  */
 export const CARD_LIBRARY: Record<string, Omit<Card, 'id' | 'type'>> = {
   A1: {
-    name: 'Ashborne Vanguard', cost: 3, atk: 1800, def: 1200, hp: 1900, rarity: 'Rare',
-    effect: 'When this card is set, it gains +200 ATK for each other Vanguard you control.',
+    name: 'Ashborne Vanguard', cost: 3, dmg: 1800, acc: 130, hp: 1900, rarity: 'Rare',
+    effect: 'When this card is set, it gains +200 DMG for each other Vanguard you control.',
     flavor: 'First through the breach, last to fall.',
   },
   A2: {
-    name: 'Emberfang Reaver', cost: 4, atk: 2100, def: 1000, hp: 1700, rarity: 'Epic',
-    effect: "Once per turn: discard a card to raise this card's ATK by 500 until end of turn.",
+    name: 'Emberfang Reaver', cost: 4, dmg: 2100, acc: 150, hp: 1700, rarity: 'Epic',
+    effect: "Once per turn: discard a card to raise this card's DMG by 500 until end of turn.",
     flavor: 'It hungers for the clash of steel.',
   },
   A3: {
-    name: 'Ironclad Lancer', cost: 2, atk: 1500, def: 1300, hp: 2000, rarity: 'Common',
+    name: 'Ironclad Lancer', cost: 2, dmg: 1500, acc: 100, hp: 2000, rarity: 'Common',
     effect: 'This card cannot be destroyed by the first attack it faces each turn.',
     flavor: 'A wall that marches.',
   },
   A4: {
-    name: 'Warcry Commander', cost: 5, atk: 2400, def: 1600, hp: 2300, rarity: 'Legendary',
-    effect: 'All Vanguard cards you control gain +300 ATK. When summoned, draw one card.',
+    name: 'Warcry Commander', cost: 5, dmg: 2400, acc: 170, hp: 2300, rarity: 'Legendary',
+    effect: 'All Vanguard cards you control gain +300 DMG. When summoned, draw one card.',
     flavor: 'Follow the banner, and fear nothing.',
   },
   B1: {
@@ -121,9 +121,59 @@ export function createEmptyBoard(): GameState['board'] {
   return Object.fromEntries(SLOT_IDS.map((id) => [id, null])) as GameState['board'];
 }
 
+/**
+ * Static opponent Vanguard library for the combat simulation. Dummy A-cards the
+ * player targets and destroys. Their HP is set well above the player's per-hit
+ * DMG so a single target usually needs several attacks to fall — which is what
+ * makes stacking multiple attackers onto one opponent meaningful.
+ */
+export const OPPONENT_LIBRARY: Record<OppSlotId, Omit<Card, 'id' | 'type'>> = {
+  O1: {
+    name: 'Dread Harbinger', cost: 4, dmg: 1600, acc: 120, hp: 4200, rarity: 'Epic',
+    effect: 'An omen of the coming ruin.', flavor: 'It marches ahead of the storm.',
+  },
+  O2: {
+    name: 'Void Sentinel', cost: 6, dmg: 1900, acc: 140, hp: 5400, rarity: 'Legendary',
+    effect: 'Guards the rift between worlds.', flavor: 'Nothing passes. Nothing returns.',
+  },
+  O3: {
+    name: 'Gloom Warden', cost: 3, dmg: 1400, acc: 110, hp: 3600, rarity: 'Rare',
+    effect: 'Keeper of the black watchfires.', flavor: 'Its lantern burns without light.',
+  },
+  O4: {
+    name: 'Ashen Revenant', cost: 5, dmg: 2000, acc: 150, hp: 4800, rarity: 'Epic',
+    effect: 'Risen from the cinders of a fallen host.', flavor: 'Death was only an intermission.',
+  },
+};
+
+/** Opponent card id for a given opponent slot. */
+export function opponentCardId(slot: OppSlotId): CardId {
+  return `opp-${slot}`;
+}
+
+/**
+ * Build the opponent's field for the simulation: three seeded Vanguard cards
+ * (O1–O3 occupied, O4 left empty to show a gap), plus the full card lookup.
+ */
+export function createInitialOpponents(): {
+  opponentCards: Record<CardId, Card>;
+  opponentBoard: GameState['opponentBoard'];
+} {
+  const opponentCards: Record<CardId, Card> = {};
+  const opponentBoard: GameState['opponentBoard'] = { O1: null, O2: null, O3: null, O4: null };
+  const seeded: OppSlotId[] = ['O1', 'O2', 'O3'];
+  for (const slot of seeded) {
+    const id = opponentCardId(slot);
+    opponentCards[id] = { id, type: 'A', ...OPPONENT_LIBRARY[slot] };
+    opponentBoard[slot] = id;
+  }
+  return { opponentCards, opponentBoard };
+}
+
 /** A fresh Phase 2 game state: full deck, empty hand, empty board, no drag. */
 export function createInitialState(): GameState {
   const { cardsById, deck } = createInitialCards();
+  const { opponentCards, opponentBoard } = createInitialOpponents();
   return {
     cardsById,
     deck,
@@ -140,9 +190,18 @@ export function createInitialState(): GameState {
     turn: 1,
     phase: 'draw',
     phaseAnnounce: 0,
-    attackers: [],
+    opponentCards,
+    opponentBoard,
+    attackTargets: {},
+    targeting: null,
+    aimPoint: null,
     resolutionRolls: {},
     lastRolls: {},
+    resolutionResults: {},
+    outcomePopups: {},
+    damagePopups: {},
+    currentHp: {},
+    destroying: [],
   };
 }
 

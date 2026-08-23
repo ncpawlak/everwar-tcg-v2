@@ -5,7 +5,7 @@ import type { EffectiveStats } from '../state/combatStats';
 
 /**
  * Floating combat-stat plate that hovers above an A-zone card's column
- * (Master-Duel style): an HP bar plus ATK / DEF readouts stacked in three rows.
+ * (Master-Duel style): an HP bar plus DMG / ACC readouts stacked in three rows.
  * Values are the A card's EFFECTIVE stats (base + linked C-card boost), so the
  * plate updates the moment a C card is set or removed.
  *
@@ -20,8 +20,8 @@ const HP_BAR_W = 0.88;
 const HP_BAR_H = 0.13;
 
 const HP_ROW_Y = 0.19;
-const ATK_ROW_Y = -0.05;
-const DEF_ROW_Y = -0.24;
+const DMG_ROW_Y = -0.05;
+const ACC_ROW_Y = -0.24;
 
 /** Neutral / boosted / reduced text colors. */
 const GREY = '#9aa6ad';
@@ -54,13 +54,19 @@ export function StatOverlay({
   const maxHp = stats.hp.value;
   const hp = currentHp ?? maxHp;
   const fraction = maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
-  const fillW = HP_BAR_W * fraction;
 
   // Pop-in when the plate first mounts (card set in an A slot).
   const spring = useSpring({
     from: { scale: 0 },
     to: { scale: 1 },
     config: { tension: 320, friction: 18 },
+  });
+
+  // Animate the HP fill (width + color) whenever current HP changes, so a hit
+  // drains the bar smoothly and it recolors as it crosses the 50% / 25% marks.
+  const hpSpring = useSpring({
+    frac: fraction,
+    config: { tension: 170, friction: 26 },
   });
 
   return (
@@ -77,11 +83,16 @@ export function StatOverlay({
           <planeGeometry args={[HP_BAR_W, HP_BAR_H]} />
           <meshBasicMaterial color="#23303a" />
         </mesh>
-        {/* HP bar fill (left-anchored) */}
-        <mesh position={[-HP_BAR_W / 2 + fillW / 2, HP_ROW_Y, 0.001]}>
-          <planeGeometry args={[Math.max(fillW, 0.0001), HP_BAR_H]} />
-          <meshBasicMaterial color={hpBarColor(fraction)} />
-        </mesh>
+        {/* HP bar fill: left-anchored group scaled by the animated fraction. */}
+        <a.group
+          position={[-HP_BAR_W / 2, HP_ROW_Y, 0.001]}
+          scale-x={hpSpring.frac.to((f) => Math.max(f, 0.0001))}
+        >
+          <mesh position={[HP_BAR_W / 2, 0, 0]}>
+            <planeGeometry args={[HP_BAR_W, HP_BAR_H]} />
+            <a.meshBasicMaterial color={hpSpring.frac.to((f) => hpBarColor(f))} />
+          </mesh>
+        </a.group>
         <Text
           position={[0, HP_ROW_Y, 0.003]}
           fontSize={0.08}
@@ -94,30 +105,30 @@ export function StatOverlay({
           {`HP ${hp} / ${maxHp}`}
         </Text>
 
-        {/* ATK row */}
+        {/* DMG row */}
         <Text
-          position={[0, ATK_ROW_Y, 0.003]}
+          position={[0, DMG_ROW_Y, 0.003]}
           fontSize={0.1}
-          color={statColor(stats.atk.delta)}
+          color={statColor(stats.dmg.delta)}
           anchorX="center"
           anchorY="middle"
           outlineWidth={0.006}
           outlineColor="#05080b"
         >
-          {`ATK  ${stats.atk.value}`}
+          {`DMG  ${stats.dmg.value}`}
         </Text>
 
-        {/* DEF row */}
+        {/* ACC row */}
         <Text
-          position={[0, DEF_ROW_Y, 0.003]}
+          position={[0, ACC_ROW_Y, 0.003]}
           fontSize={0.1}
-          color={statColor(stats.def.delta)}
+          color={statColor(stats.acc.delta)}
           anchorX="center"
           anchorY="middle"
           outlineWidth={0.006}
           outlineColor="#05080b"
         >
-          {`DEF  ${stats.def.value}`}
+          {`ACC  ${stats.acc.value}`}
         </Text>
       </a.group>
     </Billboard>

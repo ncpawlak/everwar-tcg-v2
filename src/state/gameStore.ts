@@ -1,9 +1,11 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { BAbility, CardId, DiceState, GameState, PileSource, Phase, SlotId, Vec3 } from './types';
+import type { BAbility, CardId, CardType, DiceState, GameState, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
 import { createInitialState } from './cardData';
-import { canDrop } from '../board/slotRules';
+import { canDrop, validTargetSlots } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
-import { rollCBuff } from './combatStats';
+import { rollCBuff, effectiveStats } from './combatStats';
+import { resolveRoll } from './diceRules';
+import { OPP_SLOT_IDS } from '../board/boardConfig';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 
 /** How long (ms) the deck stays split into two piles before collapsing back. */
@@ -33,6 +35,13 @@ export const DICE_HOLD_MS = 600;
  * ANIM_MS (1700) — keep in sync if that banner timing changes.
  */
 export const RESOLUTION_ROLL_DELAY_MS = 1700;
+/** How long (ms) the outcome-announcement pop-up (HIT / MISS / GLANCING /
+ * CRITICAL) stays above each attacker's stat plate after the dice vanish. */
+export const OUTCOME_POPUP_MS = 1600;
+/** How long (ms) to hold in Resolution after doomed cards leave for the
+ * graveyard, so their travel animation lands before the End banner starts.
+ * Only applied when at least one card was destroyed this Resolution. */
+export const GRAVEYARD_TRAVEL_MS = 650;
 
 /**
  * Authoritative Phase 1 game store. State transitions are immediate and
@@ -56,6 +65,12 @@ export interface GameActions {
    * otherwise it returns to its place in the hand.
    */
   dropCard: (cardId: CardId, slotId: SlotId | null) => void;
+  /**
+   * Main-phase quick-set: place a hand card into the next available legal slot
+   * for its type (first slot in board order). No-op if the card can't be set
+   * anywhere or it isn't the Main phase. Used by the double-click shortcut.
+   */
+  autoPlaceCard: (cardId: CardId) => void;
   /** Cancel the drag, leaving the card in its existing hand order. */
   returnToHand: (cardId: CardId) => void;
   /** Raise a hand card under the pointer (selection hint), or clear with null. */
@@ -117,11 +132,25 @@ export interface GameActions {
    */
   advancePhase: () => void;
   /**
-   * Toggle an A-slot card as a declared attacker (Battle phase only). The slot
-   * gets a gold outline while selected; the selection is rolled in Resolution.
-   * No-op outside Battle, on non-A slots, or on empty slots.
+   * Battle phase: pick one of your occupied A-slot cards to attack with, entering
+   * "aiming" mode (the source glows and the opponent row becomes selectable). If
+   * the same source is already aiming, this cancels aiming. Beginning a new aim
+   * clears that source's previous target. No-op outside Battle, on non-A slots,
+   * or on empty A slots.
    */
-  toggleAttacker: (slotId: SlotId) => void;
+  aimAttack: (slotId: SlotId) => void;
+  /**
+   * Battle phase: while a source A-slot is aiming, lock its attack onto the given
+   * opponent slot (must hold a card). Records the target and exits aiming.
+   * Multiple sources may target the same opponent. No-op if nothing is aiming or
+   * the opponent slot is empty.
+   */
+  assignTarget: (oppSlot: OppSlotId) => void;
+  /** Cancel the in-progress aim without assigning a target (Battle phase). */
+  cancelTargeting: () => void;
+  /** Update the live board-plane point the aiming arrow follows (Battle phase,
+   * while aiming). Ignored when nothing is aiming. */
+  setAimPoint: (point: Vec3) => void;
   /** Reset to a fresh initial state (used by tests and restart). */
   reset: () => void;
 }
@@ -182,6 +211,38 @@ export function createGameStore(
       };
 
       /**
+       * Commit a validated placement: move the card hand -> board, roll a C
+       * card's boost, kick off the summon showcase, and resolve a B card's
+       * ability once the showcase clears. Assumes `slotId` is already known-legal
+       * for the card. Shared by the drag-drop and double-click quick-set paths.
+       */
+      const commitPlacement = (cardId: CardId, cardType: CardType, slotId: SlotId) => {
+        const s = get();
+        // A C card rolls a random stat boost for its linked A card when set.
+        const cardsById =
+          cardType === 'C'
+            ? { ...s.cardsById, [cardId]: { ...s.cardsById[cardId], buff: rollCBuff() } }
+            : s.cardsById;
+        // A B card's on-play ability resolves once its showcase finishes.
+        const ability = cardType === 'B' ? s.cardsById[cardId]?.ability : undefined;
+        set({
+          cardsById,
+          hand: s.hand.filter((id) => id !== cardId),
+          board: { ...s.board, [slotId]: cardId },
+          dragging: null,
+          // Kick off the summon reveal: the card is already placed, but its pose
+          // is redirected to the big centered showcase until this clears.
+          summon: { cardId, slotId },
+        });
+        setTimeout(() => {
+          set((st) =>
+            st.summon && st.summon.cardId === cardId ? { ...st, summon: null } : st,
+          );
+          if (ability) enactBAbility(ability);
+        }, SUMMON_SHOWCASE_MS);
+      };
+
+      /**
        * End-phase resolution (fires on ENTERING End): shuffle the replen pile
        * back into the deck, then send every non-continuous B card on the field to
        * the graveyard. Continuous B cards stay put.
@@ -212,7 +273,9 @@ export function createGameStore(
        * moves on after the banner clears.
        */
       const beginResolution = () => {
-        if (get().attackers.length === 0) {
+        set({ outcomePopups: {}, resolutionRolls: {}, resolutionResults: {}, damagePopups: {} });
+        const sources = Object.keys(get().attackTargets) as SlotId[];
+        if (sources.length === 0) {
           setTimeout(() => {
             if (get().phase === 'resolution') goToPhase('end');
           }, RESOLUTION_ROLL_DELAY_MS + 300);
@@ -220,10 +283,9 @@ export function createGameStore(
         }
         setTimeout(() => {
           if (get().phase !== 'resolution') return;
-          const attackers = get().attackers;
           const rolls: Record<string, DiceState> = {};
           const values: Record<string, number> = {};
-          for (const slot of attackers) {
+          for (const slot of sources) {
             const value = 1 + Math.floor(Math.random() * DICE_SIDES);
             rolls[slot] = { value, rolling: true };
             values[slot] = value;
@@ -232,14 +294,86 @@ export function createGameStore(
           setTimeout(() => {
             set((s) => {
               const settled: Record<string, DiceState> = {};
+              const results: Record<string, RollResult> = {};
               for (const k of Object.keys(s.resolutionRolls)) {
-                settled[k] = { value: s.resolutionRolls[k].value, rolling: false };
+                const value = s.resolutionRolls[k].value;
+                settled[k] = { value, rolling: false };
+                // Resolve the roll against the attacker's EFFECTIVE stats (base
+                // DMG/ACC + any linked C-card boost) into an outcome + damage.
+                const eff = effectiveStats(s, k as SlotId);
+                results[k] = resolveRoll(value, eff.dmg.value, eff.acc.value);
               }
-              return { resolutionRolls: settled };
+              return { resolutionRolls: settled, resolutionResults: results };
             });
           }, DICE_ROLL_MS);
           setTimeout(() => {
-            if (get().phase === 'resolution') goToPhase('end');
+            if (get().phase !== 'resolution') return;
+            // Snapshot each attacker's result for the HIT/MISS word (over YOUR
+            // cards), then land the damage on the OPPONENT: aggregate every
+            // attacker's damage onto its target, drain that opponent's HP, and
+            // flag any opponent that hit 0 for the slash FX. Dice + pop-ups linger
+            // together while we STAY in Resolution so the End banner can't collide.
+            set((s) => {
+              const popups: Record<string, RollResult> = { ...s.resolutionResults };
+              const damageByTarget: Record<string, number> = {};
+              for (const src of Object.keys(s.attackTargets) as SlotId[]) {
+                const dmg = s.resolutionResults[src]?.damage ?? 0;
+                if (dmg <= 0) continue;
+                const target = s.attackTargets[src];
+                if (!target) continue;
+                damageByTarget[target] = (damageByTarget[target] ?? 0) + dmg;
+              }
+              const currentHp = { ...s.currentHp };
+              const destroying: OppSlotId[] = [];
+              const damagePopups: Record<string, number> = {};
+              for (const target of Object.keys(damageByTarget) as OppSlotId[]) {
+                const oppId = s.opponentBoard[target];
+                if (!oppId) continue;
+                const maxHp = s.opponentCards[oppId]?.hp ?? 0;
+                const cur = currentHp[oppId] ?? maxHp;
+                const dmg = damageByTarget[target];
+                const next = Math.max(0, cur - dmg);
+                currentHp[oppId] = next;
+                damagePopups[target] = dmg;
+                if (next <= 0) destroying.push(target);
+              }
+              return { outcomePopups: popups, damagePopups, currentHp, destroying };
+            });
+            // After the dwell, clear the dice + pop-ups and remove any opponent
+            // whose HP hit 0 (it slashed, now it vanishes), THEN advance to End.
+            setTimeout(() => {
+              if (get().phase !== 'resolution') return;
+              let destroyedAny = false;
+              set((s) => {
+                const opponentBoard = { ...s.opponentBoard };
+                const currentHp = { ...s.currentHp };
+                for (const slot of OPP_SLOT_IDS) {
+                  const oppId = opponentBoard[slot];
+                  if (!oppId || (currentHp[oppId] ?? Infinity) > 0) continue;
+                  destroyedAny = true;
+                  opponentBoard[slot] = null;
+                  delete currentHp[oppId];
+                }
+                return {
+                  outcomePopups: {},
+                  damagePopups: {},
+                  resolutionRolls: {},
+                  resolutionResults: {},
+                  destroying: [],
+                  opponentBoard,
+                  currentHp,
+                };
+              });
+              // If an opponent was destroyed, hold in Resolution briefly so the
+              // slash finishes and the card visibly clears before the End banner.
+              if (destroyedAny) {
+                setTimeout(() => {
+                  if (get().phase === 'resolution') goToPhase('end');
+                }, GRAVEYARD_TRAVEL_MS);
+              } else {
+                goToPhase('end');
+              }
+            }, OUTCOME_POPUP_MS);
           }, DICE_ROLL_MS + DICE_HOLD_MS);
         }, RESOLUTION_ROLL_DELAY_MS);
       };
@@ -256,8 +390,9 @@ export function createGameStore(
           phase: next,
           turn: incTurn ? s.turn + 1 : s.turn,
           phaseAnnounce: s.phaseAnnounce + 1,
-          // Leaving Resolution for End consumes the attack declaration + dice.
-          ...(next === 'end' ? { attackers: [], resolutionRolls: {} } : {}),
+          // Leaving Resolution for End consumes the attack declaration. The dice
+          // + results linger with the outcome pop-up and clear together after it.
+          ...(next === 'end' ? { attackTargets: {}, targeting: null, aimPoint: null } : {}),
         }));
         if (next === 'draw') {
           const handSize = get().hand.length;
@@ -323,35 +458,24 @@ export function createGameStore(
         canDrop(s.board, slotId, cardType) &&
         slotId !== null
       ) {
-        // A C card rolls a random stat boost for its linked A card when set.
-        const cardsById =
-          cardType === 'C'
-            ? {
-                ...s.cardsById,
-                [cardId]: { ...s.cardsById[cardId], buff: rollCBuff() },
-              }
-            : s.cardsById;
-        // A B card's on-play ability resolves once its showcase finishes.
-        const ability = cardType === 'B' ? s.cardsById[cardId]?.ability : undefined;
-        set({
-          cardsById,
-          hand: s.hand.filter((id) => id !== cardId),
-          board: { ...s.board, [slotId]: cardId },
-          dragging: null,
-          // Kick off the summon reveal: the card is already placed, but its pose
-          // is redirected to the big centered showcase until this clears.
-          summon: { cardId, slotId },
-        });
-        setTimeout(() => {
-          set((st) =>
-            st.summon && st.summon.cardId === cardId ? { ...st, summon: null } : st,
-          );
-          if (ability) enactBAbility(ability);
-        }, SUMMON_SHOWCASE_MS);
+        commitPlacement(cardId, cardType, slotId);
         return;
       }
       // Invalid drop: keep card in hand (order preserved), end the drag.
       set({ dragging: null });
+    },
+
+    autoPlaceCard: (cardId) => {
+      const s = get();
+      // Quick-set is Main-phase only and never interrupts an active drag.
+      if (s.phase !== 'main' || s.dragging !== null) return;
+      if (!s.hand.includes(cardId)) return;
+      const cardType = s.cardsById[cardId]?.type;
+      if (!cardType) return;
+      // Next available legal slot in board order; do nothing if there is none.
+      const target = validTargetSlots(s.board, cardType)[0];
+      if (!target) return;
+      commitPlacement(cardId, cardType, target);
     },
 
     returnToHand: (cardId) =>
@@ -473,17 +597,35 @@ export function createGameStore(
       // Draw and Resolution advance themselves; ignore manual clicks then.
     },
 
-    toggleAttacker: (slotId) =>
+    aimAttack: (slotId) =>
       set((s) => {
         if (s.phase !== 'battle') return s;
         if (slotId[0] !== 'A' || !s.board[slotId]) return s;
-        const has = s.attackers.includes(slotId);
+        // Clicking the source that's already aiming cancels the aim.
+        if (s.targeting === slotId) return { targeting: null, aimPoint: null };
+        // Begin aiming this source; drop its previous target so the old arrow
+        // clears until a new one is picked. The live arrow tip starts at the
+        // source until the pointer moves.
+        const attackTargets = { ...s.attackTargets };
+        delete attackTargets[slotId];
+        return { targeting: slotId, attackTargets, aimPoint: null };
+      }),
+
+    assignTarget: (oppSlot) =>
+      set((s) => {
+        if (s.phase !== 'battle' || !s.targeting) return s;
+        if (!s.opponentBoard[oppSlot]) return s;
         return {
-          attackers: has
-            ? s.attackers.filter((id) => id !== slotId)
-            : [...s.attackers, slotId],
+          attackTargets: { ...s.attackTargets, [s.targeting]: oppSlot },
+          targeting: null,
+          aimPoint: null,
         };
       }),
+
+    cancelTargeting: () => set(() => ({ targeting: null, aimPoint: null })),
+
+    setAimPoint: (point) =>
+      set((s) => (s.targeting ? { aimPoint: point } : s)),
 
     reset: () => set(() => ({ ...get(), ...createInitialState() })),
     };
