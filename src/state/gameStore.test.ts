@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createGameStore } from './gameStore';
+import { createGameStore, SUMMON_SHOWCASE_MS } from './gameStore';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState } from './types';
 
@@ -85,6 +85,55 @@ describe('P2-S02/S08 game store actions', () => {
     expect(s.board.A3).toBe('card-A1');
     expect(s.hand).toContain('card-A2');
     expect(s.dragging).toBeNull();
+  });
+
+  it('dropCard blocks a C card when its linked A slot is empty', () => {
+    const store = storeWithHand(['card-C1']);
+    store.getState().beginDrag('card-C1');
+    store.getState().dropCard('card-C1', 'C1'); // A1 is empty -> illegal
+
+    const s = store.getState();
+    expect(s.board.C1).toBeNull();
+    expect(s.hand).toContain('card-C1');
+    expect(s.dragging).toBeNull();
+  });
+
+  it('dropCard sets a C card on its linked A column and rolls a stat buff', () => {
+    const store = storeWithHand(['card-A1', 'card-C1']);
+    store.getState().beginDrag('card-A1');
+    store.getState().dropCard('card-A1', 'A1');
+
+    store.getState().beginDrag('card-C1');
+    store.getState().dropCard('card-C1', 'C1'); // now legal: A1 occupied
+
+    const s = store.getState();
+    expect(s.board.C1).toBe('card-C1');
+    const buff = s.cardsById['card-C1'].buff;
+    expect(buff).toBeDefined();
+    expect(['hp', 'atk', 'def']).toContain(buff!.stat);
+    expect(buff!.amount).toBeGreaterThan(0);
+  });
+
+  it('dropCard starts a summon reveal that clears after the showcase window', () => {
+    vi.useFakeTimers();
+    const store = storeWithHand(['card-A1']);
+    store.getState().beginDrag('card-A1');
+    store.getState().dropCard('card-A1', 'A2');
+
+    // Card is placed immediately, and the transient summon points at it.
+    expect(store.getState().board.A2).toBe('card-A1');
+    expect(store.getState().summon).toEqual({ cardId: 'card-A1', slotId: 'A2' });
+
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+    expect(store.getState().summon).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('an invalid drop does not start a summon reveal', () => {
+    const store = storeWithHand(['card-A1']);
+    store.getState().beginDrag('card-A1');
+    store.getState().dropCard('card-A1', 'B1'); // wrong type
+    expect(store.getState().summon).toBeNull();
   });
 
   it('dropCard with no slot returns the card to the hand in its original order', () => {

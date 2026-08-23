@@ -3,9 +3,14 @@ import type { CardId, GameState, PileSource, SlotId, Vec3 } from './types';
 import { createInitialState } from './cardData';
 import { canDrop } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
+import { rollCBuff } from './combatStats';
 
 /** How long (ms) the deck stays split into two piles before collapsing back. */
 export const SHUFFLE_SPREAD_MS = 300;
+
+/** How long (ms) a freshly set card is showcased over the field before it flies
+ * down into its slot. */
+export const SUMMON_SHOWCASE_MS = 800;
 
 /**
  * Authoritative Phase 1 game store. State transitions are immediate and
@@ -140,21 +145,38 @@ export function createGameStore(
         return { ...s, dragging: { ...s.dragging, hoveredSlotId: slotId } };
       }),
 
-    dropCard: (cardId, slotId) =>
-      set((s) => {
-        if (s.dragging === null || s.dragging.cardId !== cardId) return s;
-        const cardType = s.cardsById[cardId]?.type;
-        if (cardType && canDrop(s.board, slotId, cardType) && slotId !== null) {
-          return {
-            ...s,
-            hand: s.hand.filter((id) => id !== cardId),
-            board: { ...s.board, [slotId]: cardId },
-            dragging: null,
-          };
-        }
-        // Invalid drop: keep card in hand (order preserved), end the drag.
-        return { ...s, dragging: null };
-      }),
+    dropCard: (cardId, slotId) => {
+      const s = get();
+      if (s.dragging === null || s.dragging.cardId !== cardId) return;
+      const cardType = s.cardsById[cardId]?.type;
+      if (cardType && canDrop(s.board, slotId, cardType) && slotId !== null) {
+        // A C card rolls a random stat boost for its linked A card when set.
+        const cardsById =
+          cardType === 'C'
+            ? {
+                ...s.cardsById,
+                [cardId]: { ...s.cardsById[cardId], buff: rollCBuff() },
+              }
+            : s.cardsById;
+        set({
+          cardsById,
+          hand: s.hand.filter((id) => id !== cardId),
+          board: { ...s.board, [slotId]: cardId },
+          dragging: null,
+          // Kick off the summon reveal: the card is already placed, but its pose
+          // is redirected to the big centered showcase until this clears.
+          summon: { cardId, slotId },
+        });
+        setTimeout(() => {
+          set((st) =>
+            st.summon && st.summon.cardId === cardId ? { ...st, summon: null } : st,
+          );
+        }, SUMMON_SHOWCASE_MS);
+        return;
+      }
+      // Invalid drop: keep card in hand (order preserved), end the drag.
+      set({ dragging: null });
+    },
 
     returnToHand: (cardId) =>
       set((s) => {

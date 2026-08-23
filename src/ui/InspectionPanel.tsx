@@ -118,8 +118,9 @@ export function InspectionPanel() {
               {TYPE_LABEL[shown.type]} · Type {shown.type}
             </div>
 
-            {/* ATK / DEF */}
+            {/* HP / ATK / DEF */}
             <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+              <Stat label="HP" value={shown.hp} color="#2f9e46" />
               <Stat label="ATK" value={shown.atk} color="#e0663d" />
               <Stat label="DEF" value={shown.def} color="#3d9be0" />
             </div>

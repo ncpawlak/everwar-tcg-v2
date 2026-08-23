@@ -2,6 +2,8 @@ import { useGameStore } from '../state/useGameStore';
 import { BoardView } from './BoardView';
 import { SlotView } from './SlotView';
 import { CardEntity } from './CardEntity';
+import { AZoneStats } from './AZoneStats';
+import { SummonRipple } from './SummonRipple';
 import { OpeningDeal } from './OpeningDeal';
 import { ThreeBridge } from './ThreeBridge';
 
@@ -35,6 +37,8 @@ export function GameScene() {
       {cardIds.map((id) => (
         <CardEntity key={id} cardId={id} />
       ))}
+      <AZoneStats />
+      <SummonRipple />
       <OpeningDeal />
     </>
   );

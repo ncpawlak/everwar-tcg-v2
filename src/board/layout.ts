@@ -154,6 +154,37 @@ export function slotCardPose(slotId: SlotId): Pose {
 }
 
 /**
+ * World position of the summon showcase — where a freshly set card pops up big
+ * and centered over the field before flying to its slot. Sits above the board
+ * and closer to the camera than the hand fan so it reads as floating in front of
+ * everything.
+ */
+export const SUMMON_SHOWCASE_POSITION: Vec3 = [0, 3.4, 3.6];
+
+/** Uniform scale of the showcased card (much larger than a hand card). */
+export const SUMMON_SHOWCASE_SCALE = 2.4;
+
+/** Euler rotation that turns the showcased card to face the camera head-on. */
+const SUMMON_SHOWCASE_ROTATION: Vec3 = (() => {
+  const dir = new Vector3(
+    CAMERA_POSITION[0] - SUMMON_SHOWCASE_POSITION[0],
+    CAMERA_POSITION[1] - SUMMON_SHOWCASE_POSITION[1],
+    CAMERA_POSITION[2] - SUMMON_SHOWCASE_POSITION[2],
+  ).normalize();
+  const q = new Quaternion().setFromUnitVectors(new Vector3(0, 0, 1), dir);
+  const e = new Euler().setFromQuaternion(q, 'XYZ');
+  return [e.x, e.y, e.z];
+})();
+
+/** Pose of a card during its summon showcase (big, centered, facing camera). */
+export function summonShowcasePose(): Pose {
+  return {
+    position: [...SUMMON_SHOWCASE_POSITION] as Vec3,
+    rotation: [...SUMMON_SHOWCASE_ROTATION] as Vec3,
+  };
+}
+
+/**
  * Pose of a card in a face-up pile (graveyard or replen) by its index from the
  * bottom (0 = first sent). Cards lie face-up and stack upward, with a small
  * planar drift per card so the pile reads as a loose stack, not one card.

@@ -47,7 +47,13 @@ describe('P2-S03 slot rules', () => {
     expect(canDrop(b, null, 'A')).toBe(false);
   });
 
-  it('a C card can set even when its paired A is empty (type-gated only)', () => {
-    expect(canDrop(createEmptyBoard(), 'C1', 'C')).toBe(true);
+  it('a C card can only set when its linked A slot is occupied', () => {
+    // Empty board: no A cards, so no C slot is placeable.
+    expect(canDrop(createEmptyBoard(), 'C1', 'C')).toBe(false);
+    // A2 occupied -> only C2 becomes a legal C target.
+    const b = withCards({ A2: 'card-A2' });
+    expect(canDrop(b, 'C2', 'C')).toBe(true);
+    expect(canDrop(b, 'C1', 'C')).toBe(false);
+    expect(validTargetSlots(b, 'C')).toEqual(['C2']);
   });
 });

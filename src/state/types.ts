@@ -10,6 +10,19 @@ export type CardType = 'A' | 'B' | 'C';
 /** Card rarity tier, ordered common -> legendary. Drives the panel's accent. */
 export type Rarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
 
+/** The three combat stats a card carries and a C-card boost can target. */
+export type StatKey = 'hp' | 'atk' | 'def';
+
+/**
+ * A stat modifier a C card applies to its linked A card. Rolled when the C card
+ * is set (random stat + random amount). `amount` is signed: positive raises the
+ * stat (shown green), negative lowers it (shown red).
+ */
+export interface StatBuff {
+  stat: StatKey;
+  amount: number;
+}
+
 /** Slot column index within a type family (1-based, 4 per family). */
 export type SlotIndex = 1 | 2 | 3 | 4;
 
@@ -41,11 +54,19 @@ export interface Card {
   atk: number;
   /** Defense value. */
   def: number;
+  /** Max health. The floating A-zone stat bar reads current/max from here;
+   * combat (a later slice) will track a separate current-HP value. */
+  hp: number;
   rarity: Rarity;
   /** Rules text — what the card does. */
   effect: string;
   /** Non-mechanical flavor line. */
   flavor: string;
+  /**
+   * Random stat boost this card grants its linked A card. Only C cards carry
+   * one, and only once set in a C slot (rolled at placement). Absent otherwise.
+   */
+  buff?: StatBuff;
 }
 
 /** Plain 3-tuple position/rotation, decoupled from THREE.Vector3. */
@@ -71,6 +92,17 @@ export interface DragState {
   hoveredSlotId: SlotId | null;
 }
 
+/**
+ * Transient "summon reveal" state. When a card is successfully set into a slot
+ * it first pops up large and centered over the field (with a ripple), then flies
+ * down into its slot. Purely visual: the card is already placed on the board;
+ * this only redirects its pose to the showcase for a brief window.
+ */
+export interface SummonState {
+  cardId: CardId;
+  slotId: SlotId;
+}
+
 export interface GameState {
   cardsById: Record<CardId, Card>;
   /** Ordered stack; the top of the deck is the LAST element. */
@@ -93,4 +125,7 @@ export interface GameState {
   /** Pile whose search pop-up is open (opened by a dev button or by clicking
    * the pile on the board), or null when no pop-up is showing. */
   pileSearch: PileSource | null;
+  /** Card currently playing its summon-reveal (showcased over the field before
+   * flying to its slot), or null. Purely visual and transient. */
+  summon: SummonState | null;
 }

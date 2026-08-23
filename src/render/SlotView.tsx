@@ -9,7 +9,7 @@ import {
 } from '../board/boardConfig';
 import { SLOT_IDS } from '../state/cardData';
 import { useGameStore } from '../state/useGameStore';
-import { isSlotEmpty, slotAcceptsType } from '../board/slotRules';
+import { slotPlaceable } from '../board/slotRules';
 
 /**
  * The 12 typed placement slots plus the labeled graveyard/replen placeholders.
@@ -32,8 +32,7 @@ export function SlotView() {
         const highlight =
           dragCardId !== null &&
           dragType !== null &&
-          isSlotEmpty(board, slotId) &&
-          slotAcceptsType(slotId, dragType);
+          slotPlaceable(board, slotId, dragType);
         return (
           <group key={slotId} position={[x, y - 0.009, z]}>
             <mesh rotation={[-Math.PI / 2, 0, 0]}>

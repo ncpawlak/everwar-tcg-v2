@@ -14,6 +14,8 @@ export const SPRING: Record<string, SpringConfig> = {
   drag: { mass: 0.6, tension: 420, friction: 30 },
   /** Snap into a slot / return to hand. */
   snap: { mass: 1, tension: 320, friction: 26 },
+  /** Summon showcase pop — a bouncy overshoot as the card leaps up to present. */
+  summon: { mass: 1, tension: 240, friction: 16 },
 };
 
 /** Height a dragged card floats above the board. */

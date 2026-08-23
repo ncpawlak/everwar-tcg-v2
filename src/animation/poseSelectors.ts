@@ -1,7 +1,7 @@
 import type { GameState, CardId, Pose } from '../state/types';
 import type { SpringConfig } from '@react-spring/three';
 import { SLOT_IDS } from '../state/cardData';
-import { deckCardPose, deckSpreadPose, handCardPoses, slotCardPose, graveyardCardPose, replenCardPose, FAN_UP } from '../board/layout';
+import { deckCardPose, deckSpreadPose, handCardPoses, slotCardPose, graveyardCardPose, replenCardPose, summonShowcasePose, SUMMON_SHOWCASE_SCALE, FAN_UP } from '../board/layout';
 import { BOARD_CARD_SCALE, CARD_HEIGHT } from '../board/boardConfig';
 import { DRAG_LIFT, SPRING } from './motionConfig';
 
@@ -9,7 +9,7 @@ import { DRAG_LIFT, SPRING } from './motionConfig';
 const HOVER_LIFT = CARD_HEIGHT * 0.5;
 
 /** A card's zone right now, used to pick face orientation + spring feel. */
-export type CardVisualZone = 'deck' | 'hand' | 'dragging' | 'board' | 'graveyard' | 'replen';
+export type CardVisualZone = 'deck' | 'hand' | 'dragging' | 'board' | 'graveyard' | 'replen' | 'summon';
 
 export interface CardVisual {
   pose: Pose;
@@ -30,6 +30,19 @@ export function selectCardVisual(
   cardId: CardId,
   hoveredCardId: CardId | null = null,
 ): CardVisual {
+  // Summon reveal: a just-set card is showcased big & centered over the field
+  // before it flies to its slot. Takes priority over its board pose so the card
+  // pops up first, then (once the transient summon clears) springs to the slot.
+  if (state.summon && state.summon.cardId === cardId) {
+    return {
+      pose: summonShowcasePose(),
+      faceUp: true,
+      zone: 'summon',
+      config: SPRING.summon,
+      scale: SUMMON_SHOWCASE_SCALE,
+    };
+  }
+
   // Board (occupies a slot)
   for (const slotId of SLOT_IDS) {
     if (state.board[slotId] === cardId) {
