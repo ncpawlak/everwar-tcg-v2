@@ -1,4 +1,5 @@
 import type { Card, CardId, CardType, GameState, OppSlotId, SlotId } from './types';
+import { shuffleArray } from './shuffle';
 
 /** The three typed families, in canonical order. */
 export const CARD_TYPES: readonly CardType[] = ['A', 'B', 'C'];
@@ -188,10 +189,55 @@ export function createInitialOpponents(): {
   return { opponentCards, opponentBoard };
 }
 
+/** Card id for a card in the opponent's own deck (Phase 7). Distinct namespace
+ * from the player's `card-*` ids and the seeded `opp-O*` target ids. */
+export function opponentDeckCardId(key: string): CardId {
+  return `opp-deck-${key}`;
+}
+
+/**
+ * Build the opponent's own 13-card deck (Phase 7): a mirror of the player's
+ * library (4×A/B/C + Commander) under the `opp-deck-*` id namespace, shuffled.
+ * Returned cards are merged into the opponent card lookup so the same rendering
+ * and rules machinery can read them. The deck is where the opponent's future
+ * summons come from; the pre-seeded O-row targets remain separate for now.
+ */
+export function createOpponentDeck(rand: () => number = Math.random): {
+  cards: Record<CardId, Card>;
+  deck: CardId[];
+} {
+  const cards: Record<CardId, Card> = {};
+  const deck: CardId[] = [];
+  for (let i = 1; i <= SLOTS_PER_TYPE; i++) {
+    for (const type of CARD_TYPES) {
+      const key = `${type}${i}`;
+      const id = opponentDeckCardId(key);
+      cards[id] = { id, type, ...CARD_LIBRARY[key] };
+      deck.push(id);
+    }
+  }
+  const commanderId = opponentDeckCardId('A5');
+  cards[commanderId] = { id: commanderId, type: 'A', ...COMMANDER_CARD };
+  deck.push(commanderId);
+  return { cards, deck: shuffleArray(deck, rand) };
+}
+
+/** A fresh empty opponent Arcane (B) row: all four OB slots unoccupied. */
+export function createEmptyOppBBoard(): GameState['opponentBBoard'] {
+  return { OB1: null, OB2: null, OB3: null, OB4: null };
+}
+
+/** A fresh empty opponent Bulwark (C) row: all four OC slots unoccupied. */
+export function createEmptyOppCBoard(): GameState['opponentCBoard'] {
+  return { OC1: null, OC2: null, OC3: null, OC4: null };
+}
+
 /** A fresh Phase 2 game state: full deck, empty hand, empty board, no drag. */
 export function createInitialState(): GameState {
   const { cardsById, deck } = createInitialCards();
   const { opponentCards, opponentBoard } = createInitialOpponents();
+  const oppDeck = createOpponentDeck();
+  const allOpponentCards = { ...opponentCards, ...oppDeck.cards };
   return {
     cardsById,
     deck,
@@ -209,9 +255,14 @@ export function createInitialState(): GameState {
     turn: 1,
     phase: 'draw',
     phaseAnnounce: 0,
-    opponentCards,
+    opponentCards: allOpponentCards,
     opponentBoard,
     opponentGraveyard: [],
+    opponentDeck: oppDeck.deck,
+    opponentHand: [],
+    opponentReplen: [],
+    opponentBBoard: createEmptyOppBBoard(),
+    opponentCBoard: createEmptyOppCBoard(),
     attackTargets: {},
     targeting: null,
     aimPoint: null,

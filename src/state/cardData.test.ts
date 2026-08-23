@@ -45,6 +45,21 @@ describe('P2-S01 initial state', () => {
     expect(new Set(top5).size).toBeGreaterThan(1);
   });
 
+  it('P7-S1: gives the opponent its own full-player state', () => {
+    const s = createInitialState();
+    // Opponent has its own 13-card deck under the opp-deck namespace.
+    expect(s.opponentDeck).toHaveLength(DECK_SIZE);
+    expect(s.opponentDeck.every((id) => id.startsWith('opp-deck-'))).toBe(true);
+    expect(s.opponentDeck.every((id) => s.opponentCards[id])).toBe(true);
+    // Hand, replen start empty; B/C rows are all-null.
+    expect(s.opponentHand).toEqual([]);
+    expect(s.opponentReplen).toEqual([]);
+    expect(Object.values(s.opponentBBoard).every((v) => v === null)).toBe(true);
+    expect(Object.values(s.opponentCBoard).every((v) => v === null)).toBe(true);
+    expect(Object.keys(s.opponentBBoard)).toHaveLength(4);
+    expect(Object.keys(s.opponentCBoard)).toHaveLength(4);
+  });
+
   it('gives every card a full type-specific profile', () => {
     const { cardsById } = createInitialCards();
     const cards = Object.values(cardsById);

@@ -77,6 +77,18 @@ export function slotType(slotId: SlotId): CardType {
 export type OppSlotId = 'O1' | 'O2' | 'O3' | 'O4';
 
 /**
+ * Opponent Arcane (B) slot identifier — the opponent's spell/support row.
+ * Phase 7: the opponent is a full second player and fields its own B cards.
+ */
+export type OppBSlotId = 'OB1' | 'OB2' | 'OB3' | 'OB4';
+
+/**
+ * Opponent Bulwark (C) slot identifier — the opponent's support/boost row,
+ * column-linked to its Vanguard row (OC1 boosts O1, etc.). Phase 7.
+ */
+export type OppCSlotId = 'OC1' | 'OC2' | 'OC3' | 'OC4';
+
+/**
  * A card's full combat profile (Phase 3). Every card carries display + combat
  * data even though the rules that consume ATK/DEF/effect land in later slices.
  */
@@ -241,6 +253,21 @@ export interface GameState {
    * travel from their slot to the mirrored opponent graveyard pile so the death
    * reads as a move, not a vanish (mirrors the player's graveyard). */
   opponentGraveyard: CardId[];
+  /** The opponent's draw pile (Phase 7). Top of the deck is the LAST element,
+   * mirroring the player's `deck`. Seeded with a full 13-card deck so the
+   * opponent can summon its own Vanguard/Arcane/Bulwark cards on its turn. */
+  opponentDeck: CardId[];
+  /** The opponent's hand (Phase 7). Held face-down; a card reveals via the
+   * summon showcase as it hits the field. Ordered left-to-right. */
+  opponentHand: CardId[];
+  /** The opponent's replenish pile (Phase 7), mirroring the player's `replen`. */
+  opponentReplen: CardId[];
+  /** The opponent's Arcane (B) row (Phase 7): which card occupies each OB slot,
+   * or null. Mirrors the player's B slots on the opponent's side of the field. */
+  opponentBBoard: Record<OppBSlotId, CardId | null>;
+  /** The opponent's Bulwark (C) row (Phase 7): which card occupies each OC slot,
+   * or null. Column-linked to the opponent Vanguard row for stat boosts. */
+  opponentCBoard: Record<OppCSlotId, CardId | null>;
   /** Attack declarations made during Battle: each of the player's attacking
    * A-slots mapped to the opponent slot it is aiming at. An A-card attacks only
    * if it has an entry here; its rolled damage lands on that target. Cleared at
