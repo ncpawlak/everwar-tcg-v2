@@ -20,6 +20,34 @@
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-22
+
+### Everwar — Phase 2: Game Board Setup ✅
+
+> Phase 2 replaces the 3 generic placement slots with a typed, multi-zone player field and enforces card-type placement rules. Stack unchanged: TypeScript · React + Vite · Three.js / React Three Fiber v8 + drei · Zustand · @react-spring/three · Vitest.
+
+#### Added
+
+- **12-slot typed field** — three card families **A, B, C**, each with 4 column slots. Top row: four `[A | C]` pairs side by side (`A1 C1 … A4 C4`). Bottom row: four `B` slots, each centered on the x-midpoint of its paired A/C columns (`src/board/boardConfig.ts`, `src/state/cardData.ts`).
+- **GRAVE and REPLEN placeholder zones** — labeled empty tiles with no behavior yet; rendered via `PLACEHOLDER_ZONES` in `boardConfig.ts` and `SlotView.tsx`.
+- **Type-gated placement rule** — `canDrop` (and the new `validTargetSlots`) in `slotRules.ts` now require a card's type to match the target slot's type family. An empty C slot accepts a C card regardless of whether its paired A is filled.
+- **Drag-time type highlight** — only matching-type empty slots glow gold during a drag; non-matching and filled slots never highlight (`SlotView.tsx` subscribes to `dragging` card type).
+- **`CardType` discriminant in card id** — `SlotId` is a template literal type `` `${CardType}${SlotIndex}` `` so the accepted type is derivable from the id itself (`slotType(slotId)` in `types.ts`), with no parallel type map needed.
+- **Card type letter on face** — `CardView.tsx` renders the card's A/B/C type letter instead of a number; cream look preserved.
+- **Board/deck card visual scale** — `BOARD_CARD_SCALE = 0.72` in `boardConfig.ts`; `MotionCard.tsx` applies this scale to board- and deck-zone cards so the wide field fits at a Master-Duel-style smaller size while the hand stays full size. Scale is carried in the animation layer, not in the asset.
+- **Interleaved 12-card deck** — `createInitialCards()` generates 4 each of A/B/C interleaved (`A,B,C,A,B,C,…`) so the opening hand of 5 is always type-mixed.
+- **43 tests green** — new/updated tests cover typed cards, type-gated drops, all 12 slots hit-testing, and board grid geometry (`gameStore.test.ts`, `slotRules.test.ts`, `hitTest.test.ts`, `layout.test.ts`, `cardData.test.ts`, `poseSelectors.test.ts`).
+
+#### Changed
+
+- **Camera and hand anchor retuned** — `CAMERA_POSITION`, `CAMERA_TARGET`, and `HAND_ANCHOR` adjusted for the wider board; hand pushed toward the player so a hover-raised card clears the B row.
+- **Row-zone alignment** — the A/C top row is horizontally aligned with the GRAVE zone; the B bottom row aligns with DECK and REPLEN.
+- **`slotRules.ts`** — `canDrop` signature extended with a `cardType` parameter; old `getValidSlots` replaced by `validTargetSlots(board, cardType)`.
+- **`types.ts`** — `CardType`, `SlotIndex`, `SlotId` added; `Card` gains a `type` field.
+- **`cardData.ts`** — `createInitialCards()` produces 12 typed cards; `SLOT_IDS`, `DECK_SIZE`, `OPENING_HAND_SIZE` exported as constants.
+
+---
+
 ### Harness
 
 ### Added
