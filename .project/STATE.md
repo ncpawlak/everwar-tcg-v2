@@ -10,13 +10,18 @@
 
 | Field | Value |
 |-------|-------|
-| **Current phase / gate** | Harness self-maintenance — idle / awaiting direction |
-| **Active branch** | `agent-harness` (source of authority; mirrored to `master`) |
-| **In-flight** | Nothing active |
-| **Last milestone** | Fleet mode added (auto-scaled parallel execution, Constraint #25) |
-| **Blocked on** | Nothing |
-| **Next up** | Await user direction (optional: instantiate real Nightwatch cron in a repo with tests) |
-| **Last updated** | 2026-08-17 — Orchestrator |
+| **Current phase / gate** | Everwar TCG · **Phase 1** — **Gate 2** (TDD build loop in progress) |
+| **Active branch** | `npawlakel-tcg-phase-1-card-animations` (worktree; base `main`) |
+| **In-flight** | Card-handling vertical slice: scaffold + state + board logic + render + drag/drop all landed; 30 tests green; dev server + preview running |
+| **Last milestone** | Playable Phase 1 slice: deck of 10, staggered deal of 5, click-draw, hover-lift, drag, gold slot highlight, snap/return |
+| **Blocked on** | User rendered-verification of feel (Constraint #14), then Reviewer full pass → Gate 2.5 push approval |
+| **Next up** | Visual review → feel/polish + interruptibility tuning (P1-S17) → full regression → Gate 2.5 |
+| **Last updated** | 2026-08-22 — Orchestrator |
+
+### Project snapshot
+- **What:** Everwar — 3D TCG. Phase 1 = tactile card-handling vertical slice (no rules). Feel bar = Master Duel.
+- **Stack:** TypeScript · React + Vite · Three.js / React Three Fiber + drei · Zustand state · spring/GSAP tweens.
+- **Locked decisions:** browser-first (desktop later) · angled 3D board · mouse-only · procedural placeholder cards · auto-deal 5 then click-deck to draw · 3 spots, place-and-stay · motion juice only (no audio/VFX) · invalid drop snaps back to hand.
 
 ## Notes
 - The Orchestrator owns this file. If it's stale, resumption and `boot` degrade —

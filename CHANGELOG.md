@@ -20,6 +20,22 @@
 
 ## [Unreleased]
 
+### Everwar — Phase 1: Card-Handling Vertical Slice (in progress)
+
+> Phase 1 builds the tactile 3D card experience only — no game rules. Feel bar: YuGiOh Master Duel. Stack: TypeScript · React + Vite · Three.js / React Three Fiber + drei · Zustand · @react-spring/three · Vitest.
+
+#### Added (Phase 1)
+- **Project scaffold** — Vite + React + TypeScript app, R3F/drei canvas, Zustand, react-spring, Vitest. Angled 3D camera over a playmat (`src/app/App.tsx`, `src/render/`).
+- **Authoritative game state** — normalized deck/hand/board/dragging store with `drawCard`, `beginDrag`, `updateDrag`, `hoverSlot`, `dropCard`, `returnToHand` (`src/state/`). State is authoritative; animation only visualizes it.
+- **Pure board logic** — slot occupancy/valid-drop rules, deck-stack + hand-fan + slot pose math, and pointer→slot hit-testing (`src/board/`, `src/input/hitTest.ts`). Fully unit-tested.
+- **Procedural placeholder cards** — thin beveled card with a front number 1–10 and a distinct back (`src/cards/CardView.tsx`).
+- **Deck of 10 + staggered opening deal of 5** — cards pop off the deck into a fanned hand; clicking the deck draws the rest one at a time (`src/render/OpeningDeal.tsx`, `DeckView.tsx`).
+- **Hover-lift, drag, and placement** — grab a hand card and drag it (projected onto the board plane); the 3 empty slots show a gold outline; drop snaps into an empty slot (place-and-stay) or smoothly returns to hand (`src/render/CardEntity.tsx`, `src/input/DragLayer.tsx`, `src/render/SlotView.tsx`).
+- **Interruptible spring animation layer** driven by state-derived target poses (`src/animation/`).
+- **30 unit/regression tests** covering state transitions, draw order, slot rules, layout math, hit-testing, and pose selection.
+
+### Harness
+
 ### Added
 - **Fleet mode (auto-scaled parallel execution)** — the Orchestrator now automatically decides whether to run a fleet of parallel Coder ↔ Reviewer loops based on the work: engaged for large *and* shardable tasks (codebase deep-dive, large Finalize, broad refactor/migration, test backfill, multi-repo propagation), single-track for small or tightly-coupled work. Uses exclusive per-loop file ownership (conflict prevention by partition), proportional concurrency, and draft-PR-only rails (never merges). New `.agent/skills/fleet.md`, "Fleet Mode" section in `agents.md`, Constraint #25, Orchestrator routing row + "Automatic Fleet Scaling" section, README "Automatic Behaviors", and a fleet-economics note in `model-config.md`.
 - `.project/STATE.md` — a live "where are we" snapshot (current gate, in-flight story, branch, last milestone) the Orchestrator maintains and `boot` reads first, so context recovery is instant instead of reconstructed from git log.
