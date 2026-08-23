@@ -1,7 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { BAbility, CardId, CardType, DiceState, GameState, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
 import { createInitialState } from './cardData';
-import { canDrop, validTargetSlots } from '../board/slotRules';
+import { canDropCard, requiresTribute, canAffordTribute, validTargetSlots } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
 import { rollCBuff, effectiveStats } from './combatStats';
 import { resolveRoll } from './diceRules';
@@ -71,6 +71,15 @@ export interface GameActions {
    * anywhere or it isn't the Main phase. Used by the double-click shortcut.
    */
   autoPlaceCard: (cardId: CardId) => void;
+  /**
+   * Confirm a pending level-3 tribute summon with the chosen material A-slots:
+   * send those A-cards (and their linked C-cards) to the replen pile, then place
+   * the pending card into its target slot. No-op unless a tribute is pending and
+   * the selected materials' levels sum exactly to the card's level.
+   */
+  confirmTributeSummon: (materialSlots: SlotId[]) => void;
+  /** Cancel a pending tribute summon; the card stays in hand. */
+  cancelTributeSummon: () => void;
   /** Cancel the drag, leaving the card in its existing hand order. */
   returnToHand: (cardId: CardId) => void;
   /** Raise a hand card under the pointer (selection hint), or clear with null. */
@@ -110,7 +119,8 @@ export interface GameActions {
   shuffleDeck: () => void;
   /** Move the whole replenish pile into the deck, then shuffle (animated). */
   replenIntoDeck: () => void;
-  /** Move the whole graveyard into the deck, then shuffle (animated). */
+  /** "Shuffle graveyard into deck" — routes the graveyard into the replen pile
+   * (shuffled). Replen itself folds back into the deck at End. */
   graveyardIntoDeck: () => void;
   /** Return the whole hand to the deck, then shuffle (animated). */
   handIntoDeck: () => void;
@@ -244,11 +254,12 @@ export function createGameStore(
 
       /**
        * End-phase resolution (fires on ENTERING End): shuffle the replen pile
-       * back into the deck, then send every non-continuous B card on the field to
-       * the graveyard. Continuous B cards stay put.
+       * back into the deck ONLY when it holds cards (an empty replen leaves the
+       * deck untouched — no needless shuffle), then send every non-continuous B
+       * card on the field to the graveyard. Continuous B cards stay put.
        */
       const runEndPhase = () => {
-        get().replenIntoDeck();
+        if (get().replen.length > 0) get().replenIntoDeck();
         set((s) => {
           const board = { ...s.board };
           const sent: CardId[] = [];
@@ -346,12 +357,17 @@ export function createGameStore(
               let destroyedAny = false;
               set((s) => {
                 const opponentBoard = { ...s.opponentBoard };
+                const opponentGraveyard = [...s.opponentGraveyard];
                 const currentHp = { ...s.currentHp };
                 for (const slot of OPP_SLOT_IDS) {
                   const oppId = opponentBoard[slot];
                   if (!oppId || (currentHp[oppId] ?? Infinity) > 0) continue;
                   destroyedAny = true;
+                  // Free the slot but keep the card alive in state so it springs
+                  // from the slot into the opponent graveyard pile (mirror of the
+                  // player's death → graveyard travel) instead of vanishing.
                   opponentBoard[slot] = null;
+                  opponentGraveyard.push(oppId);
                   delete currentHp[oppId];
                 }
                 return {
@@ -361,6 +377,7 @@ export function createGameStore(
                   resolutionResults: {},
                   destroying: [],
                   opponentBoard,
+                  opponentGraveyard,
                   currentHp,
                 };
               });
@@ -450,15 +467,20 @@ export function createGameStore(
     dropCard: (cardId, slotId) => {
       const s = get();
       if (s.dragging === null || s.dragging.cardId !== cardId) return;
-      const cardType = s.cardsById[cardId]?.type;
+      const card = s.cardsById[cardId];
       // Cards may only be set during the Main phase.
       if (
         s.phase === 'main' &&
-        cardType &&
-        canDrop(s.board, slotId, cardType) &&
-        slotId !== null
+        card &&
+        slotId !== null &&
+        canDropCard(s.board, s.cardsById, slotId, card)
       ) {
-        commitPlacement(cardId, cardType, slotId);
+        if (requiresTribute(card)) {
+          // Hold the card in hand and open material selection instead of placing.
+          set({ dragging: null, pendingTribute: { cardId, slotId } });
+        } else {
+          commitPlacement(cardId, card.type, slotId);
+        }
         return;
       }
       // Invalid drop: keep card in hand (order preserved), end the drag.
@@ -470,13 +492,63 @@ export function createGameStore(
       // Quick-set is Main-phase only and never interrupts an active drag.
       if (s.phase !== 'main' || s.dragging !== null) return;
       if (!s.hand.includes(cardId)) return;
-      const cardType = s.cardsById[cardId]?.type;
-      if (!cardType) return;
+      const card = s.cardsById[cardId];
+      if (!card) return;
+      // A tribute-summon card can't just drop into a slot — open material
+      // selection (if affordable), targeting the first open A slot.
+      if (requiresTribute(card)) {
+        if (!canAffordTribute(s.board, s.cardsById, card)) return;
+        const target = validTargetSlots(s.board, 'A')[0];
+        if (!target) return;
+        set({ pendingTribute: { cardId, slotId: target } });
+        return;
+      }
       // Next available legal slot in board order; do nothing if there is none.
-      const target = validTargetSlots(s.board, cardType)[0];
+      const target = validTargetSlots(s.board, card.type)[0];
       if (!target) return;
-      commitPlacement(cardId, cardType, target);
+      commitPlacement(cardId, card.type, target);
     },
+
+    confirmTributeSummon: (materialSlots) => {
+      const s = get();
+      const pending = s.pendingTribute;
+      if (!pending) return;
+      const card = s.cardsById[pending.cardId];
+      if (!card) return;
+      const need = card.level ?? 0;
+      // Validate the selection: every slot is an occupied A slot and the levels
+      // sum EXACTLY to the pending card's level.
+      let sum = 0;
+      for (const aSlot of materialSlots) {
+        if (aSlot[0] !== 'A') return;
+        const mid = s.board[aSlot];
+        if (!mid) return;
+        sum += s.cardsById[mid]?.level ?? 1;
+      }
+      if (sum !== need || materialSlots.length === 0) return;
+      // Send each material A-card (and its linked C-card) away. Commanders send
+      // their materials to the GRAVEYARD; ordinary level-3 summons to the replen.
+      const toGraveyard = card.commander === true;
+      const board = { ...s.board };
+      const replen = [...s.replen];
+      const graveyard = [...s.graveyard];
+      const sink = toGraveyard ? graveyard : replen;
+      for (const aSlot of materialSlots) {
+        sink.push(board[aSlot]!);
+        board[aSlot] = null;
+        const cSlot = `C${aSlot[1]}` as SlotId;
+        if (board[cSlot]) {
+          sink.push(board[cSlot]!);
+          board[cSlot] = null;
+        }
+      }
+      set({ board, replen, graveyard, pendingTribute: null });
+      // The target A slot is now guaranteed empty; run the normal placement +
+      // summon showcase for the card (still in hand until this fires).
+      commitPlacement(pending.cardId, 'A', pending.slotId);
+    },
+
+    cancelTributeSummon: () => set(() => ({ pendingTribute: null })),
 
     returnToHand: (cardId) =>
       set((s) => {
@@ -573,8 +645,13 @@ export function createGameStore(
     replenIntoDeck: () =>
       beginShuffle((s) => ({ deck: [...s.deck, ...s.replen], replen: [] })),
 
+    // "Shuffle graveyard into deck" routes through the replen pile: the cards
+    // land (shuffled) in replen, which itself folds back into the deck at End.
     graveyardIntoDeck: () =>
-      beginShuffle((s) => ({ deck: [...s.deck, ...s.graveyard], graveyard: [] })),
+      set((s) => ({
+        replen: shuffleArray([...s.replen, ...s.graveyard]),
+        graveyard: [],
+      })),
 
     handIntoDeck: () =>
       beginShuffle((s) => ({

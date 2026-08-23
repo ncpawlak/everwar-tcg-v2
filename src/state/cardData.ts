@@ -13,22 +13,22 @@ export const CARD_TYPES: readonly CardType[] = ['A', 'B', 'C'];
  */
 export const CARD_LIBRARY: Record<string, Omit<Card, 'id' | 'type'>> = {
   A1: {
-    name: 'Ashborne Vanguard', cost: 3, dmg: 1800, acc: 130, hp: 1900, rarity: 'Rare',
+    name: 'Ashborne Vanguard', cost: 3, level: 2, dmg: 1800, acc: 130, hp: 1900, rarity: 'Rare',
     effect: 'When this card is set, it gains +200 DMG for each other Vanguard you control.',
     flavor: 'First through the breach, last to fall.',
   },
   A2: {
-    name: 'Emberfang Reaver', cost: 4, dmg: 2100, acc: 150, hp: 1700, rarity: 'Epic',
+    name: 'Emberfang Reaver', cost: 4, level: 2, dmg: 2100, acc: 150, hp: 1700, rarity: 'Epic',
     effect: "Once per turn: discard a card to raise this card's DMG by 500 until end of turn.",
     flavor: 'It hungers for the clash of steel.',
   },
   A3: {
-    name: 'Ironclad Lancer', cost: 2, dmg: 1500, acc: 100, hp: 2000, rarity: 'Common',
+    name: 'Ironclad Lancer', cost: 2, level: 1, dmg: 1500, acc: 100, hp: 2000, rarity: 'Common',
     effect: 'This card cannot be destroyed by the first attack it faces each turn.',
     flavor: 'A wall that marches.',
   },
   A4: {
-    name: 'Warcry Commander', cost: 5, dmg: 2400, acc: 170, hp: 2300, rarity: 'Legendary',
+    name: 'Warcry Commander', cost: 5, level: 3, dmg: 2400, acc: 170, hp: 2300, rarity: 'Legendary',
     effect: 'All Vanguard cards you control gain +300 DMG. When summoned, draw one card.',
     flavor: 'Follow the banner, and fear nothing.',
   },
@@ -74,6 +74,21 @@ export const CARD_LIBRARY: Record<string, Omit<Card, 'id' | 'type'>> = {
   },
 };
 
+/**
+ * The Commander card — a 5th A-card that joins the deck on top of the 4/4/4 base.
+ * It uses the level-3 tribute rules (materials must sum to 3), but as a Commander
+ * its tributed materials are sent to the GRAVEYARD rather than the replen pile.
+ */
+export const COMMANDER_CARD: Omit<Card, 'id' | 'type'> = {
+  name: 'Aurelian Warlord', cost: 6, level: 3, commander: true,
+  dmg: 2600, acc: 180, hp: 2500, rarity: 'Legendary',
+  effect: 'Commander. Tribute materials totaling level 3 (they are sent to the graveyard).',
+  flavor: 'Where the Warlord walks, empires kneel.',
+};
+
+/** Card id of the Commander card added to the deck. */
+export const COMMANDER_ID: CardId = 'card-A5';
+
 /** Slots per type family. */
 export const SLOTS_PER_TYPE = 4;
 
@@ -85,8 +100,8 @@ export const SLOT_IDS: readonly SlotId[] = CARD_TYPES.flatMap((t) =>
   Array.from({ length: SLOTS_PER_TYPE }, (_, i) => `${t}${i + 1}` as SlotId),
 );
 
-/** Phase 2 deck size: 4 of each of the 3 types. */
-export const DECK_SIZE = CARD_TYPES.length * SLOTS_PER_TYPE;
+/** Phase 2 deck size: 4 of each of the 3 types, plus the single Commander card. */
+export const DECK_SIZE = CARD_TYPES.length * SLOTS_PER_TYPE + 1;
 
 /** Cards drawn automatically on start. */
 export const OPENING_HAND_SIZE = 5;
@@ -113,6 +128,9 @@ export function createInitialCards(): {
       deck.push(id);
     }
   }
+  // The Commander joins on top of the deck (drawn early so it's easy to field).
+  cardsById[COMMANDER_ID] = { id: COMMANDER_ID, type: 'A', ...COMMANDER_CARD };
+  deck.push(COMMANDER_ID);
   return { cardsById, deck };
 }
 
@@ -187,11 +205,13 @@ export function createInitialState(): GameState {
     selectedCardId: null,
     pileSearch: null,
     summon: null,
+    pendingTribute: null,
     turn: 1,
     phase: 'draw',
     phaseAnnounce: 0,
     opponentCards,
     opponentBoard,
+    opponentGraveyard: [],
     attackTargets: {},
     targeting: null,
     aimPoint: null,

@@ -119,6 +119,43 @@ export function InspectionPanel() {
               {TYPE_LABEL[shown.type]} · Type {shown.type}
             </div>
 
+            {/* Summon level + Commander tag (A cards) — mirrors the tribute rules. */}
+            {shown.type === 'A' && shown.level != null && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 800,
+                    letterSpacing: 0.5,
+                    color: '#e6c14a',
+                    background: 'rgba(230,193,74,0.14)',
+                    border: '1px solid rgba(230,193,74,0.55)',
+                    borderRadius: 999,
+                    padding: '3px 10px',
+                  }}
+                >
+                  ★ Level {shown.level}
+                </span>
+                {shown.commander && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 800,
+                      letterSpacing: 1.5,
+                      textTransform: 'uppercase',
+                      color: '#f0d27a',
+                      background: 'rgba(240,210,122,0.12)',
+                      border: '1px solid rgba(240,210,122,0.6)',
+                      borderRadius: 999,
+                      padding: '3px 10px',
+                    }}
+                  >
+                    Commander
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* Type-specific highlight: A = combat stats, B = ability, C = boost. */}
             {shown.type === 'A' ? (
               <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>

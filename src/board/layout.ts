@@ -1,5 +1,5 @@
 import { Euler, Quaternion, Vector3 } from 'three';
-import type { Pose, SlotId, Vec3 } from '../state/types';
+import type { Pose, SlotId, OppSlotId, Vec3 } from '../state/types';
 import {
   BOARD_CARD_SCALE,
   CAMERA_POSITION,
@@ -14,6 +14,8 @@ import {
   HAND_MAX_HALF_WIDTH,
   HAND_TILT_PER_CARD,
   SLOT_POSITIONS,
+  mirrorPoint,
+  OPP_HAND_ANCHOR,
 } from './boardConfig';
 
 /**
@@ -209,4 +211,63 @@ export function graveyardCardPose(indexFromBottom: number): Pose {
 /** Pose of a card in the replenish pile by its index from the bottom. */
 export function replenCardPose(indexFromBottom: number): Pose {
   return pileCardPose(REPLEN_ANCHOR, indexFromBottom);
+}
+
+/* --- Opponent side: 180°-mirrored poses (Phase 6, purely visual) --- */
+
+/** Rotate an orientation 180° about world-up, matching the positional mirror
+ * (point-reflection through the vertical board-center axis). */
+const Y180 = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI);
+
+/** Mirror a pose to the opponent side: reflect the position through the board
+ * center and spin the orientation 180° about world-up (so a laid-flat card ends
+ * up upside-down, a deck card stays face-down, etc). */
+export function mirrorPose(pose: Pose): Pose {
+  const q = new Quaternion().setFromEuler(
+    new Euler(pose.rotation[0], pose.rotation[1], pose.rotation[2], 'XYZ'),
+  );
+  const m = Y180.clone().multiply(q);
+  const e = new Euler().setFromQuaternion(m, 'XYZ');
+  return { position: mirrorPoint(pose.position), rotation: [e.x, e.y, e.z] };
+}
+
+/** Fanned opponent hand poses: the player's camera-facing fan translated up to
+ * the opponent's hand anchor. We deliberately DON'T mirror the orientation —
+ * the cards must stay flat-on to the camera (showing their backs) rather than
+ * rotating edge-on. Positions mirror (via the anchor) so the fan sits at the
+ * top of the screen. */
+const OPP_HAND_OFFSET: Vec3 = [
+  OPP_HAND_ANCHOR[0] - HAND_ANCHOR[0],
+  OPP_HAND_ANCHOR[1] - HAND_ANCHOR[1],
+  OPP_HAND_ANCHOR[2] - HAND_ANCHOR[2],
+];
+
+export function opponentHandPoses(count: number): Pose[] {
+  return handCardPoses(count).map((p) => ({
+    position: [
+      p.position[0] + OPP_HAND_OFFSET[0],
+      p.position[1] + OPP_HAND_OFFSET[1],
+      p.position[2] + OPP_HAND_OFFSET[2],
+    ],
+    rotation: [...p.rotation] as Vec3,
+  }));
+}
+
+/** Opponent deck-stack pose by index from the bottom (mirror of the player's). */
+export function opponentDeckPose(indexFromBottom: number): Pose {
+  return mirrorPose(deckCardPose(indexFromBottom));
+}
+
+/** Opponent A-card resting in a far-row slot — the mirror of the matching
+ * player slot pose, so it lies flat but upside-down on the opponent's side.
+ * O1..O4 mirror A1..A4. */
+export function opponentSlotCardPose(oppSlotId: OppSlotId): Pose {
+  const playerSlot = `A${oppSlotId.slice(1)}` as SlotId;
+  return mirrorPose(slotCardPose(playerSlot));
+}
+
+/** Opponent graveyard pile pose by index from the bottom (mirror of the
+ * player's graveyard stack, so it stacks at the opponent's grave anchor). */
+export function opponentGraveyardCardPose(indexFromBottom: number): Pose {
+  return mirrorPose(graveyardCardPose(indexFromBottom));
 }

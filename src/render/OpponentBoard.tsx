@@ -2,32 +2,42 @@ import { useGameStore } from '../state/useGameStore';
 import {
   OPP_SLOT_IDS,
   OPP_SLOT_POSITIONS,
-  BOARD_CARD_SCALE,
   BOARD_CARD_WIDTH,
   BOARD_CARD_HEIGHT,
-  CARD_THICKNESS,
 } from '../board/boardConfig';
 import { Edges } from '@react-three/drei';
+import { MotionCard } from '../animation/MotionCard';
+import { selectOpponentCardVisual } from '../animation/poseSelectors';
 import { CardView } from '../cards/CardView';
-import { StatOverlay } from './StatOverlay';
+import {
+  HpOverlay,
+  DmgAccOverlay,
+  HP_Y_OFFSET,
+  HP_Z_OFFSET,
+  DA_Y_OFFSET,
+  DA_Z_OFFSET,
+} from './StatOverlay';
 import type { EffectiveStats } from '../state/combatStats';
-import type { Card, Vec3 } from '../state/types';
+import type { Card, OppSlotId, Vec3 } from '../state/types';
 
 /**
- * The opponent's Vanguard row across the far side of the field. Renders each
- * seeded opponent A-card face-up in its slot with a floating HP/DMG/ACC plate
- * above it (so its health bar drains as your attacks land). While you're aiming
- * an attack (`targeting` set), every occupied opponent card lights up with a
- * gold outline to show it's a valid target. Cards vanish when removed from
- * `opponentBoard` (destroyed at 0 HP). Purely presentational — picking/targeting
- * is handled by PointerControls.
+ * The opponent's Vanguard row across the far side of the field. Each seeded
+ * opponent A-card is rendered by a MotionCard driven purely by state via
+ * `selectOpponentCardVisual`, so it lies upside-down in its slot while alive and
+ * springs into the mirrored opponent graveyard when destroyed (instead of
+ * vanishing). Its HP number/bar sits just above the card and its DMG/ACC line
+ * just below — the same screen-space split as the player, kept upright by the
+ * billboard. While you're aiming an attack (`targeting` set) every occupied
+ * opponent card lights up with a gold outline. Picking is via PointerControls.
  */
 
-/** Card lying flat on the mat, face up toward the camera (matches player board). */
-const FLAT_ROTATION: Vec3 = [-Math.PI / 2, 0, 0];
-/** Plate float above the card (mirrors the player A-zone plate offsets). */
-const PLATE_Y_OFFSET = 0.9;
-const PLATE_Z_OFFSET = 0.1;
+/** Overlay position for an opponent A card: offset from the card in screen space
+ * (up-screen is -z for both boards) so HP sits above the card and DMG/ACC below,
+ * exactly like the player's. */
+function oppOverlayPos(oppSlot: OppSlotId, yOff: number, zOff: number): Vec3 {
+  const [x, y, z] = OPP_SLOT_POSITIONS[oppSlot];
+  return [x, y + yOff, z + zOff];
+}
 
 /** Opponent cards carry no C-buffs, so every stat is at base (delta 0). */
 function opponentStats(card: Card): EffectiveStats {
@@ -45,18 +55,29 @@ export function OpponentBoard() {
 
   return (
     <>
+      {/* Every opponent card (on-board or traveling to the grave) is a MotionCard
+          so zone changes animate. Keyed by card id, not slot, so a card removed
+          from its slot keeps its identity and springs to the graveyard. */}
+      {Object.keys(opponentCards).map((id) => {
+        const visual = selectOpponentCardVisual(state, id);
+        if (!visual) return null;
+        const card = opponentCards[id];
+        return (
+          <MotionCard key={id} pose={visual.pose} config={visual.config} scale={visual.scale}>
+            <CardView card={card} pickable={false} />
+          </MotionCard>
+        );
+      })}
+
+      {/* Targeting outline + HP plate for each still-on-board slot (upright). */}
       {OPP_SLOT_IDS.map((slot) => {
-        const id = opponentBoard[slot];
+        const id = opponentBoard[slot as OppSlotId];
         if (!id) return null;
         const card = opponentCards[id];
         if (!card) return null;
-        const [x, y, z] = OPP_SLOT_POSITIONS[slot];
-        const cardY = y + CARD_THICKNESS * BOARD_CARD_SCALE;
+        const [x, y, z] = OPP_SLOT_POSITIONS[slot as OppSlotId];
         return (
           <group key={slot}>
-            <group position={[x, cardY, z]} rotation={FLAT_ROTATION} scale={BOARD_CARD_SCALE}>
-              <CardView card={card} pickable={false} />
-            </group>
             {selectable && (
               <mesh position={[x, y + 0.004, z]} rotation={[-Math.PI / 2, 0, 0]}>
                 <planeGeometry args={[BOARD_CARD_WIDTH * 1.16, BOARD_CARD_HEIGHT * 1.16]} />
@@ -64,10 +85,14 @@ export function OpponentBoard() {
                 <Edges scale={1} threshold={15} color="#ffcf3f" />
               </mesh>
             )}
-            <StatOverlay
+            <HpOverlay
               stats={opponentStats(card)}
-              position={[x, y + PLATE_Y_OFFSET, z + PLATE_Z_OFFSET]}
+              position={oppOverlayPos(slot as OppSlotId, HP_Y_OFFSET, HP_Z_OFFSET)}
               currentHp={state.currentHp[id]}
+            />
+            <DmgAccOverlay
+              stats={opponentStats(card)}
+              position={oppOverlayPos(slot as OppSlotId, DA_Y_OFFSET, DA_Z_OFFSET)}
             />
           </group>
         );

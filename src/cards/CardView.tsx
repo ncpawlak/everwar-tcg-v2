@@ -81,6 +81,36 @@ export function CardView({ card, pickable = true }: { card: Card; pickable?: boo
         <meshBasicMaterial color={rarityColor} />
       </mesh>
 
+      {/* Level pill + Commander tag (A cards only), centered under the name band
+          between the cost pip and rarity gem so it reads on small board cards. */}
+      {card.type === 'A' && card.level != null && (
+        <Text
+          position={[0, HALF_H - 0.27, ZF + 0.003]}
+          fontSize={0.072}
+          color="#d8b24a"
+          outlineWidth={0.004}
+          outlineColor="#2a1e06"
+          anchorX="center"
+          anchorY="middle"
+        >
+          {`Lv ${card.level}`}
+        </Text>
+      )}
+      {card.type === 'A' && card.commander && (
+        <Text
+          position={[0, HALF_H - 0.37, ZF + 0.003]}
+          fontSize={0.038}
+          letterSpacing={0.06}
+          color="#e6b23a"
+          outlineWidth={0.003}
+          outlineColor="#2a1e06"
+          anchorX="center"
+          anchorY="middle"
+        >
+          ★ COMMANDER ★
+        </Text>
+      )}
+
       {/* Big type letter */}
       <Text
         position={[0, 0.0, ZF + 0.001]}

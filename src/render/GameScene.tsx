@@ -9,6 +9,8 @@ import { OutcomePopups } from './OutcomePopups';
 import { DamagePopups } from './DamagePopups';
 import { DestructionFx } from './DestructionFx';
 import { OpponentBoard } from './OpponentBoard';
+import { OpponentField } from './OpponentField';
+import { OpponentHand } from './OpponentHand';
 import { TargetingArrows } from './TargetingArrows';
 import { OpeningDeal } from './OpeningDeal';
 import { ThreeBridge } from './ThreeBridge';
@@ -40,6 +42,8 @@ export function GameScene() {
       />
       <BoardView />
       <SlotView />
+      <OpponentField />
+      <OpponentHand />
       <OpponentBoard />
       {cardIds.map((id) => (
         <CardEntity key={id} cardId={id} />

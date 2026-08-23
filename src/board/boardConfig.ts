@@ -15,10 +15,12 @@ import type { CardType, OppSlotId, SlotId, Vec3 } from '../state/types';
 export const BOARD_Y = 0;
 
 /** Fixed camera framing (single source of truth for App + layout math).
- * Kept centered on x=0 so the hand fan basis stays symmetric. */
-export const CAMERA_POSITION: Vec3 = [0, 8.4, 7.7];
+ * Kept centered on x=0 so the hand fan basis stays symmetric. A steeper,
+ * more overhead angle (Master-Duel-style) so the billboarded stat tags read
+ * as flat labels near the mat instead of skewed standing cards. */
+export const CAMERA_POSITION: Vec3 = [0, 9.9, 6.3];
 export const CAMERA_TARGET: Vec3 = [0, 0, -0.55];
-export const CAMERA_FOV = 44;
+export const CAMERA_FOV = 46;
 
 /** Card footprint (world units) at hand scale. Thin beveled card (~59:86). */
 export const CARD_WIDTH = 0.62;
@@ -58,22 +60,8 @@ function buildSlotPositions(): Record<SlotId, Vec3> {
 /** World-space center of each of the 12 typed placement slots. */
 export const SLOT_POSITIONS: Record<SlotId, Vec3> = buildSlotPositions();
 
-/** Depth (world z) of the opponent's Vanguard row, across the field from the
- * player's A/C row (which sits at TOP_ROW_Z = -0.3). Far enough back to read as
- * the enemy side, still comfortably inside the camera framing. */
-const OPP_ROW_Z = -1.62;
-
-/** The four opponent Vanguard slot ids, left-to-right. */
+/** The four opponent Vanguard slot ids, left-to-right (their A-zone). */
 export const OPP_SLOT_IDS = ['O1', 'O2', 'O3', 'O4'] as const;
-
-/** World-space center of each opponent Vanguard slot — one per column-pair
- * center, mirrored across the field on the opponent row. */
-export const OPP_SLOT_POSITIONS: Record<OppSlotId, Vec3> = {
-  O1: [PAIR_CENTERS_X[0], BOARD_Y, OPP_ROW_Z],
-  O2: [PAIR_CENTERS_X[1], BOARD_Y, OPP_ROW_Z],
-  O3: [PAIR_CENTERS_X[2], BOARD_Y, OPP_ROW_Z],
-  O4: [PAIR_CENTERS_X[3], BOARD_Y, OPP_ROW_Z],
-};
 
 /** Radius (world units) around a slot center that counts as a hover/drop hit. */
 export const SLOT_HIT_RADIUS = 0.34;
@@ -120,3 +108,51 @@ export const PLACEHOLDER_ZONES: ZonePlaceholder[] = [
 export function slotTypeLabel(slotId: SlotId): CardType {
   return slotId[0] as CardType;
 }
+
+/* ------------------------------------------------------------------ *
+ *  Opponent field — a 180° mirror of the player's field (Phase 6).
+ *
+ *  The opponent side is a point-reflection of Player 1's field through a
+ *  vertical axis at the board center: x mirrors about 0 and z reflects about
+ *  MIRROR_CZ. This is equivalent to rotating the whole player field 180° about
+ *  that vertical axis — so the opponent's deck lands top-LEFT (mirror of the
+ *  player's bottom-RIGHT deck), their frontline sits directly across from the
+ *  player's A/C row, and placed cards read upside-down (as if seen across a
+ *  real table). Stat plates are billboarded, so they stay upright/readable.
+ * ------------------------------------------------------------------ */
+
+/** Mirror center on z. Picked so the opponent A/C row lands well across from the
+ * player's A/C row (-0.3) with a clear no-man's-land gap between the two fields. */
+const MIRROR_CZ = -1.25;
+
+/** Point-reflect a board position to the opponent side (x about 0, z about
+ * MIRROR_CZ). Height (y) is preserved. */
+export function mirrorPoint([x, y, z]: Vec3): Vec3 {
+  return [-x, y, 2 * MIRROR_CZ - z];
+}
+
+/** All 12 opponent zone centers — the mirror of every player slot. */
+export const OPP_FULL_SLOT_POSITIONS: Record<SlotId, Vec3> = Object.fromEntries(
+  (Object.keys(SLOT_POSITIONS) as SlotId[]).map((s) => [s, mirrorPoint(SLOT_POSITIONS[s])]),
+) as Record<SlotId, Vec3>;
+
+/** The opponent's Vanguard (A-zone) slot centers, used for attack targeting.
+ * O1..O4 mirror the player's A1..A4. */
+export const OPP_SLOT_POSITIONS: Record<OppSlotId, Vec3> = {
+  O1: OPP_FULL_SLOT_POSITIONS.A1,
+  O2: OPP_FULL_SLOT_POSITIONS.A2,
+  O3: OPP_FULL_SLOT_POSITIONS.A3,
+  O4: OPP_FULL_SLOT_POSITIONS.A4,
+};
+
+/** Mirrored right-side pile anchors + hand anchor for the opponent field. */
+export const OPP_DECK_ANCHOR: Vec3 = mirrorPoint(DECK_ANCHOR);
+export const OPP_GRAVEYARD_ANCHOR: Vec3 = mirrorPoint(GRAVEYARD_ANCHOR);
+export const OPP_REPLEN_ANCHOR: Vec3 = mirrorPoint(REPLEN_ANCHOR);
+export const OPP_HAND_ANCHOR: Vec3 = mirrorPoint(HAND_ANCHOR);
+
+/** Opponent placeholder zones (mirrored grave/replen), for the render layer. */
+export const OPP_PLACEHOLDER_ZONES: ZonePlaceholder[] = [
+  { label: 'GRAVE', anchor: OPP_GRAVEYARD_ANCHOR },
+  { label: 'REPLEN', anchor: OPP_REPLEN_ANCHOR },
+];

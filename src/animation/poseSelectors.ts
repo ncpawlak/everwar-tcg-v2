@@ -1,8 +1,8 @@
-import type { GameState, CardId, Pose } from '../state/types';
+import type { GameState, CardId, OppSlotId, Pose } from '../state/types';
 import type { SpringConfig } from '@react-spring/three';
 import { SLOT_IDS } from '../state/cardData';
-import { deckCardPose, deckSpreadPose, handCardPoses, slotCardPose, graveyardCardPose, replenCardPose, summonShowcasePose, SUMMON_SHOWCASE_SCALE, FAN_UP } from '../board/layout';
-import { BOARD_CARD_SCALE, CARD_HEIGHT } from '../board/boardConfig';
+import { deckCardPose, deckSpreadPose, handCardPoses, slotCardPose, graveyardCardPose, replenCardPose, summonShowcasePose, SUMMON_SHOWCASE_SCALE, FAN_UP, opponentSlotCardPose, opponentGraveyardCardPose } from '../board/layout';
+import { BOARD_CARD_SCALE, CARD_HEIGHT, OPP_SLOT_IDS } from '../board/boardConfig';
 import { DRAG_LIFT, SPRING } from './motionConfig';
 
 /** Hovered hand card rises this far straight up on screen (50% of card height). */
@@ -120,4 +120,34 @@ export function selectCardVisual(
     config: state.deckSpread ? SPRING.snap : SPRING.draw,
     scale: BOARD_CARD_SCALE,
   };
+}
+
+/** Visual target for an opponent A-card: on its far-row slot (upside-down flat)
+ * while alive, or springing into the mirrored opponent graveyard once destroyed.
+ * Returns null if the card is neither on the board nor in the grave (shouldn't
+ * happen for the seeded A-cards). */
+export function selectOpponentCardVisual(
+  state: GameState,
+  cardId: CardId,
+): { pose: Pose; zone: 'board' | 'graveyard'; config: SpringConfig; scale: number } | null {
+  for (const slot of OPP_SLOT_IDS) {
+    if (state.opponentBoard[slot] === cardId) {
+      return {
+        pose: opponentSlotCardPose(slot as OppSlotId),
+        zone: 'board',
+        config: SPRING.snap,
+        scale: BOARD_CARD_SCALE,
+      };
+    }
+  }
+  const graveIndex = state.opponentGraveyard.indexOf(cardId);
+  if (graveIndex >= 0) {
+    return {
+      pose: opponentGraveyardCardPose(graveIndex),
+      zone: 'graveyard',
+      config: SPRING.snap,
+      scale: BOARD_CARD_SCALE,
+    };
+  }
+  return null;
 }

@@ -4,24 +4,43 @@ import type { Vec3 } from '../state/types';
 import type { EffectiveStats } from '../state/combatStats';
 
 /**
- * Floating combat-stat plate that hovers above an A-zone card's column
- * (Master-Duel style): an HP bar plus DMG / ACC readouts stacked in three rows.
- * Values are the A card's EFFECTIVE stats (base + linked C-card boost), so the
- * plate updates the moment a C card is set or removed.
+ * Combat-stat overlays for an A-zone card's A/C link (Master-Duel style), split
+ * into two compact billboards so nothing spills across neighboring columns:
+ *
+ *   - HpOverlay     : "RemainingHP/TotalHP" + a draining health bar, sitting at
+ *                     the TOP of the A/C link.
+ *   - DmgAccOverlay : "DMG/ACC" (the two values), sitting UNDERNEATH the link.
+ *
+ * Values are the A card's EFFECTIVE stats (base + linked C-card boost), so they
+ * update the moment a C card is set or removed. Both are billboarded, so they
+ * stay upright and readable for the player and the (mirrored) opponent alike.
  *
  * Text coloring conveys modification: a stat at its base value is grey; a stat
- * raised by a boost is green; a stat lowered is red. HP is shown current/max —
- * combat doesn't exist yet so `currentHp` defaults to max (a full bar).
+ * raised by a boost is green; a stat lowered is red. The HP bar drains + recolors
+ * (green → yellow → red) as damage lands.
  */
 
-const PLATE_W = 1.02;
-const PLATE_H = 0.68;
-const HP_BAR_W = 0.88;
+/** HP overlay geometry (top of the link). */
+const HP_PLATE_W = 0.78;
+const HP_PLATE_H = 0.34;
+const HP_BAR_W = 0.66;
 const HP_BAR_H = 0.13;
+const HP_TEXT_Y = 0.09;
+const HP_BAR_Y = -0.08;
 
-const HP_ROW_Y = 0.19;
-const DMG_ROW_Y = -0.05;
-const ACC_ROW_Y = -0.24;
+/** DMG/ACC overlay geometry (underneath the link). */
+const DA_PLATE_W = 0.6;
+const DA_PLATE_H = 0.26;
+
+/** How each overlay is offset from its A card. HP sits just above the card's
+ * TOP edge; DMG/ACC sits just below the BOTTOM edge — split to opposite edges so
+ * they never stack on each other. "Up-screen" is -z for both boards, so the
+ * opponent uses the SAME offsets relative to its own (mirrored) card, keeping HP
+ * visually above each card and DMG/ACC below it. */
+export const HP_Y_OFFSET = 0.06;
+export const HP_Z_OFFSET = -0.52;
+export const DA_Y_OFFSET = 0.04;
+export const DA_Z_OFFSET = 0.5;
 
 /** Neutral / boosted / reduced text colors. */
 const GREY = '#9aa6ad';
@@ -42,7 +61,17 @@ function hpBarColor(fraction: number): string {
   return '#d64b3a';
 }
 
-export function StatOverlay({
+/** Small pop-in used by both overlays when a card is first set in its slot. */
+function usePopIn() {
+  return useSpring({
+    from: { scale: 0 },
+    to: { scale: 1 },
+    config: { tension: 320, friction: 18 },
+  });
+}
+
+/** Remaining/Total HP number stacked over a draining health bar (top of link). */
+export function HpOverlay({
   stats,
   position,
   currentHp,
@@ -55,37 +84,39 @@ export function StatOverlay({
   const hp = currentHp ?? maxHp;
   const fraction = maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
 
-  // Pop-in when the plate first mounts (card set in an A slot).
-  const spring = useSpring({
-    from: { scale: 0 },
-    to: { scale: 1 },
-    config: { tension: 320, friction: 18 },
-  });
-
+  const pop = usePopIn();
   // Animate the HP fill (width + color) whenever current HP changes, so a hit
   // drains the bar smoothly and it recolors as it crosses the 50% / 25% marks.
-  const hpSpring = useSpring({
-    frac: fraction,
-    config: { tension: 170, friction: 26 },
-  });
+  const hpSpring = useSpring({ frac: fraction, config: { tension: 170, friction: 26 } });
 
   return (
     <Billboard position={position}>
-      <a.group scale={spring.scale.to((s) => [s, s, s]) as unknown as [number, number, number]}>
-        {/* Backing plate */}
+      <a.group scale={pop.scale.to((s) => [s, s, s]) as unknown as [number, number, number]}>
         <mesh position={[0, 0, -0.002]}>
-          <planeGeometry args={[PLATE_W, PLATE_H]} />
+          <planeGeometry args={[HP_PLATE_W, HP_PLATE_H]} />
           <meshBasicMaterial color="#0c1116" transparent opacity={0.85} />
         </mesh>
 
+        <Text
+          position={[0, HP_TEXT_Y, 0.003]}
+          fontSize={0.12}
+          color={statColor(stats.hp.delta)}
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.006}
+          outlineColor="#05080b"
+        >
+          {`${hp}/${maxHp}`}
+        </Text>
+
         {/* HP bar track */}
-        <mesh position={[0, HP_ROW_Y, 0]}>
+        <mesh position={[0, HP_BAR_Y, 0]}>
           <planeGeometry args={[HP_BAR_W, HP_BAR_H]} />
           <meshBasicMaterial color="#23303a" />
         </mesh>
         {/* HP bar fill: left-anchored group scaled by the animated fraction. */}
         <a.group
-          position={[-HP_BAR_W / 2, HP_ROW_Y, 0.001]}
+          position={[-HP_BAR_W / 2, HP_BAR_Y, 0.001]}
           scale-x={hpSpring.frac.to((f) => Math.max(f, 0.0001))}
         >
           <mesh position={[HP_BAR_W / 2, 0, 0]}>
@@ -93,42 +124,56 @@ export function StatOverlay({
             <a.meshBasicMaterial color={hpSpring.frac.to((f) => hpBarColor(f))} />
           </mesh>
         </a.group>
-        <Text
-          position={[0, HP_ROW_Y, 0.003]}
-          fontSize={0.08}
-          color={statColor(stats.hp.delta)}
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.006}
-          outlineColor="#05080b"
-        >
-          {`HP ${hp} / ${maxHp}`}
-        </Text>
+      </a.group>
+    </Billboard>
+  );
+}
 
-        {/* DMG row */}
+/** DMG / ACC values on one short line (underneath the link). DMG and ACC are
+ * colored independently so a C-card boost shows on the affected stat. */
+export function DmgAccOverlay({ stats, position }: { stats: EffectiveStats; position: Vec3 }) {
+  const pop = usePopIn();
+
+  return (
+    <Billboard position={position}>
+      <a.group scale={pop.scale.to((s) => [s, s, s]) as unknown as [number, number, number]}>
+        <mesh position={[0, 0, -0.002]}>
+          <planeGeometry args={[DA_PLATE_W, DA_PLATE_H]} />
+          <meshBasicMaterial color="#0c1116" transparent opacity={0.85} />
+        </mesh>
+
         <Text
-          position={[0, DMG_ROW_Y, 0.003]}
-          fontSize={0.1}
+          position={[-0.03, 0, 0.003]}
+          fontSize={0.13}
           color={statColor(stats.dmg.delta)}
-          anchorX="center"
+          anchorX="right"
           anchorY="middle"
           outlineWidth={0.006}
           outlineColor="#05080b"
         >
-          {`DMG  ${stats.dmg.value}`}
+          {`${stats.dmg.value}`}
         </Text>
-
-        {/* ACC row */}
         <Text
-          position={[0, ACC_ROW_Y, 0.003]}
-          fontSize={0.1}
-          color={statColor(stats.acc.delta)}
+          position={[0, 0, 0.003]}
+          fontSize={0.13}
+          color={GREY}
           anchorX="center"
           anchorY="middle"
           outlineWidth={0.006}
           outlineColor="#05080b"
         >
-          {`ACC  ${stats.acc.value}`}
+          /
+        </Text>
+        <Text
+          position={[0.03, 0, 0.003]}
+          fontSize={0.13}
+          color={statColor(stats.acc.delta)}
+          anchorX="left"
+          anchorY="middle"
+          outlineWidth={0.006}
+          outlineColor="#05080b"
+        >
+          {`${stats.acc.value}`}
         </Text>
       </a.group>
     </Billboard>

@@ -1,15 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import {
   canDrop,
+  canDropCard,
+  canAffordTribute,
   emptySlots,
+  hasSubsetSum,
   isSlotEmpty,
+  requiresTribute,
   resolveAttackerSlot,
   resolveLinkedTarget,
   slotAcceptsType,
   slotHighlighted,
+  slotHighlightedForCard,
   validTargetSlots,
 } from './slotRules';
-import { createEmptyBoard } from '../state/cardData';
+import { createEmptyBoard, createInitialState } from '../state/cardData';
 import type { GameState } from '../state/types';
 
 const withCards = (occupied: Partial<GameState['board']>): GameState['board'] => ({
@@ -103,5 +108,43 @@ describe('P2-S03 slot rules', () => {
     // B zones and null never resolve to an attacker.
     expect(resolveAttackerSlot(withA2, 'B1')).toBe(null);
     expect(resolveAttackerSlot(withA2, null)).toBe(null);
+  });
+});
+
+describe('tribute-summon rules (level-3 A cards)', () => {
+  const cardsById = createInitialState().cardsById; // card-A3=Lv1, A1/A2=Lv2, A4=Lv3
+
+  it('hasSubsetSum finds exact-sum subsets only', () => {
+    expect(hasSubsetSum([1, 2], 3)).toBe(true);
+    expect(hasSubsetSum([1, 1, 1], 3)).toBe(true);
+    expect(hasSubsetSum([2, 2], 3)).toBe(false);
+    expect(hasSubsetSum([2], 3)).toBe(false);
+    expect(hasSubsetSum([], 3)).toBe(false);
+  });
+
+  it('requiresTribute is true only for level-3+ A cards', () => {
+    expect(requiresTribute(cardsById['card-A4'])).toBe(true); // Lv3
+    expect(requiresTribute(cardsById['card-A3'])).toBe(false); // Lv1
+    expect(requiresTribute(cardsById['card-A1'])).toBe(false); // Lv2
+  });
+
+  it('canAffordTribute needs board A-levels summing exactly to the card level', () => {
+    const a4 = cardsById['card-A4']; // needs 3
+    expect(canAffordTribute(withCards({ A1: 'card-A3', A2: 'card-A1' }), cardsById, a4)).toBe(true); // 1+2
+    expect(canAffordTribute(withCards({ A1: 'card-A1' }), cardsById, a4)).toBe(false); // 2
+    expect(canAffordTribute(withCards({ A1: 'card-A1', A2: 'card-A2' }), cardsById, a4)).toBe(false); // 2+2
+    expect(canAffordTribute(createEmptyBoard(), cardsById, a4)).toBe(false);
+  });
+
+  it('slotHighlightedForCard / canDropCard gate a level-3 card on affordable tribute', () => {
+    const a4 = cardsById['card-A4'];
+    const noMats = createEmptyBoard();
+    expect(slotHighlightedForCard(noMats, cardsById, 'A2', a4)).toBe(false);
+    expect(canDropCard(noMats, cardsById, 'A2', a4)).toBe(false);
+
+    const withMats = withCards({ A1: 'card-A3', A2: 'card-A1' }); // 1+2 = 3
+    expect(slotHighlightedForCard(withMats, cardsById, 'A3', a4)).toBe(true); // empty A slot lights
+    expect(canDropCard(withMats, cardsById, 'A3', a4)).toBe(true);
+    expect(canDropCard(withMats, cardsById, 'A1', a4)).toBe(false); // occupied slot not a drop target
   });
 });

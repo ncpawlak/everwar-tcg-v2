@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createGameStore, SUMMON_SHOWCASE_MS, SHUFFLE_SPREAD_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS } from './gameStore';
+import { createGameStore, SUMMON_SHOWCASE_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS } from './gameStore';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState } from './types';
@@ -139,6 +139,127 @@ describe('P2-S02/S08 game store actions', () => {
     expect(store.getState().summon).toBeNull();
   });
 
+  it('a level-3 A card cannot be dropped with no materials (stays in hand, no prompt)', () => {
+    // card-A4 (Warcry) is level 3; nothing on the board to tribute.
+    const store = storeWithHand(['card-A4']);
+    store.getState().beginDrag('card-A4');
+    store.getState().dropCard('card-A4', 'A2');
+    const s = store.getState();
+    expect(s.board.A2).toBeNull();
+    expect(s.hand).toContain('card-A4');
+    expect(s.pendingTribute).toBeNull();
+    expect(s.dragging).toBeNull();
+  });
+
+  it('dropping a level-3 A card with valid materials opens the tribute prompt (card held in hand)', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-A4'], // level 3
+      deck: base.deck.filter((id) => !['card-A4', 'card-A3', 'card-A1'].includes(id)),
+      // card-A3 = level 1, card-A1 = level 2 → sum 3.
+      board: { ...base.board, A1: 'card-A3', A2: 'card-A1' },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-A4');
+    store.getState().dropCard('card-A4', 'A3'); // empty A slot
+    const s = store.getState();
+    expect(s.pendingTribute).toEqual({ cardId: 'card-A4', slotId: 'A3' });
+    expect(s.hand).toContain('card-A4'); // still in hand until confirmed
+    expect(s.dragging).toBeNull();
+  });
+
+  it('confirming a tribute sends materials (and linked C) to replen and sets the card', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-A4'],
+      deck: base.deck.filter(
+        (id) => !['card-A4', 'card-A3', 'card-A1', 'card-C1'].includes(id),
+      ),
+      board: { ...base.board, A1: 'card-A3', A2: 'card-A1', C1: 'card-C1' },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-A4');
+    store.getState().dropCard('card-A4', 'A3');
+    store.getState().confirmTributeSummon(['A1', 'A2']); // levels 1 + 2 = 3
+
+    const s = store.getState();
+    expect(s.board.A3).toBe('card-A4'); // summoned into the target slot
+    expect(s.board.A1).toBeNull();
+    expect(s.board.A2).toBeNull();
+    expect(s.board.C1).toBeNull(); // linked C tributed too
+    expect(s.replen).toEqual(expect.arrayContaining(['card-A3', 'card-A1', 'card-C1']));
+    expect(s.hand).not.toContain('card-A4');
+    expect(s.pendingTribute).toBeNull();
+  });
+
+  it('confirming a COMMANDER tribute sends materials (and linked C) to the graveyard', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-A5'], // A5 = Commander (level 3)
+      deck: base.deck.filter(
+        (id) => !['card-A5', 'card-A3', 'card-A1', 'card-C1'].includes(id),
+      ),
+      board: { ...base.board, A1: 'card-A3', A2: 'card-A1', C1: 'card-C1' },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-A5');
+    store.getState().dropCard('card-A5', 'A3');
+    store.getState().confirmTributeSummon(['A1', 'A2']); // levels 1 + 2 = 3
+
+    const s = store.getState();
+    expect(s.board.A3).toBe('card-A5'); // commander summoned
+    expect(s.board.A1).toBeNull();
+    expect(s.board.A2).toBeNull();
+    expect(s.board.C1).toBeNull();
+    // Commander materials go to the graveyard, NOT the replen.
+    expect(s.graveyard).toEqual(
+      expect.arrayContaining(['card-A3', 'card-A1', 'card-C1']),
+    );
+    expect(s.replen).not.toEqual(expect.arrayContaining(['card-A3']));
+    expect(s.pendingTribute).toBeNull();
+  });
+
+  it('confirming with materials that do not sum to the level is a no-op', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-A4'],
+      deck: base.deck.filter((id) => !['card-A4', 'card-A3', 'card-A1'].includes(id)),
+      board: { ...base.board, A1: 'card-A3', A2: 'card-A1' },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-A4');
+    store.getState().dropCard('card-A4', 'A3');
+    store.getState().confirmTributeSummon(['A2']); // level 2 ≠ 3
+
+    const s = store.getState();
+    expect(s.board.A3).toBeNull();
+    expect(s.board.A2).toBe('card-A1'); // material untouched
+    expect(s.pendingTribute).not.toBeNull(); // prompt still open
+  });
+
+  it('cancelTributeSummon clears the prompt and leaves the card in hand', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-A4'],
+      deck: base.deck.filter((id) => !['card-A4', 'card-A3', 'card-A1'].includes(id)),
+      board: { ...base.board, A1: 'card-A3', A2: 'card-A1' },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-A4');
+    store.getState().dropCard('card-A4', 'A3');
+    store.getState().cancelTributeSummon();
+
+    const s = store.getState();
+    expect(s.pendingTribute).toBeNull();
+    expect(s.hand).toContain('card-A4');
+    expect(s.board.A3).toBeNull();
+  });
+
   it('setting a B card enacts its ability after the showcase (draw 1 / draw 2)', () => {
     vi.useFakeTimers();
     const draw1 = storeWithHand(['card-B1']); // B1 = draw1
@@ -158,12 +279,12 @@ describe('P2-S02/S08 game store actions', () => {
     vi.useRealTimers();
   });
 
-  it('setting a B card shuffles the graveyard into the deck after the showcase', () => {
+  it('setting a B card routes the graveyard into the replen pile after the showcase', () => {
     vi.useFakeTimers();
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      hand: ['card-B2'], // B2 = graveyardIntoDeck
+      hand: ['card-B2'], // B2 = graveyardIntoDeck (now graveyard -> replen)
       deck: base.deck.filter((id) => id !== 'card-B2' && id !== 'card-A3'),
       graveyard: ['card-A3'],
       phase: 'main',
@@ -172,9 +293,9 @@ describe('P2-S02/S08 game store actions', () => {
     store.getState().dropCard('card-B2', 'B2');
     vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
     expect(store.getState().graveyard).toHaveLength(0);
-    expect(store.getState().deck).toContain('card-A3');
-    vi.advanceTimersByTime(SHUFFLE_SPREAD_MS);
-    expect(store.getState().deckSpread).toBe(false);
+    // "Shuffle into deck" routes through replen, not the deck itself.
+    expect(store.getState().replen).toContain('card-A3');
+    expect(store.getState().deck).not.toContain('card-A3');
     vi.useRealTimers();
   });
 
@@ -505,23 +626,18 @@ describe('P3-S05 shuffle (animated deck reshuffle)', () => {
     }
   });
 
-  it('graveyardIntoDeck folds the graveyard into the deck then shuffles', () => {
-    vi.useFakeTimers();
-    try {
-      const base = createInitialState();
-      const store = createGameStore({ ...base, graveyard: ['card-C1'] });
-      const deckLen = store.getState().deck.length;
+  it('graveyardIntoDeck routes the graveyard into the replen pile (shuffled)', () => {
+    const base = createInitialState();
+    const store = createGameStore({ ...base, graveyard: ['card-C1'] });
+    const replenLen = store.getState().replen.length;
+    const deckLen = store.getState().deck.length;
 
-      store.getState().graveyardIntoDeck();
-      expect(store.getState().graveyard).toEqual([]);
-      expect(store.getState().deck).toContain('card-C1');
-      expect(store.getState().deck).toHaveLength(deckLen + 1);
-
-      vi.runAllTimers();
-      expect(store.getState().deckSpread).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
+    store.getState().graveyardIntoDeck();
+    expect(store.getState().graveyard).toEqual([]);
+    // Routes through replen, not the deck itself; replen folds into the deck at End.
+    expect(store.getState().replen).toContain('card-C1');
+    expect(store.getState().replen).toHaveLength(replenLen + 1);
+    expect(store.getState().deck).toHaveLength(deckLen);
   });
 
   it('handIntoDeck returns the hand to the deck (clearing hover) then shuffles', () => {
@@ -684,6 +800,27 @@ describe('P4 turn / phase mechanics', () => {
       expect(store.getState().replen).toEqual([]);
       expect(store.getState().deck).toContain('card-A1');
       expect(store.getState().deck).toHaveLength(deckLen + 1);
+      expect(store.getState().deckSpread).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('End phase does NOT shuffle the deck when the replen pile is empty', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        replen: [],
+      });
+      const deckBefore = [...store.getState().deck];
+
+      store.getState().advancePhase(); // battle -> resolution
+      vi.runAllTimers(); // -> end (runEndPhase); no replen, so no shuffle
+      // Deck order is untouched — no needless shuffle fired.
+      expect(store.getState().deck).toEqual(deckBefore);
       expect(store.getState().deckSpread).toBe(false);
     } finally {
       vi.useRealTimers();
@@ -872,8 +1009,11 @@ describe('P4 turn / phase mechanics', () => {
 
       const s = store.getState();
       expect(s.phase).toBe('end');
-      // The dead opponent leaves the field (no opponent graveyard yet)...
+      // The dead opponent leaves its slot and travels into the opponent
+      // graveyard (mirror of the player's death → graveyard), so its HP entry
+      // is cleared but it persists in state for the travel animation.
       expect(s.opponentBoard.O1).toBeNull();
+      expect(s.opponentGraveyard).toContain(oppId);
       expect(s.currentHp[oppId]).toBeUndefined();
       // ...and the slash-FX flag clears once the card actually leaves.
       expect(s.destroying).toEqual([]);

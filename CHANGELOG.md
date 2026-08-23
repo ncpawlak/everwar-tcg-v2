@@ -20,6 +20,94 @@
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-08-23
+
+### Everwar — Phase 6: Opponent Board, Combat Polish & Tribute Summoning ✅
+
+> Phase 6 mirrors the field for an opponent, reworks the on-card stat tags and camera to read like Master Duel, and adds the level/tribute summoning system with a Commander card. Stack unchanged: TypeScript · React + Vite · Three.js / React Three Fiber v8 + drei · Zustand · @react-spring/three · Vitest.
+
+#### Added
+
+- **Mirrored opponent board** — the opponent gets the exact same multi-zone field mirrored across the table: deck/replen sit top-left, cards render upside-down, but the HP/DMG/ACC stat tags stay player-relative (right-side-up) so they're always readable. New `OpponentField.tsx`, `OpponentHand.tsx`, and shared `CardBack.tsx` (`src/render/`).
+- **Opponent animations** — the opponent plays the same opening draw animation, and destroyed opponent A-cards travel to the opponent graveyard instead of vanishing.
+- **Card-A summon levels** — every A-card carries a summon `level` (Ironclad 1, Ashborne 2, Emberfang 2, Warcry 3). Levels 1–2 set freely into any open A slot; **level 3 requires a tribute**.
+- **Tribute summoning** — dropping a level-3 A-card opens a material-selection popup (reused pile-search styling) with a live `0/3` counter; you pick board A-cards whose levels sum to exactly 3. Confirming sends the materials **and their linked C-cards** to the replen pile, then summons. If you can't afford it, no gold slots appear and the drag no-ops. New `TributeModal.tsx` (`src/ui/`); rules in `slotRules.ts` (`requiresTribute`, `hasSubsetSum`, `canAffordTribute`, `boardMaterials`, `slotHighlightedForCard`, `canDropCard`); store actions `confirmTributeSummon` / `cancelTributeSummon`.
+- **Commander card** — a 5th A-card, *Aurelian Warlord* (A5, Legendary), summoned by the same exactly-3 tribute rule, **but its materials go to the graveyard instead of replen**. Deck is now 13 cards (A:5, B:4, C:4). Level and a `★ COMMANDER ★` tag render on both the 3D card face (`CardView.tsx`) and the big inspection popup (`InspectionPanel.tsx`).
+
+#### Changed
+
+- **On-card stat layout** — the remaining-HP number and health bar now sit on **top** of each A-card with DMG/ACC below, split to opposite edges, matching a Master-Duel-style ATK/DEF read (`AZoneStats.tsx`, `StatOverlay.tsx`).
+- **Camera** — flattened the board angle so the stat tags no longer skew or overlap the opponent's cards; added vertical spacing between the two boards (`GameScene.tsx`, `boardConfig.ts`, `layout.ts`).
+- **"Shuffle into deck" now routes through replen** — B2's `graveyardIntoDeck` and any "shuffle back into deck" effect move cards (shuffled) into the **replen** pile, which itself folds back into the deck at End phase.
+- **End-phase shuffle guard** — the deck only reshuffles at End when the replen pile is non-empty.
+
+#### Tests
+
+- **127 tests green** — added tribute-summon coverage (level rules, popup confirm/cancel, materials→replen, commander materials→graveyard), the graveyard→replen reroute, the empty-replen end-phase guard, and updated card-count assertions to 13 cards / A:5 (`gameStore.test.ts`, `cardData.test.ts`, `slotRules.test.ts`).
+
+---
+
+## [0.6.0] — 2026-08-23
+
+### Everwar — Phase 5: Dice Combat, HP/Damage & Opponent Targeting ✅
+
+> Phase 5 lays the full combat/rules layer on top of the Phase 4 turn loop: dice resolution with outcome bands, HP/DMG/ACC combat stats, damage application with death→graveyard, and player→opponent battle targeting.
+
+#### Added
+
+- **Dice combat rules** — a pure `diceRules.ts` module resolves each D20 roll into GLANCING / normal HIT / MISS / CRITICAL bands driven by the attacker's effective ACC, with a high-ACC auto-crit threshold.
+- **Card combat stats (HP / DMG / ACC)** — a pure `combatStats.ts` folds C-card buffs into effective stats; floating HP/DMG/ACC plates render over each A column with an animated, color-banded HP bar.
+- **Resolution combat** — each declared attacker rolls over its card, shows a HIT/MISS/GLANCING/CRITICAL outcome pop-up, then applies damage.
+- **HP damage & death** — cards drained to 0 HP play a red-slash FX and leave the field; the End banner holds until destroy/travel animations finish.
+- **Opponent targeting** — a mirrored opponent Vanguard row; click your A-card to aim (arrow rubber-bands to the cursor), valid opponent targets glow gold, click to lock. Multiple attackers may stack on one target; Resolution rolls per attacker and drains the target, which slashes and vanishes at 0 HP.
+- **Double-click quick-place** — double-clicking a hovered hand card in Main auto-places it into the next legal slot for its type.
+
+#### Tests
+
+- Added `diceRules.test.ts` and `combatStats.test.ts` plus resolution/damage coverage in `gameStore.test.ts`.
+
+---
+
+## [0.5.0] — 2026-08-23
+
+### Everwar — Phase 4: Turn Mechanics, Battle Declaration & Resolution Dice ✅
+
+> Phase 4 introduces the turn/phase loop and the combat setup that Phase 5 builds on.
+
+#### Added
+
+- **Phase state machine** — Draw → Main → Battle → Resolution → End with a turn counter, a `TurnHud` strip + Next Phase button, and a `PhaseBanner` that slides in / holds / out on every phase change.
+- **Draw & End automation** — Draw auto-draws to 6 (else 1) then advances; End folds the replen pile back into the deck and graveyards non-continuous B cards.
+- **Phase-gated placement** — card placement is restricted to Main; manual deck-click draw is disabled.
+- **Battle declaration** — click either linked A/C zone to declare that column's A card an attacker (gold outline across the whole column); only occupied A columns can attack.
+- **Resolution dice** — each declared attacker rolls a D20 simultaneously in-scene over its A/C link area (face-snaps toward the camera on settle); values absorb into `lastRolls`, then auto-advance to End. Dice wait for the Resolution banner to clear before tumbling.
+- **Linked-column drop** — dragging an A/C card highlights and accepts a drop on either zone of its linked column, resolving to the card's correct slot.
+
+---
+
+## [0.4.0] — 2026-08-22
+
+### Everwar — Phase 3: Card Systems — Inspection, Piles, Abilities & Boosts ✅
+
+> Phase 3 fleshes out the card model and the supporting piles: a rich card data model with click-to-inspect, a graveyard/replenish/shuffle pile system, floating A-card stat overlays, C-card boosts, B-card spell abilities, and a summon-reveal showcase. All local-only (no Player 2 yet).
+
+#### Added
+
+- **Card data model + inspection** — a full typed card model with a DOM `InspectionPanel` overlay (kept out of the 3D canvas so effect text stays crisp) and rich procedural card faces.
+- **Destroy → graveyard** — occupied board cards travel to a new `graveyard` pile; destroying a Zone-A card also sends its linked Zone-C card in the same column pair.
+- **Pile management** — a reusable `PileSearchModal` lists deck / graveyard / replen cards (click a tile to inspect); open it by clicking a pile on the board or via dev buttons (open state lives in the store). Replen mechanics send a random A (+ linked C) to the replenish pile; "disturb" sends the deck's top card to replen.
+- **Animated shuffle** — a riffle animation (deck splits into two lifted piles then collapses back randomized) with a pure Fisher-Yates `shuffleArray` (injectable RNG); buttons fold replen, graveyard, or the hand into the deck and reshuffle.
+- **A-zone stat overlays** — floating HP-bar / ATK / DEF plates centered over each A/C column pair; HP shown on cards and in the inspection panel.
+- **C-card boosts** — C (Bulwark) cards gate on their linked A slot being occupied and roll a random stat boost when set; the overlay recolors grey/green/red by delta. C cards drop atk/def/hp entirely and show only the increase/decrease they grant.
+- **B-card abilities** — B (Arcane) cards are spells with no combat stats, each carrying an on-play ability (draw 1, shuffle graveyard/replen into deck, draw 2) enacted after the summon showcase. Multi-card draws stagger (the next card leaves the deck only once the previous passes its flight midpoint).
+- **Summon reveal** — a freshly set card pops up big & centered with a gold ripple, then flies into its slot (transient visual-only state).
+
+#### Changed
+
+- **`atk`/`def`/`hp` are now optional and A-only** — card face, inspection panel, and pile-search tiles render type-specific info.
+
+---
+
 ## [0.3.0] — 2026-08-22
 
 ### Everwar — Phase 2: Game Board Setup ✅

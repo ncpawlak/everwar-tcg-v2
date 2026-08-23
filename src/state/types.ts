@@ -87,6 +87,14 @@ export interface Card {
   name: string;
   /** Deploy cost (flavor for now; a resource system comes later). */
   cost: number;
+  /** Summon level (1–3). Only A (Vanguard) cards carry one. Levels 1–2 set
+   * freely into any open A slot; a level-3 requires tributing board A-cards whose
+   * levels sum to exactly 3 (see the tribute-summon flow). */
+  level?: number;
+  /** Commander A-cards use the level-3 tribute rules (materials must sum to 3),
+   * but the tributed materials are sent to the GRAVEYARD instead of the replen
+   * pile. Only meaningful for A cards. */
+  commander?: boolean;
   /** Damage dealt on a normal hit (base-10). Only A (Vanguard) cards carry
    * combat stats. Scaled by the Resolution roll (glancing ×0.5, crit ×2). */
   dmg?: number;
@@ -154,6 +162,18 @@ export interface SummonState {
 }
 
 /**
+ * A pending level-3 tribute summon. Set when the player drops a level-3 A card
+ * onto a legal A column while enough board A-cards exist to tribute: the card is
+ * held in hand and the material-selection modal opens. On confirm the chosen
+ * materials (plus their linked C-cards) go to the replen pile and the card is
+ * placed into `slotId`; on cancel it clears and the card stays in hand.
+ */
+export interface PendingTribute {
+  cardId: CardId;
+  slotId: SlotId;
+}
+
+/**
  * Transient D20 dice-roll state. The `value` is chosen immediately when the roll
  * starts; the animation merely reveals it. `rolling` is true while the die
  * tumbles and false once it has settled on `value`.
@@ -200,6 +220,9 @@ export interface GameState {
   /** Card currently playing its summon-reveal (showcased over the field before
    * flying to its slot), or null. Purely visual and transient. */
   summon: SummonState | null;
+  /** An in-progress level-3 tribute summon awaiting material selection, or null.
+   * While set, the material-selection modal is open and the card sits in hand. */
+  pendingTribute: PendingTribute | null;
   /** Current turn number (1-based). Increments when advancing past End. */
   turn: number;
   /** The active phase within the current turn. */
@@ -214,6 +237,10 @@ export interface GameState {
   /** Which opponent A-card occupies each far-row slot (O1..O4), or null. A card
    * whose HP hits 0 is removed (set to null) — it slashes and vanishes. */
   opponentBoard: Record<OppSlotId, CardId | null>;
+  /** Opponent cards that have been destroyed (HP hit 0), oldest first. They
+   * travel from their slot to the mirrored opponent graveyard pile so the death
+   * reads as a move, not a vanish (mirrors the player's graveyard). */
+  opponentGraveyard: CardId[];
   /** Attack declarations made during Battle: each of the player's attacking
    * A-slots mapped to the opponent slot it is aiming at. An A-card attacks only
    * if it has an entry here; its rolled damage lands on that target. Cleared at

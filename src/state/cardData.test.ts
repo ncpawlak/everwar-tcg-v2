@@ -8,13 +8,13 @@ import {
 } from './cardData';
 
 describe('P2-S01 initial state', () => {
-  it('creates 12 cards, 4 each of A/B/C', () => {
+  it('creates 13 cards: 5 A (incl. Commander), 4 B, 4 C', () => {
     const { cardsById, deck } = createInitialCards();
     expect(deck).toHaveLength(DECK_SIZE);
-    expect(DECK_SIZE).toBe(12);
+    expect(DECK_SIZE).toBe(13);
     const counts = { A: 0, B: 0, C: 0 } as Record<string, number>;
     for (const id of deck) counts[cardsById[id].type]++;
-    expect(counts).toEqual({ A: 4, B: 4, C: 4 });
+    expect(counts).toEqual({ A: 5, B: 4, C: 4 });
   });
 
   it('starts with a full deck, empty hand, twelve empty slots, and no drag', () => {
@@ -48,7 +48,7 @@ describe('P2-S01 initial state', () => {
   it('gives every card a full type-specific profile', () => {
     const { cardsById } = createInitialCards();
     const cards = Object.values(cardsById);
-    expect(cards).toHaveLength(12);
+    expect(cards).toHaveLength(13);
     const names = new Set<string>();
     for (const c of cards) {
       expect(c.name.length).toBeGreaterThan(0);
@@ -74,6 +74,6 @@ describe('P2-S01 initial state', () => {
       expect(c.flavor.length).toBeGreaterThan(0);
     }
     // Names are unique across the deck.
-    expect(names.size).toBe(12);
+    expect(names.size).toBe(13);
   });
 });

@@ -1,4 +1,4 @@
-import type { CardType, GameState, SlotId, SlotIndex } from '../state/types';
+import type { Card, CardType, GameState, SlotId, SlotIndex } from '../state/types';
 import { slotType } from '../state/types';
 import { SLOT_IDS } from '../state/cardData';
 
@@ -122,4 +122,92 @@ export function canDrop(
 ): boolean {
   if (slotId === null) return false;
   return slotPlaceable(board, slotId, cardType);
+}
+
+/* ─────────────────────────── Tribute summon (levels) ─────────────────────────
+ * A-cards carry a summon level. Levels 1–2 set freely into any open A slot. A
+ * level ≥ TRIBUTE_LEVEL card must be tribute-summoned: the player sends board
+ * A-cards whose levels sum to EXACTLY the card's level to the replen pile (and
+ * their linked C-cards along with them). The gold highlight/drop only opens for
+ * such a card when a valid material subset exists on the board.
+ */
+
+/** A-cards at or above this level require a tribute summon (levels 1–2 are free). */
+export const TRIBUTE_LEVEL = 3;
+
+/** Whether a card must be tribute-summoned — a level-3+ A card, or a Commander
+ * (Commanders use the same level-3 tribute rules but tribute to the graveyard). */
+export function requiresTribute(card: Card): boolean {
+  return card.type === 'A' && ((card.level ?? 1) >= TRIBUTE_LEVEL || card.commander === true);
+}
+
+/** Summon levels of the A-cards currently on the player's board — the pool of
+ * tribute materials, keyed by their A-slot id. */
+export function boardMaterials(
+  board: GameState['board'],
+  cardsById: Record<string, Card>,
+): { slotId: SlotId; cardId: string; level: number }[] {
+  const out: { slotId: SlotId; cardId: string; level: number }[] = [];
+  for (const slotId of SLOT_IDS) {
+    if (slotType(slotId) !== 'A') continue;
+    const cardId = board[slotId];
+    if (!cardId) continue;
+    const card = cardsById[cardId];
+    if (!card) continue;
+    out.push({ slotId, cardId, level: card.level ?? 1 });
+  }
+  return out;
+}
+
+/** Does some subset of `values` sum EXACTLY to `target`? Brute force — the pool
+ * is at most four A-cards, so cost is negligible. */
+export function hasSubsetSum(values: number[], target: number): boolean {
+  const walk = (i: number, remaining: number): boolean => {
+    if (remaining === 0) return true;
+    if (i >= values.length || remaining < 0) return false;
+    return walk(i + 1, remaining - values[i]) || walk(i + 1, remaining);
+  };
+  return walk(0, target);
+}
+
+/** Can a tribute-summon card be summoned right now — i.e. do the board A-cards
+ * hold a subset whose levels sum exactly to the card's level? */
+export function canAffordTribute(
+  board: GameState['board'],
+  cardsById: Record<string, Card>,
+  card: Card,
+): boolean {
+  const target = card.level ?? 0;
+  const levels = boardMaterials(board, cardsById).map((m) => m.level);
+  return hasSubsetSum(levels, target);
+}
+
+/**
+ * Card-aware drag highlight. Behaves like {@link slotHighlighted} for ordinary
+ * cards, but a tribute-summon card lights nothing until a valid material subset
+ * exists on the board — matching "if you can't, there are no spaces to drop on".
+ */
+export function slotHighlightedForCard(
+  board: GameState['board'],
+  cardsById: Record<string, Card>,
+  slotId: SlotId,
+  card: Card,
+): boolean {
+  if (requiresTribute(card) && !canAffordTribute(board, cardsById, card)) return false;
+  return slotHighlighted(board, slotId, card.type);
+}
+
+/**
+ * Card-aware drop validity. Like {@link canDrop} but a tribute-summon card is
+ * only droppable when it can afford its tribute; the drop then opens the
+ * material-selection modal rather than placing immediately.
+ */
+export function canDropCard(
+  board: GameState['board'],
+  cardsById: Record<string, Card>,
+  slotId: SlotId | null,
+  card: Card,
+): boolean {
+  if (requiresTribute(card) && !canAffordTribute(board, cardsById, card)) return false;
+  return canDrop(board, slotId, card.type);
 }

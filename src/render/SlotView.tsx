@@ -11,7 +11,7 @@ import { SLOT_IDS } from '../state/cardData';
 import { useGameStore } from '../state/useGameStore';
 import { slotType } from '../state/types';
 import type { SlotId } from '../state/types';
-import { slotHighlighted } from '../board/slotRules';
+import { slotHighlightedForCard } from '../board/slotRules';
 
 /**
  * The 12 typed placement slots plus the labeled graveyard/replen placeholders.
@@ -23,9 +23,9 @@ import { slotHighlighted } from '../board/slotRules';
  */
 export function SlotView() {
   const board = useGameStore((s) => s.board);
-  const dragCardId = useGameStore((s) => s.dragging?.cardId ?? null);
-  const dragType = useGameStore((s) =>
-    s.dragging ? (s.cardsById[s.dragging.cardId]?.type ?? null) : null,
+  const cardsById = useGameStore((s) => s.cardsById);
+  const dragCard = useGameStore((s) =>
+    s.dragging ? (s.cardsById[s.dragging.cardId] ?? null) : null,
   );
   const attackTargets = useGameStore((s) => s.attackTargets);
   const targeting = useGameStore((s) => s.targeting);
@@ -36,9 +36,8 @@ export function SlotView() {
       {SLOT_IDS.map((slotId) => {
         const [x, y, z] = SLOT_POSITIONS[slotId];
         const dragHighlight =
-          dragCardId !== null &&
-          dragType !== null &&
-          slotHighlighted(board, slotId, dragType);
+          dragCard !== null &&
+          slotHighlightedForCard(board, cardsById, slotId, dragCard);
         // A declared attacker (or the column currently being aimed) lights up its
         // whole linked column (A + C zone) through Battle/Resolution.
         const col = `A${slotId[1]}` as SlotId;
