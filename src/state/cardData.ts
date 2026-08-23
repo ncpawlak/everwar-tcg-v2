@@ -274,6 +274,12 @@ export function createInitialState(): GameState {
     damagePopups: {},
     currentHp: {},
     destroying: [],
+    oppAttackTargets: {},
+    oppResolutionRolls: {},
+    oppResolutionResults: {},
+    oppOutcomePopups: {},
+    oppDamagePopups: {},
+    oppDestroying: [],
   };
 }
 

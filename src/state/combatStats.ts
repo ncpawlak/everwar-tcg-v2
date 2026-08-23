@@ -1,4 +1,4 @@
-import type { GameState, SlotId, StatBuff, StatKey } from './types';
+import type { GameState, OppCSlotId, OppSlotId, SlotId, StatBuff, StatKey } from './types';
 
 /**
  * Pure combat-stat math (Phase 3). An A card's shown stats are its base values
@@ -57,6 +57,32 @@ export function effectiveStats(state: GameState, aSlot: SlotId): EffectiveStats 
 
   const cId = state.board[linkedCSlot(aSlot)];
   const buff = cId ? state.cardsById[cId]?.buff : undefined;
+
+  const line = (stat: StatKey): StatLine => {
+    const delta = buff && buff.stat === stat ? buff.amount : 0;
+    return { value: base[stat] + delta, delta };
+  };
+
+  return { hp: line('hp'), dmg: line('dmg'), acc: line('acc') };
+}
+
+/**
+ * Effective stats for the OPPONENT A card in `oppSlot` (Phase 7): its base
+ * hp/dmg/acc plus the boost from the linked opponent C card, if that OC slot
+ * holds a card carrying a buff. Mirror of `effectiveStats` but reading the
+ * opponent's board + card lookup, used when the opponent attacks on its turn.
+ */
+export function opponentEffectiveStats(state: GameState, oppSlot: OppSlotId): EffectiveStats {
+  const aId = state.opponentBoard[oppSlot];
+  const card = aId ? state.opponentCards[aId] : undefined;
+  const base = {
+    hp: card?.hp ?? 0,
+    dmg: card?.dmg ?? 0,
+    acc: card?.acc ?? 0,
+  };
+
+  const cId = state.opponentCBoard[`OC${oppSlot[1]}` as OppCSlotId];
+  const buff = cId ? state.opponentCards[cId]?.buff : undefined;
 
   const line = (stat: StatKey): StatLine => {
     const delta = buff && buff.stat === stat ? buff.amount : 0;

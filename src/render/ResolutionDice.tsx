@@ -3,8 +3,8 @@ import { Billboard, Edges, Text } from '@react-three/drei';
 import { useEffect, useRef, useState } from 'react';
 import { Mesh, Quaternion, Vector3 } from 'three';
 import { useGameStore } from '../state/useGameStore';
-import { SLOT_POSITIONS } from '../board/boardConfig';
-import type { DiceState, SlotId, Vec3 } from '../state/types';
+import { SLOT_POSITIONS, OPP_SLOT_POSITIONS, OPP_FULL_SLOT_POSITIONS } from '../board/boardConfig';
+import type { DiceState, OppSlotId, SlotId, Vec3 } from '../state/types';
 
 /**
  * Phase 4 Resolution dice (in-scene). During Resolution, every declared attacker
@@ -28,8 +28,10 @@ const Z_OFFSET = 0.15;
 
 export function ResolutionDice() {
   const rolls = useGameStore((s) => s.resolutionRolls);
+  const oppRolls = useGameStore((s) => s.oppResolutionRolls);
   const slots = Object.keys(rolls) as SlotId[];
-  if (slots.length === 0) return null;
+  const oppSlots = Object.keys(oppRolls) as OppSlotId[];
+  if (slots.length === 0 && oppSlots.length === 0) return null;
 
   return (
     <>
@@ -39,6 +41,13 @@ export function ResolutionDice() {
         const [cx] = SLOT_POSITIONS[`C${idx}` as SlotId];
         const position: Vec3 = [(ax + cx) / 2, ay + Y_OFFSET, az + Z_OFFSET];
         return <ResolutionDie key={slot} position={position} state={rolls[slot]} />;
+      })}
+      {oppSlots.map((slot) => {
+        const idx = slot[1];
+        const [ax, ay, az] = OPP_SLOT_POSITIONS[slot];
+        const [cx] = OPP_FULL_SLOT_POSITIONS[`C${idx}` as SlotId];
+        const position: Vec3 = [(ax + cx) / 2, ay + Y_OFFSET, az + Z_OFFSET];
+        return <ResolutionDie key={`opp-${slot}`} position={position} state={oppRolls[slot]} />;
       })}
     </>
   );

@@ -1,8 +1,8 @@
 import { Billboard, Text } from '@react-three/drei';
 import { a, useSpring } from '@react-spring/three';
 import { useGameStore } from '../state/useGameStore';
-import { SLOT_POSITIONS } from '../board/boardConfig';
-import type { RollOutcome, RollResult, SlotId, Vec3 } from '../state/types';
+import { SLOT_POSITIONS, OPP_SLOT_POSITIONS, OPP_FULL_SLOT_POSITIONS } from '../board/boardConfig';
+import type { OppSlotId, RollOutcome, RollResult, SlotId, Vec3 } from '../state/types';
 
 /**
  * Outcome-announcement pop-up shown above each attacker's stat plate the instant
@@ -40,8 +40,10 @@ const MAX_WIDTH = 1.0;
 
 export function OutcomePopups() {
   const popups = useGameStore((s) => s.outcomePopups);
+  const oppPopups = useGameStore((s) => s.oppOutcomePopups);
   const slots = Object.keys(popups) as SlotId[];
-  if (slots.length === 0) return null;
+  const oppSlots = Object.keys(oppPopups) as OppSlotId[];
+  if (slots.length === 0 && oppSlots.length === 0) return null;
 
   return (
     <>
@@ -51,6 +53,13 @@ export function OutcomePopups() {
         const [cx] = SLOT_POSITIONS[`C${idx}` as SlotId];
         const position: Vec3 = [(ax + cx) / 2, ay + Y_OFFSET, az + Z_OFFSET];
         return <OutcomePopup key={slot} position={position} result={popups[slot]} />;
+      })}
+      {oppSlots.map((slot) => {
+        const idx = slot[1];
+        const [ax, ay, az] = OPP_SLOT_POSITIONS[slot];
+        const [cx] = OPP_FULL_SLOT_POSITIONS[`C${idx}` as SlotId];
+        const position: Vec3 = [(ax + cx) / 2, ay + Y_OFFSET, az + Z_OFFSET];
+        return <OutcomePopup key={`opp-${slot}`} position={position} result={oppPopups[slot]} />;
       })}
     </>
   );

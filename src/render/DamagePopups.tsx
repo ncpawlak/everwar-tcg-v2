@@ -1,8 +1,8 @@
 import { Billboard, Text } from '@react-three/drei';
 import { a, useSpring } from '@react-spring/three';
 import { useGameStore } from '../state/useGameStore';
-import { OPP_SLOT_POSITIONS } from '../board/boardConfig';
-import type { OppSlotId, Vec3 } from '../state/types';
+import { OPP_SLOT_POSITIONS, SLOT_POSITIONS } from '../board/boardConfig';
+import type { OppSlotId, SlotId, Vec3 } from '../state/types';
 
 /**
  * Incoming-damage pop-up over each opponent card that took a hit this Resolution.
@@ -18,8 +18,10 @@ const Z_OFFSET = 0.14;
 
 export function DamagePopups() {
   const damagePopups = useGameStore((s) => s.damagePopups);
+  const oppDamagePopups = useGameStore((s) => s.oppDamagePopups);
   const slots = Object.keys(damagePopups) as OppSlotId[];
-  if (slots.length === 0) return null;
+  const playerSlots = Object.keys(oppDamagePopups) as SlotId[];
+  if (slots.length === 0 && playerSlots.length === 0) return null;
 
   return (
     <>
@@ -27,6 +29,11 @@ export function DamagePopups() {
         const [x, y, z] = OPP_SLOT_POSITIONS[slot];
         const position: Vec3 = [x, y + Y_OFFSET, z + Z_OFFSET];
         return <DamagePopup key={slot} position={position} amount={damagePopups[slot] ?? 0} />;
+      })}
+      {playerSlots.map((slot) => {
+        const [x, y, z] = SLOT_POSITIONS[slot];
+        const position: Vec3 = [x, y + Y_OFFSET, z + Z_OFFSET];
+        return <DamagePopup key={`p-${slot}`} position={position} amount={oppDamagePopups[slot] ?? 0} />;
       })}
     </>
   );

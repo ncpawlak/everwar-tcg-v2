@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createGameStore, SUMMON_SHOWCASE_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS, SHUFFLE_SPREAD_MS, END_PHASE_DWELL_MS } from './gameStore';
+import { createGameStore, SUMMON_SHOWCASE_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS, SHUFFLE_SPREAD_MS, END_PHASE_DWELL_MS, OPP_PHASE_STEP_MS } from './gameStore';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState } from './types';
@@ -1043,6 +1043,82 @@ describe('P4 turn / phase mechanics', () => {
       expect(s.currentHp[oppId]).toBeUndefined();
       // ...and the slash-FX flag clears once the card actually leaves.
       expect(s.destroying).toEqual([]);
+    } finally {
+      rand.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
+  it('the opponent strikes a player A-card on its turn and sends a doomed one to the player graveyard', () => {
+    vi.useFakeTimers();
+    // random() = 0 -> every D20 rolls a 1 (glancing), so every opponent attack
+    // deals half-DMG > 0 and is a guaranteed hit.
+    const rand = vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        activePlayer: 'player',
+        // A lone player Vanguard on 1 HP: any opponent hit is lethal.
+        board: { ...base.board, A1: 'card-A1' },
+        currentHp: { 'card-A1': 1 },
+      });
+
+      // Player has no attackers: Battle -> Resolution flows straight to End...
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
+      expect(store.getState().phase).toBe('end');
+      expect(store.getState().activePlayer).toBe('player');
+
+      // ...then the End dwell hands off to the opponent's auto-turn.
+      vi.advanceTimersByTime(END_PHASE_DWELL_MS + 20);
+      expect(store.getState().activePlayer).toBe('opponent');
+
+      // Step through draw -> main -> battle (attacks declared) -> resolution.
+      vi.advanceTimersByTime(OPP_PHASE_STEP_MS * 3 + 20);
+      expect(store.getState().phase).toBe('resolution');
+      // The opponent aimed its same-column Vanguard (O1) at the player's A1.
+      expect(store.getState().oppAttackTargets.O1).toBe('A1');
+
+      // Run the opponent Resolution timeline: roll -> settle -> apply -> remove.
+      vi.advanceTimersByTime(
+        RESOLUTION_ROLL_DELAY_MS + DICE_ROLL_MS + DICE_HOLD_MS + OUTCOME_POPUP_MS + GRAVEYARD_TRAVEL_MS + 60,
+      );
+
+      const s = store.getState();
+      // The player's card took lethal damage and was sent to the PLAYER graveyard.
+      expect(s.board.A1).toBeNull();
+      expect(s.graveyard).toContain('card-A1');
+      expect(s.currentHp['card-A1']).toBeUndefined();
+      expect(s.oppDestroying).toEqual([]);
+
+      // Control returns to the player after the opponent's End dwell.
+      vi.advanceTimersByTime(END_PHASE_DWELL_MS + 20);
+      expect(store.getState().activePlayer).toBe('player');
+    } finally {
+      rand.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('the opponent makes no attacks when the player has no A-cards on the field', () => {
+    vi.useFakeTimers();
+    const rand = vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const base = createInitialState();
+      const store = createGameStore({ ...base, phase: 'battle', activePlayer: 'player' });
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
+      vi.advanceTimersByTime(END_PHASE_DWELL_MS + 20);
+      expect(store.getState().activePlayer).toBe('opponent');
+      vi.advanceTimersByTime(OPP_PHASE_STEP_MS * 3 + 20);
+      expect(store.getState().oppAttackTargets).toEqual({});
+      // With no targets, the opponent's Resolution still resolves and hands back.
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400 + END_PHASE_DWELL_MS + 40);
+      expect(store.getState().activePlayer).toBe('player');
     } finally {
       rand.mockRestore();
       vi.useRealTimers();

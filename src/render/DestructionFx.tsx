@@ -1,7 +1,7 @@
 import { Billboard } from '@react-three/drei';
 import { a, useSpring } from '@react-spring/three';
 import { useGameStore } from '../state/useGameStore';
-import { OPP_SLOT_POSITIONS, BOARD_CARD_HEIGHT } from '../board/boardConfig';
+import { OPP_SLOT_POSITIONS, SLOT_POSITIONS, BOARD_CARD_HEIGHT } from '../board/boardConfig';
 import type { Vec3 } from '../state/types';
 
 /**
@@ -21,7 +21,8 @@ const THICK = 0.055;
 
 export function DestructionFx() {
   const destroying = useGameStore((s) => s.destroying);
-  if (destroying.length === 0) return null;
+  const oppDestroying = useGameStore((s) => s.oppDestroying);
+  if (destroying.length === 0 && oppDestroying.length === 0) return null;
 
   return (
     <>
@@ -29,6 +30,11 @@ export function DestructionFx() {
         const [x, y, z] = OPP_SLOT_POSITIONS[slot];
         const position: Vec3 = [x, y + Y_OFFSET, z];
         return <Gash key={slot} position={position} />;
+      })}
+      {oppDestroying.map((slot) => {
+        const [x, y, z] = SLOT_POSITIONS[slot];
+        const position: Vec3 = [x, y + Y_OFFSET, z];
+        return <Gash key={`p-${slot}`} position={position} />;
       })}
     </>
   );

@@ -313,4 +313,21 @@ export interface GameState {
    * Set the instant lethal damage is applied and cleared when the cards vanish;
    * drives the red slash destruction FX drawn over each doomed opponent card. */
   destroying: OppSlotId[];
+
+  /* --- Phase 7: opponent-as-attacker combat (mirror of the player fields
+   * above, populated only during the opponent's turn). --- */
+  /** Opponent attacker O-slot -> the player A-slot it is striking this turn. */
+  oppAttackTargets: Partial<Record<OppSlotId, SlotId>>;
+  /** Opponent Resolution D20 rolls, keyed by the attacking O-slot. */
+  oppResolutionRolls: Record<string, DiceState>;
+  /** Opponent Resolution results, keyed by the attacking O-slot. */
+  oppResolutionResults: Record<string, RollResult>;
+  /** Outcome-announcement word over each opponent attacker, keyed by O-slot. */
+  oppOutcomePopups: Record<string, RollResult>;
+  /** Aggregated incoming damage per struck player A-slot (summed across every
+   * opponent attacker aiming at it), keyed by player A-slot id. */
+  oppDamagePopups: Partial<Record<SlotId, number>>;
+  /** Player A-slots whose card the opponent is destroying this Resolution (HP
+   * hit 0); drives the red slash FX over the doomed player card. */
+  oppDestroying: SlotId[];
 }

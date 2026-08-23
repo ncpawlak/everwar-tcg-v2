@@ -3,7 +3,7 @@ import type { BAbility, CardId, CardType, DiceState, GameState, OppSlotId, PileS
 import { createInitialState } from './cardData';
 import { canDropCard, requiresTribute, canAffordTribute, validTargetSlots } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
-import { rollCBuff, effectiveStats } from './combatStats';
+import { rollCBuff, effectiveStats, opponentEffectiveStats } from './combatStats';
 import { resolveRoll } from './diceRules';
 import { OPP_SLOT_IDS } from '../board/boardConfig';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
@@ -443,13 +443,155 @@ export function createGameStore(
       };
 
       /**
+       * Opponent target selection (Phase 7 Slice 3). Each occupied opponent
+       * Vanguard picks a player A-card to strike: the card in its own column if
+       * present, otherwise a random occupied player A-slot. With no player
+       * A-cards on the field the opponent makes no attacks. Stored in
+       * `oppAttackTargets` (mirror of the player's `attackTargets`).
+       */
+      const declareOpponentAttacks = () =>
+        set((s) => {
+          const occupied = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).filter((a) => s.board[a]);
+          if (occupied.length === 0) return { oppAttackTargets: {} };
+          const targets: Partial<Record<OppSlotId, SlotId>> = {};
+          for (const o of OPP_SLOT_IDS) {
+            if (!s.opponentBoard[o]) continue;
+            const sameCol = `A${o[1]}` as SlotId;
+            targets[o] = s.board[sameCol]
+              ? sameCol
+              : occupied[Math.floor(Math.random() * occupied.length)];
+          }
+          return { oppAttackTargets: targets };
+        });
+
+      /** True while the opponent's auto-turn is the active turn. */
+      const oppActive = () => get().activePlayer === 'opponent';
+
+      /** Show the opponent's End banner, then hand the turn back to the player. */
+      const finishOpponentTurn = () => {
+        if (!oppActive()) return;
+        set((s) => ({ phase: 'end', phaseAnnounce: s.phaseAnnounce + 1, oppAttackTargets: {} }));
+        setTimeout(() => {
+          if (!oppActive()) return;
+          set((s) => ({ turn: s.turn + 1, activePlayer: 'player' }));
+          goToPhase('draw');
+        }, END_PHASE_DWELL_MS);
+      };
+
+      /**
+       * The opponent's Resolution (Phase 7 Slice 3): a mirror of the player's
+       * `beginResolution`. Every declared opponent attacker rolls a D20 over its
+       * own card, the roll resolves against the opponent's effective DMG/ACC, and
+       * the damage lands on the targeted player A-cards — draining their HP bars
+       * and sending any that hit 0 to the PLAYER's graveyard. When the dice and
+       * pop-ups clear, control returns to the player.
+       */
+      const beginOpponentResolution = () => {
+        set({ oppOutcomePopups: {}, oppResolutionRolls: {}, oppResolutionResults: {}, oppDamagePopups: {} });
+        const sources = Object.keys(get().oppAttackTargets) as OppSlotId[];
+        if (sources.length === 0) {
+          setTimeout(() => finishOpponentTurn(), RESOLUTION_ROLL_DELAY_MS + 300);
+          return;
+        }
+        setTimeout(() => {
+          if (!oppActive()) return;
+          const rolls: Record<string, DiceState> = {};
+          const values: Record<string, number> = {};
+          for (const slot of sources) {
+            const value = 1 + Math.floor(Math.random() * DICE_SIDES);
+            rolls[slot] = { value, rolling: true };
+            values[slot] = value;
+          }
+          set((s) => ({ oppResolutionRolls: rolls, lastRolls: { ...s.lastRolls, ...values } }));
+          setTimeout(() => {
+            set((s) => {
+              const settled: Record<string, DiceState> = {};
+              const results: Record<string, RollResult> = {};
+              for (const k of Object.keys(s.oppResolutionRolls)) {
+                const value = s.oppResolutionRolls[k].value;
+                settled[k] = { value, rolling: false };
+                const eff = opponentEffectiveStats(s, k as OppSlotId);
+                results[k] = resolveRoll(value, eff.dmg.value, eff.acc.value);
+              }
+              return { oppResolutionRolls: settled, oppResolutionResults: results };
+            });
+          }, DICE_ROLL_MS);
+          setTimeout(() => {
+            if (!oppActive()) return;
+            // Land the damage on the player: aggregate each opponent attacker's
+            // damage onto its player target, drain that card's HP, flag any that
+            // hit 0 for the slash FX.
+            set((s) => {
+              const popups: Record<string, RollResult> = { ...s.oppResolutionResults };
+              const damageByTarget: Record<string, number> = {};
+              for (const src of Object.keys(s.oppAttackTargets) as OppSlotId[]) {
+                const dmg = s.oppResolutionResults[src]?.damage ?? 0;
+                if (dmg <= 0) continue;
+                const target = s.oppAttackTargets[src];
+                if (!target) continue;
+                damageByTarget[target] = (damageByTarget[target] ?? 0) + dmg;
+              }
+              const currentHp = { ...s.currentHp };
+              const oppDestroying: SlotId[] = [];
+              const oppDamagePopups: Partial<Record<SlotId, number>> = {};
+              for (const target of Object.keys(damageByTarget) as SlotId[]) {
+                const pid = s.board[target];
+                if (!pid) continue;
+                const maxHp = effectiveStats(s, target).hp.value;
+                const cur = currentHp[pid] ?? maxHp;
+                const dmg = damageByTarget[target];
+                const next = Math.max(0, cur - dmg);
+                currentHp[pid] = next;
+                oppDamagePopups[target] = dmg;
+                if (next <= 0) oppDestroying.push(target);
+              }
+              return { oppOutcomePopups: popups, oppDamagePopups, currentHp, oppDestroying };
+            });
+            // After the dwell, clear the dice + pop-ups and send any player card
+            // that hit 0 to the player's graveyard, THEN hand back to the player.
+            setTimeout(() => {
+              if (!oppActive()) return;
+              let destroyedAny = false;
+              set((s) => {
+                const board = { ...s.board };
+                const graveyard = [...s.graveyard];
+                const currentHp = { ...s.currentHp };
+                for (const slot of ['A1', 'A2', 'A3', 'A4'] as SlotId[]) {
+                  const pid = board[slot];
+                  if (!pid || (currentHp[pid] ?? Infinity) > 0) continue;
+                  destroyedAny = true;
+                  board[slot] = null;
+                  graveyard.push(pid);
+                  delete currentHp[pid];
+                }
+                return {
+                  oppOutcomePopups: {},
+                  oppDamagePopups: {},
+                  oppResolutionRolls: {},
+                  oppResolutionResults: {},
+                  oppDestroying: [],
+                  board,
+                  graveyard,
+                  currentHp,
+                };
+              });
+              if (destroyedAny) {
+                setTimeout(() => finishOpponentTurn(), GRAVEYARD_TRAVEL_MS);
+              } else {
+                finishOpponentTurn();
+              }
+            }, OUTCOME_POPUP_MS);
+          }, DICE_ROLL_MS + DICE_HOLD_MS);
+        }, RESOLUTION_ROLL_DELAY_MS);
+      };
+
+      /**
        * Run the opponent's full auto-turn (Phase 7). Control passes here after
        * the player ends their turn. The opponent takes its own turn number and
-       * steps through the same five phases on a timer — the shared bottom HUD +
-       * phase banner announce each one, and the field-border highlight flips to
-       * the opponent's side. Real opponent draws/summons/attacks arrive in later
-       * slices; for now this drives the turn loop and its presentation. When the
-       * End dwell finishes, control returns to the player for their next turn.
+       * steps draw -> main -> battle on a timer (shared HUD + banner announce
+       * each, field highlight flips to its side), declares its attacks at Battle,
+       * then runs its Resolution (real bidirectional combat, Slice 3). The
+       * Resolution engine shows the End banner and hands control back when done.
        */
       const runOpponentTurn = () => {
         if (get().activePlayer !== 'player') return; // already running / idempotent
@@ -459,19 +601,20 @@ export function createGameStore(
           phase: 'draw',
           phaseAnnounce: s.phaseAnnounce + 1,
         }));
-        const rest: Phase[] = ['main', 'battle', 'resolution', 'end'];
-        rest.forEach((p, i) => {
-          setTimeout(() => {
-            if (get().activePlayer !== 'opponent') return;
-            set((s) => ({ phase: p, phaseAnnounce: s.phaseAnnounce + 1 }));
-          }, OPP_PHASE_STEP_MS * (i + 1));
-        });
         setTimeout(() => {
-          if (get().activePlayer !== 'opponent') return;
-          // Hand control back to the player for their next (odd) turn.
-          set((s) => ({ turn: s.turn + 1, activePlayer: 'player' }));
-          goToPhase('draw');
-        }, OPP_PHASE_STEP_MS * (rest.length + 1));
+          if (!oppActive()) return;
+          set((s) => ({ phase: 'main', phaseAnnounce: s.phaseAnnounce + 1 }));
+        }, OPP_PHASE_STEP_MS);
+        setTimeout(() => {
+          if (!oppActive()) return;
+          set((s) => ({ phase: 'battle', phaseAnnounce: s.phaseAnnounce + 1 }));
+          declareOpponentAttacks();
+        }, OPP_PHASE_STEP_MS * 2);
+        setTimeout(() => {
+          if (!oppActive()) return;
+          set((s) => ({ phase: 'resolution', phaseAnnounce: s.phaseAnnounce + 1 }));
+          beginOpponentResolution();
+        }, OPP_PHASE_STEP_MS * 3);
       };
 
     return {

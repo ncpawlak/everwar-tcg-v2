@@ -15,17 +15,20 @@ import type { OppSlotId, SlotId, Vec3 } from '../state/types';
 /** Float the arrow just above the mat so it reads over the slots, under cards. */
 const ARROW_Y = BOARD_Y + 0.12;
 const COLOR = '#ffd76a';
+const OPP_COLOR = '#e0563b';
 const OPACITY = 0.5;
 /** Pull the arrowhead back from the target center to sit at the card's edge. */
 const HEAD_INSET = 0.3;
 
 export function TargetingArrows() {
   const attackTargets = useGameStore((s) => s.attackTargets);
+  const oppAttackTargets = useGameStore((s) => s.oppAttackTargets);
   const targeting = useGameStore((s) => s.targeting);
   const aimPoint = useGameStore((s) => s.aimPoint);
   const phase = useGameStore((s) => s.phase);
   if (phase !== 'battle' && phase !== 'resolution') return null;
   const entries = Object.entries(attackTargets) as [SlotId, OppSlotId][];
+  const oppEntries = Object.entries(oppAttackTargets) as [OppSlotId, SlotId][];
 
   return (
     <>
@@ -33,6 +36,12 @@ export function TargetingArrows() {
         const [sx, , sz] = SLOT_POSITIONS[src];
         const [tx, , tz] = OPP_SLOT_POSITIONS[tgt];
         return <Arrow key={src} from={[sx, ARROW_Y, sz]} to={[tx, ARROW_Y, tz]} />;
+      })}
+      {/* Opponent's attacks: crimson arrows from its Vanguard to your cards. */}
+      {oppEntries.map(([src, tgt]) => {
+        const [sx, , sz] = OPP_SLOT_POSITIONS[src];
+        const [tx, , tz] = SLOT_POSITIONS[tgt];
+        return <Arrow key={`opp-${src}`} from={[sx, ARROW_Y, sz]} to={[tx, ARROW_Y, tz]} color={OPP_COLOR} />;
       })}
       {/* Live rubber-band arrow from the aiming source to the cursor. */}
       {targeting && aimPoint && (
@@ -46,7 +55,7 @@ export function TargetingArrows() {
   );
 }
 
-function Arrow({ from, to }: { from: Vec3; to: Vec3 }) {
+function Arrow({ from, to, color = COLOR }: { from: Vec3; to: Vec3; color?: string }) {
   const geom = useMemo(() => {
     const a = new Vector3(...from);
     const b = new Vector3(...to);
@@ -66,10 +75,10 @@ function Arrow({ from, to }: { from: Vec3; to: Vec3 }) {
   if (!geom) return null;
   return (
     <group>
-      <Line points={geom.points} color={COLOR} lineWidth={2} transparent opacity={OPACITY} />
+      <Line points={geom.points} color={color} lineWidth={2} transparent opacity={OPACITY} />
       <mesh position={geom.headPos} quaternion={geom.headQuat}>
         <coneGeometry args={[0.08, 0.22, 12]} />
-        <meshBasicMaterial color={COLOR} transparent opacity={OPACITY} />
+        <meshBasicMaterial color={color} transparent opacity={OPACITY} />
       </mesh>
     </group>
   );
