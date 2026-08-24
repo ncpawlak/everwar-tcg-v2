@@ -1,11 +1,11 @@
 # Current Architecture — Everwar
 
-**Current phase:** Phase 6 — Opponent board mirror, combat/stat-tag polish, and level/tribute summoning (full turn loop + dice combat + opponent targeting in place)
-**Landed:** commits `1a54534` (P2) → `f15d8fc` (P3) → `7f4063b` (P4) → `6385a1b` (P5); **Phase 6 uncommitted** in the working tree
-**Last architecture close-out:** 2026-08-23 (back-propagated close-out for phases 3–6)
-**Build health at close-out:** `npx tsc --noEmit` green · `npx vitest run` green (**127 tests, 11 files**), working tree at Phase 6
+**Current phase:** Phase 7 — Opponent as a full second player: real deck/hand/board, auto-run opponent turn, bidirectional combat, heuristic AI (all prior systems in place)
+**Landed:** commits `1a54534` (P2) → `f15d8fc` (P3) → `7f4063b` (P4) → `6385a1b` (P5) → `19a32c9` (P6) → `f396500` (P7); Phase 7 **code committed**, doc set uncommitted
+**Last architecture close-out:** 2026-08-23 (Phase 7 close-out)
+**Build health at close-out:** `npx tsc --noEmit` green · `npx vitest run` green (**139 tests, 11 files**), Phase 7 committed
 
-Everwar's vision is mutable. This is a living architecture log and evolves per phase. Every feature addition, change, or removal updates the phase history below and the affected seams. This document reflects the **actual, as-built** architecture through Phase 6. The Phase 1/2 sections below are preserved for the load-bearing decisions (D1–D4); the **layered-architecture spine and the state→selector→spring data flow are preserved intact** across all phases and remain the pattern every later phase built on. Per-phase architecturally-significant decisions live in the dated decision records alongside this file (`2026-08-22-phase-1-decisions.md`, `2026-08-22-phase-2-decisions.md`, and the `…phase-3/4/5/6-decisions.md` records).
+Everwar's vision is mutable. This is a living architecture log and evolves per phase. Every feature addition, change, or removal updates the phase history below and the affected seams. This document reflects the **actual, as-built** architecture through Phase 7. The Phase 1/2 sections below are preserved for the load-bearing decisions (D1–D4); the **layered-architecture spine and the state→selector→spring data flow are preserved intact** across all phases and remain the pattern every later phase built on. Per-phase architecturally-significant decisions live in the dated decision records alongside this file (`2026-08-22-phase-1-decisions.md`, `2026-08-22-phase-2-decisions.md`, and the `…phase-3/4/5/6/7-decisions.md` records).
 
 ## Phase history
 
@@ -17,6 +17,7 @@ Everwar's vision is mutable. This is a living architecture log and evolves per p
 | Phase 4 | Added | Turn/phase loop. **Phase state machine Draw→Main→Battle→Resolution→End** with a turn counter, `TurnHud`, Next-Phase button, and a sliding `PhaseBanner`. Draw auto-draws to 6/1 then advances; End folds replen into the deck and graveyards non-continuous B cards; placement gated to Main. **Battle declaration** (click a linked A/C column to declare its A as attacker); **Resolution dice** (each attacker rolls a D20 in-scene, values into `lastRolls`) then auto-advances to End. |
 | Phase 5 | Added | Dice combat + rules layer. Pure **`diceRules.ts`** (D20 → GLANCING/HIT/MISS/CRITICAL bands from effective ACC + auto-crit) and **`combatStats.ts`** (HP/DMG/ACC with C-card buffs folded into effective stats). Resolution shows outcome pop-ups then applies damage; cards drained to 0 HP play a slash FX and travel to graveyard (End holds for the animation). **Player→opponent targeting**: a mirrored opponent Vanguard row, aim arrows that rubber-band to the cursor, gold valid targets, stackable attackers. Double-click quick-place in Main. |
 | Phase 6 | Changed / Added | Opponent board + summoning depth. **Full mirrored opponent board** reusing the slot/id scheme (upside-down cards, but HP/DMG/ACC tags kept player-relative), with opponent draw/destroy animations and increased board spacing. **On-card stat redesign** (remaining-HP + bar on top, DMG/ACC below) and a **flattened camera**. **Card-A summon levels (1/2/2/3)** with **tribute summoning**: level-3 needs board A-cards summing to exactly 3, chosen via a subset-sum popup (`TributeModal`), materials + linked C → replen. **Commander card** (A5, deck now 13) summons the same way but sends materials → graveyard. **"Shuffle into deck" reroutes through the replen pile**; End only reshuffles when replen is non-empty. **→ 127 tests.** |
+| Phase 7 | Changed / Added | Opponent becomes a **full second player**. Real `opponentDeck`/`opponentHand`/`opponentReplen`/`opponentGraveyard` + A/B/C board (`opponentBoard`/`opponentBBoard`/`opponentCBoard`); dummy O1–O3 seeds removed. **Auto-run opponent turn** (`runOpponentTurn` at the player's End; player-first; every timed step `oppActive()`-guarded) steps Draw→Main→Battle→Resolution on timers. **Bidirectional combat** (`oppAttackTargets`, `declareOpponentAttacks`, `beginOpponentResolution`) reusing `diceRules`/`combatStats`; destroyed player A + linked C → player graveyard. **Heuristic AI** (`opponentMainPhase`/`opponentPlayStep`, greedy one-per-type A→C→B, re-reads state so C attaches to a same-turn A, focus-fire). **Hidden hand + reveal-on-set fly-in** (`MotionCard` `from` prop), **paced plays** (`OPP_PLAY_GAP_MS`/`OPP_PLAY_STEP_MS` inside `OPP_MAIN_DURATION_MS`), per-field turn border, split hit-tests (`oppSlotAtPoint` column-targeting vs. `oppCardAtPoint` inspection), truthful deck shrink (`opponentDeck.length`). **→ 139 tests.** |
 
 ## As-built `src\` module layout
 
@@ -56,7 +57,7 @@ src\
 
 Tests are colocated (`*.test.ts`) next to the pure modules they lock down: `state\gameStore`, `state\cardData`, `state\diceRules`, `state\combatStats`, `state\shuffle`, `board\slotRules`, `board\layout`, `input\hitTest`, `input\pickMath`, `animation\poseSelectors`, plus `smoke` — **127 tests / 11 files** at Phase 6.
 
-### Modules added since Phase 2 (phases 3–6)
+### Modules added since Phase 2 (phases 3–7)
 
 The layout above is the Phase-2 baseline; the layered spine is unchanged, but these modules were added. See each phase's `client-docs\technical\phase-N-*-architecture.md` for detail.
 
@@ -64,29 +65,38 @@ The layout above is the Phase-2 baseline; the layered spine is unchanged, but th
 state\
   shuffle.ts                   # (P3) pure Fisher-Yates shuffleArray with injectable RNG
   diceRules.ts                 # (P5) pure D20 → GLANCING/HIT/MISS/CRITICAL bands from effective ACC (+ auto-crit)
-  combatStats.ts               # (P5) pure effective HP/DMG/ACC = base + folded C-card buffs
-  gameStore.ts                 # (P3–P6) grew: graveyard/replen piles, pile-search, shuffle, phase state machine,
+  combatStats.ts               # (P5) pure effective HP/DMG/ACC = base + folded C-card buffs (P6 opponentEffectiveStats, P7 shared both sides)
+  gameStore.ts                 # (P3–P7) grew: graveyard/replen piles, pile-search, shuffle, phase state machine,
                                #   battle declaration, resolution dice, damage/death, opponent targeting,
-                               #   tribute summoning (pendingTribute), commander routing
+                               #   tribute summoning (pendingTribute), commander routing,
+                               #   (P7) runOpponentTurn + drawOpponentCards + opponentMainPhase/opponentPlayStep,
+                               #   bidirectional combat (oppAttackTargets/declareOpponentAttacks/beginOpponentResolution),
+                               #   revealOppCard + oppActive guard + paced-play constants
   types.ts                     # gained: graveyard/replen, phase/turn, combat stats (optional, A-only),
-                               #   level?/commander?, PendingTribute, targeting + roll state
+                               #   level?/commander?, PendingTribute, targeting + roll state,
+                               #   (P7) opponentDeck/Hand/Replen + opponentBBoard/opponentCBoard, oppAttackTargets, oppSummon
 cards\
   cardTheme.ts                 # (P3) TYPE_ACCENT / TYPE_LABEL / RARITY_COLOR shared card theming
-render\                        # (P3–P6) presentational R3F views, all state-driven
+render\                        # (P3–P7) presentational R3F views, all state-driven
   AZoneStats.tsx / StatOverlay.tsx   # floating HP-bar / DMG / ACC plates over A columns (P3, redesigned P6)
   SummonRipple.tsx             # (P3) summon-reveal showcase pop + gold ripple
   ResolutionDice.tsx           # (P4/P5) in-scene D20 tumble over each attacker
   OutcomePopups.tsx / DamagePopups.tsx  # (P5) HIT/MISS/CRIT + damage number pop-ups
   DestructionFx.tsx            # (P5) red-slash death FX + travel to graveyard
   TargetingArrows.tsx          # (P5) rubber-band aim arrows to the cursor / locked targets
-  OpponentBoard.tsx / OpponentField.tsx / OpponentHand.tsx / CardBack.tsx  # (P5/P6) mirrored opponent side
+  OpponentBoard.tsx / OpponentField.tsx / OpponentHand.tsx / CardBack.tsx  # (P5/P6) mirrored opponent side; (P7) B/C cards, reveal-on-set fly-in, deck from opponentDeck.length
 ui\                            # DOM overlays (outside the Canvas, crisp text)
-  InspectionPanel.tsx          # (P3) big card inspector; (P6) shows Level + COMMANDER tag
-  PileSearchModal.tsx          # (P3) reusable deck/graveyard/replen browser
-  DevControls.tsx              # (P3) temp dev buttons (destroy/pile/shuffle) — no Player 2 yet
-  PhaseBanner.tsx / TurnHud.tsx  # (P4) phase banner + turn HUD / Next-Phase button
+  InspectionPanel.tsx          # (P3) big card inspector; (P6) shows Level + COMMANDER tag; (P7) opponent A/B/C cards inspectable
+  PileSearchModal.tsx          # (P3) reusable deck/graveyard/replen browser; (P7) both sides' graveyard/replen
+  DevControls.tsx              # (P3) temp dev buttons (destroy/pile/shuffle) — hidden since P7 kickoff
+  PhaseBanner.tsx / TurnHud.tsx  # (P4) phase banner + turn HUD / Next-Phase button; (P7) per-field active-turn border
   TributeModal.tsx             # (P6) subset-sum material picker with a 0/N counter
 ```
+
+animation\
+  MotionCard.tsx               # (P7) optional `from` prop → reveal-on-set fly-in
+input\
+  hitTest.ts                   # (P7) oppSlotAtPoint (A-C column → O-slot targeting) + oppCardAtPoint (specific card inspection)
 
 ## Layered decomposition & boundaries
 
@@ -182,6 +192,7 @@ Full reasoning lives in each dated decision record; this is the orientation summ
 - **Subset-sum tribute gate + modal handshake (P6).** Level-3/Commander A-cards require board materials whose levels sum to exactly the level (`hasSubsetSum`/`canAffordTribute` in `slotRules.ts`). Dropping such a card sets `pendingTribute` (card stays in hand) rather than committing; `TributeModal` collects the selection and `confirmTributeSummon` validates the sum, routes materials + linked C to **replen** (or **graveyard** for `commander`), then commits. The type gate (D3) is untouched — this is an *additional* gate.
 - **"Shuffle into deck" indirection through replen (P6).** Effects that say "shuffle into deck" move cards into the replen pile (which folds into the deck at End), keeping the deck-riffle animation reserved for genuine deck reshuffles. End only reshuffles when replen is non-empty.
 - **Camera note (P6).** The board angle was flattened for readable stat tags. **Camera x is still 0** (D4's load-bearing invariant for the fan basis is respected); the change is in pitch/height/target, not x.
+- **One rules engine, two players (P7).** The opponent was promoted to a full state slice (`opponentDeck`/`opponentHand`/`opponentReplen`/`opponentGraveyard` + A/B/C boards) and driven through the SAME phase machine and the SAME pure rules (`slotRules`/`diceRules`/`combatStats`) as the player — no forked combat/placement logic. Bidirectional combat added new *target state* (`oppAttackTargets`), not new combat math. Turn handoff is a single trigger: reaching the player's End calls `runOpponentTurn()`, and every timed opponent step is guarded by `oppActive()` for idempotency. The AI is a small greedy heuristic (`opponentPlayStep`, one-per-type A→C→B, re-reading state so a C attaches to a same-turn A); the opponent hand stays hidden and reveals on set via `MotionCard`'s `from` fly-in. Plays are paced with an explicit inter-play gap (`OPP_PLAY_GAP_MS`) inside a dedicated Main window (`OPP_MAIN_DURATION_MS`). Targeting vs. inspection are split hit-tests (`oppSlotAtPoint` resolves a whole A-C column; `oppCardAtPoint` finds a specific card). This realized the long-anticipated **true second-player turn** seam.
 
 ## Architectural quality pass — tech debt, coupling, tests (actionable, for Phase 3)
 
@@ -215,7 +226,7 @@ Full reasoning lives in each dated decision record; this is the orientation summ
 
 ## Future extension seams
 
-> **Realized since Phase 2:** the *turn/rules engine* (P4 phase machine + P5 pure `diceRules`/`combatStats`), *opponent field / mirrored zones* (P5/P6), *graveyard / replenish behavior* (P3), and *real card data depth* (P3–P6 combat stats, levels, commander, abilities/boosts) are now built. The table keeps them for context and marks what remains. **Still open:** a true second-player *turn* (the loop is one-directional player→opponent; no P2 turn or win/loss yet), camera movement, re-pickup of placed cards, configurable field size, touch/mobile, and networking.
+> **Realized since Phase 2:** the *turn/rules engine* (P4 phase machine + P5 pure `diceRules`/`combatStats`), *opponent field / mirrored zones* (P5/P6), a **true second-player turn** (P7 — auto-run opponent turn + bidirectional combat + heuristic AI), *graveyard / replenish behavior* (P3), and *real card data depth* (P3–P6 combat stats, levels, commander, abilities/boosts) are now built. The table keeps them for context and marks what remains. **Still open:** win/loss conditions (the loop alternates indefinitely), opponent tribute/Commander summons and opponent B-card ability firing, AI lookahead, camera movement, re-pickup of placed cards, configurable field size, touch/mobile, and networking.
 
 | Future capability | Seam to extend | Expected localized change |
 |---|---|---|

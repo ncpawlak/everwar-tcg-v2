@@ -20,7 +20,36 @@
 
 ## [Unreleased]
 
-## [0.7.0] — 2026-08-23
+## [0.8.0] — 2026-08-23
+
+### Everwar — Phase 7: Two-Sided Turn, Bidirectional Combat & Opponent AI ✅
+
+> Phase 7 promotes the opponent from a passive mirrored board into a real second player: it draws, summons A/B/C cards, and attacks on its own auto-run turn, driven by a simple heuristic AI through the same phase machine and pure rules modules the player uses. Stack unchanged: TypeScript · React + Vite · Three.js / React Three Fiber v8 + drei · Zustand · @react-spring/three · Vitest.
+
+#### Added
+
+- **Opponent as a full player** — the opponent gets its own real state slice: `opponentDeck`, `opponentHand`, `opponentReplen`, `opponentGraveyard`, and a full A/B/C board (`opponentBoard` O1–O4, `opponentBBoard` OB1–OB4, `opponentCBoard` OC1–OC4). The old dummy O1–O3 seeds are removed; the opponent starts empty and summons its own cards (`types.ts`, `cardData.ts`, `gameStore.ts`).
+- **Auto-run opponent turn** — reaching the player's End triggers `runOpponentTurn()`, which bumps the turn counter, flips `activePlayer`, and steps the opponent through Draw → Main → Battle → Resolution → End on timers before handing control back. The player always goes first; every timed step is guarded by `oppActive()` (`gameStore.ts`).
+- **Bidirectional combat** — the opponent is now a first-class attacker: `oppAttackTargets` (O-slot → player A-slot), `declareOpponentAttacks()` (focus-fires the player's weakest/lowest-HP A-cards), and `beginOpponentResolution()` roll per attacker via the shared `diceRules`/`combatStats` and send destroyed player cards to the player graveyard.
+- **Heuristic opponent AI** — `opponentMainPhase`/`opponentPlayStep` greedily play one card per type (A → C → B), re-reading state each play so a C-buff attaches to an A summoned earlier the same turn (C rolls `rollCBuff()`). Free summons only (no tribute/Commander this phase).
+- **Hidden hand + reveal-on-set** — the opponent hand renders face-down; a played card reveals via the summon showcase and flies in from the hand using `MotionCard`'s new `from` prop (`opponentSummonFromPose()`).
+- **Opponent draw rule** — `drawOpponentCards()` refills the opponent hand toward `HAND_TARGET` (min 1), staggered, matching the player rule (replacing a single-card draw).
+- **Full opponent inspection** — click opponent A/B/C field cards to inspect them (`oppCardAtPoint` across O/OB/OC zones); both players' graveyard and replen piles open the pile browser (`PileSource` gains `opponentGraveyard`/`opponentReplen`). The hidden hand stays private.
+
+#### Changed
+
+- **Turn ownership is a per-field border** — the active player's field is outlined (thin, padded away from the on-card DMG/ACC plates) instead of a full-screen frame; the outline follows `activePlayer`.
+- **Paced opponent plays** — plays are spaced one at a time (`OPP_PLAY_GAP_MS` between plays, chained at `OPP_PLAY_STEP_MS`) inside a dedicated Main window (`OPP_MAIN_DURATION_MS = 3 × OPP_PLAY_STEP_MS`), while Draw/Battle stay snappy at `OPP_PHASE_STEP_MS`. Each summon lifts, reveals, settles, then pauses.
+- **Attack targeting accepts the whole A-C link** — `oppSlotAtPoint` resolves a click anywhere in an A-C link column to its O-slot, not just the A-card zone.
+- **Opponent deck shrinks truthfully** — the opponent deck stack and hand deck-top render from the live `opponentDeck.length`; the cosmetic `OPP_DECK_COUNT` is removed.
+
+#### Fixed
+
+- **Linked C-card follows the player's A-card to the grave** — when the opponent destroys a player A-card, its linked C-card is now destroyed with it, matching the player-side rule (commit `2a0a5b1`).
+
+#### Tests
+
+- **139 tests green** — added opponent turn-loop and phase-timing coverage (fake timers over `OPP_PHASE_STEP_MS`/`OPP_PLAY_STEP_MS`/`OPP_MAIN_DURATION_MS`), bidirectional resolution/damage/death, AI play-step (one-per-type A→C→B, C-on-A, plays-nothing), and A-C-link targeting + specific-card inspection hit-tests (`gameStore.test.ts`, `hitTest.test.ts`).
 
 ### Everwar — Phase 6: Opponent Board, Combat Polish & Tribute Summoning ✅
 
