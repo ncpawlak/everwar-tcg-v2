@@ -43,7 +43,7 @@ export interface EffectiveStats {
 }
 
 /** Hero (A) cards a side controls on its A-board, for aura collection. */
-function heroesOnBoard(board: Record<string, string | null>, lookup: Record<string, Card>): Card[] {
+export function boardHeroes(board: Record<string, string | null>, lookup: Record<string, Card>): Card[] {
   const out: Card[] = [];
   for (const id of Object.values(board)) {
     const c = id ? lookup[id] : undefined;
@@ -70,7 +70,7 @@ export function effectiveStats(state: GameState, aSlot: SlotId): EffectiveStats 
 
   const cId = state.board[linkedCSlot(aSlot)];
   const buff = cId ? state.cardsById[cId]?.buff : undefined;
-  const auras = collectAuras(heroesOnBoard(state.board, state.cardsById));
+  const auras = collectAuras(boardHeroes(state.board, state.cardsById));
 
   const line = (stat: StatKey): StatLine => {
     const cDelta = buff && buff.stat === stat ? buff.amount : 0;
@@ -99,7 +99,7 @@ export function opponentEffectiveStats(state: GameState, oppSlot: OppSlotId): Ef
 
   const cId = state.opponentCBoard[`OC${oppSlot[1]}` as OppCSlotId];
   const buff = cId ? state.opponentCards[cId]?.buff : undefined;
-  const auras = collectAuras(heroesOnBoard(state.opponentBoard, state.opponentCards));
+  const auras = collectAuras(boardHeroes(state.opponentBoard, state.opponentCards));
 
   const line = (stat: StatKey): StatLine => {
     const cDelta = buff && buff.stat === stat ? buff.amount : 0;

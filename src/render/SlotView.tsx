@@ -30,12 +30,16 @@ export function SlotView() {
   const attackTargets = useGameStore((s) => s.attackTargets);
   const targeting = useGameStore((s) => s.targeting);
   const phase = useGameStore((s) => s.phase);
+  const pendingSummon = useGameStore((s) => s.pendingSummon);
 
   return (
     <group>
       {SLOT_IDS.map((slotId) => {
         const [x, y, z] = SLOT_POSITIONS[slotId];
+        // During the summon slot-pick step only the open A slots (summonHighlight)
+        // should glow, so the drag highlight is suppressed then.
         const dragHighlight =
+          pendingSummon === null &&
           dragCard !== null &&
           slotHighlightedForCard(board, cardsById, slotId, dragCard);
         // A declared attacker (or the column currently being aimed) lights up its
@@ -46,7 +50,10 @@ export function SlotView() {
           (phase === 'battle' || phase === 'resolution') &&
           isAC &&
           (col in attackTargets || targeting === col);
-        const highlight = dragHighlight || attackHighlight;
+        // Awaiting a level-3+ summon slot: open A slots light up to be picked.
+        const summonHighlight =
+          pendingSummon !== null && slotType(slotId) === 'A' && board[slotId] === null;
+        const highlight = dragHighlight || attackHighlight || summonHighlight;
         return (
           <group key={slotId} position={[x, y - 0.009, z]}>
             <mesh rotation={[-Math.PI / 2, 0, 0]}>

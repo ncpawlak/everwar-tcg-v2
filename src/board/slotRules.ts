@@ -184,8 +184,10 @@ export function canAffordTribute(
 
 /**
  * Card-aware drag highlight. Behaves like {@link slotHighlighted} for ordinary
- * cards, but a tribute-summon card lights nothing until a valid material subset
- * exists on the board — matching "if you can't, there are no spaces to drop on".
+ * cards. A tribute-summon card lights nothing until a valid material subset
+ * exists on the board; once it does, EVERY A/C column lights up (occupied
+ * included) because dropping on any of them opens material selection — the
+ * materials free up the slot, so the target slot is chosen afterward.
  */
 export function slotHighlightedForCard(
   board: GameState['board'],
@@ -193,14 +195,18 @@ export function slotHighlightedForCard(
   slotId: SlotId,
   card: Card,
 ): boolean {
-  if (requiresTribute(card) && !canAffordTribute(board, cardsById, card)) return false;
+  if (requiresTribute(card)) {
+    if (!canAffordTribute(board, cardsById, card)) return false;
+    const zone = slotType(slotId);
+    return zone === 'A' || zone === 'C';
+  }
   return slotHighlighted(board, slotId, card.type);
 }
 
 /**
  * Card-aware drop validity. Like {@link canDrop} but a tribute-summon card is
- * only droppable when it can afford its tribute; the drop then opens the
- * material-selection modal rather than placing immediately.
+ * droppable onto ANY A/C column (even a full board) when it can afford its
+ * tribute; the drop opens the material-selection modal rather than placing.
  */
 export function canDropCard(
   board: GameState['board'],
@@ -208,6 +214,10 @@ export function canDropCard(
   slotId: SlotId | null,
   card: Card,
 ): boolean {
-  if (requiresTribute(card) && !canAffordTribute(board, cardsById, card)) return false;
+  if (requiresTribute(card)) {
+    if (slotId === null || !canAffordTribute(board, cardsById, card)) return false;
+    const zone = slotType(slotId);
+    return zone === 'A' || zone === 'C';
+  }
   return canDrop(board, slotId, card.type);
 }

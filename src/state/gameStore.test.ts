@@ -180,14 +180,14 @@ describe('P2-S02/S08 game store actions', () => {
       phase: 'main',
     });
     store.getState().beginDrag('card-hero-10');
-    store.getState().dropCard('card-hero-10', 'A3'); // empty A slot
+    store.getState().dropCard('card-hero-10', 'A3'); // drop opens the picker
     const s = store.getState();
-    expect(s.pendingTribute).toEqual({ cardId: 'card-hero-10', slotId: 'A3' });
+    expect(s.pendingTribute).toEqual({ cardId: 'card-hero-10' });
     expect(s.hand).toContain('card-hero-10'); // still in hand until confirmed
     expect(s.dragging).toBeNull();
   });
 
-  it('confirming a tribute sends materials (and linked C) to replen and sets the card', () => {
+  it('confirming a tribute sends materials (and linked C) to replen, then a chosen slot summons the card', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
@@ -202,14 +202,22 @@ describe('P2-S02/S08 game store actions', () => {
     store.getState().dropCard('card-hero-10', 'A3');
     store.getState().confirmTributeSummon(['A1', 'A2']); // levels 1 + 2 = 3
 
-    const s = store.getState();
-    expect(s.board.A3).toBe('card-hero-10'); // summoned into the target slot
+    // Materials are gone and the card now awaits slot selection (still in hand).
+    let s = store.getState();
     expect(s.board.A1).toBeNull();
     expect(s.board.A2).toBeNull();
     expect(s.board.C1).toBeNull(); // linked C tributed too
     expect(s.replen).toEqual(expect.arrayContaining(['card-hero-1', 'card-hero-6', 'card-equipment-1']));
-    expect(s.hand).not.toContain('card-hero-10');
     expect(s.pendingTribute).toBeNull();
+    expect(s.pendingSummon).toEqual({ cardId: 'card-hero-10' });
+    expect(s.hand).toContain('card-hero-10'); // not placed until a slot is picked
+
+    // Pick an open slot — now the card is summoned there.
+    store.getState().placePendingSummon('A3');
+    s = store.getState();
+    expect(s.board.A3).toBe('card-hero-10');
+    expect(s.hand).not.toContain('card-hero-10');
+    expect(s.pendingSummon).toBeNull();
   });
 
   it('confirming a COMMANDER tribute sends materials (and linked C) to the graveyard', () => {
@@ -226,6 +234,7 @@ describe('P2-S02/S08 game store actions', () => {
     store.getState().beginDrag('card-hero-14');
     store.getState().dropCard('card-hero-14', 'A3');
     store.getState().confirmTributeSummon(['A1', 'A2']); // levels 2 + 2 = 4
+    store.getState().placePendingSummon('A3');
 
     const s = store.getState();
     expect(s.board.A3).toBe('card-hero-14'); // commander summoned
@@ -238,6 +247,7 @@ describe('P2-S02/S08 game store actions', () => {
     );
     expect(s.replen).not.toEqual(expect.arrayContaining(['card-hero-6']));
     expect(s.pendingTribute).toBeNull();
+    expect(s.pendingSummon).toBeNull();
   });
 
   it('confirming with materials that do not sum to the level is a no-op', () => {
@@ -276,6 +286,81 @@ describe('P2-S02/S08 game store actions', () => {
     expect(s.pendingTribute).toBeNull();
     expect(s.hand).toContain('card-hero-10');
     expect(s.board.A3).toBeNull();
+  });
+
+  it('a level-3 A card can be tribute-summoned even when all 4 A slots are full', () => {
+    // The bug: with every A slot occupied there is no empty slot to drop onto,
+    // but tribute materials free up a slot, so the summon must still be possible.
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-10'], // level 3
+      deck: base.deck.filter(
+        (id) => !['card-hero-10', 'card-hero-1', 'card-hero-6', 'card-hero-4', 'card-hero-5'].includes(id),
+      ),
+      // All four A slots filled; A1 (lvl1) + A2 (lvl2) sum to 3.
+      board: {
+        ...base.board,
+        A1: 'card-hero-1',
+        A2: 'card-hero-6',
+        A3: 'card-hero-4',
+        A4: 'card-hero-5',
+      },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-hero-10');
+    // Drop lands on an occupied column — still opens the picker (materials free a slot).
+    store.getState().dropCard('card-hero-10', 'A1');
+    expect(store.getState().pendingTribute).toEqual({ cardId: 'card-hero-10' });
+
+    store.getState().confirmTributeSummon(['A1', 'A2']); // frees A1 and A2
+    expect(store.getState().pendingSummon).toEqual({ cardId: 'card-hero-10' });
+
+    // A freed slot is now a legal target.
+    store.getState().placePendingSummon('A1');
+    const s = store.getState();
+    expect(s.board.A1).toBe('card-hero-10');
+    expect(s.board.A2).toBeNull();
+    expect(s.pendingSummon).toBeNull();
+    expect(s.hand).not.toContain('card-hero-10');
+  });
+
+  it('placePendingSummon ignores an occupied slot and only lands on an empty A slot', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-10'],
+      deck: base.deck.filter((id) => !['card-hero-10', 'card-hero-1', 'card-hero-6'].includes(id)),
+      board: { ...base.board, A1: 'card-hero-1', A2: 'card-hero-6', A4: 'card-hero-7' },
+      pendingSummon: { cardId: 'card-hero-10' },
+      phase: 'main',
+    });
+    // A4 is occupied — no-op; A3 is empty — lands.
+    store.getState().placePendingSummon('A4');
+    expect(store.getState().board.A4).toBe('card-hero-7');
+    expect(store.getState().pendingSummon).not.toBeNull();
+    store.getState().placePendingSummon('A3');
+    expect(store.getState().board.A3).toBe('card-hero-10');
+    expect(store.getState().pendingSummon).toBeNull();
+  });
+
+  it('dragging the pending summon card onto an open slot places it (no re-tribute)', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-10'],
+      deck: base.deck.filter((id) => !['card-hero-10', 'card-hero-1'].includes(id)),
+      board: { ...base.board, A1: 'card-hero-1' },
+      pendingSummon: { cardId: 'card-hero-10' },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-hero-10');
+    store.getState().dropCard('card-hero-10', 'A2'); // open A slot
+    const s = store.getState();
+    expect(s.board.A2).toBe('card-hero-10');
+    expect(s.pendingSummon).toBeNull();
+    expect(s.pendingTribute).toBeNull(); // did NOT reopen the material picker
+    expect(s.dragging).toBeNull();
   });
 
   it('setting a B card enacts its ability after the showcase (draw 1 / draw 2)', () => {
@@ -1012,6 +1097,67 @@ describe('P4 turn / phase mechanics', () => {
       expect(store.getState().resolutionRolls).toEqual({});
       expect(Object.keys(store.getState().lastRolls).sort()).toEqual(['A1', 'A2']);
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flat Armor subtracts from a normal hit and Armor Bars absorb a hit before breaking (P8)', () => {
+    vi.useFakeTimers();
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.2); // roll 5 -> normal hit
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        board: { ...base.board, A1: 'card-hero-6' }, // dmg 70, acc 70
+        attackTargets: { A1: 'O1' },
+        ...withOpponent(base, 'O1', { hp: 200, armor: 20, armorBars: 0 }),
+      });
+
+      store.getState().advancePhase(); // battle -> resolution
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS);
+      vi.advanceTimersByTime(DICE_ROLL_MS);
+      vi.advanceTimersByTime(DICE_HOLD_MS);
+
+      const s = store.getState();
+      const oppId = s.opponentBoard.O1!;
+      // 70 raw - 20 armor = 50 to HP.
+      expect(s.currentHp[oppId]).toBe(150);
+      expect(s.damagePopups.O1).toBe(50);
+      expect(s.currentArmorBars[oppId]).toBe(0);
+    } finally {
+      rnd.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('Armor Bars deplete per attacker in slot order (first hit absorbed, second lands) (P8)', () => {
+    vi.useFakeTimers();
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.2); // roll 5 -> normal hit
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        // A1 = card-hero-6 (dmg 70), A2 = card-hero-7 (dmg 80). Both aim at O1.
+        board: { ...base.board, A1: 'card-hero-6', A2: 'card-hero-7' },
+        attackTargets: { A1: 'O1', A2: 'O1' },
+        ...withOpponent(base, 'O1', { hp: 300, armor: 0, armorBars: 1 }),
+      });
+
+      store.getState().advancePhase(); // battle -> resolution
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS);
+      vi.advanceTimersByTime(DICE_ROLL_MS);
+      vi.advanceTimersByTime(DICE_HOLD_MS);
+
+      const s = store.getState();
+      const oppId = s.opponentBoard.O1!;
+      // A1 breaks the lone bar (0 dmg); A2 then lands its full 80.
+      expect(s.currentArmorBars[oppId]).toBe(0);
+      expect(s.currentHp[oppId]).toBe(220);
+      expect(s.damagePopups.O1).toBe(80);
+    } finally {
+      rnd.mockRestore();
       vi.useRealTimers();
     }
   });

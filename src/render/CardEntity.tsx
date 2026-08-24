@@ -26,7 +26,7 @@ export function CardEntity({ cardId }: { cardId: CardId }) {
 
   return (
     <MotionCard pose={visual.pose} config={visual.config} scale={visual.scale}>
-      <CardView card={card} auraActive={auraActive} />
+      <CardView card={card} auraActive={auraActive} armorBars={state.currentArmorBars[cardId]} />
     </MotionCard>
   );
 }

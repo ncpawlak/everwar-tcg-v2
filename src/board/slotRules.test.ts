@@ -145,6 +145,11 @@ describe('tribute-summon rules (level-3 A cards)', () => {
     const withMats = withCards({ A1: 'card-hero-1', A2: 'card-hero-6' }); // 1+2 = 3
     expect(slotHighlightedForCard(withMats, cardsById, 'A3', a4)).toBe(true); // empty A slot lights
     expect(canDropCard(withMats, cardsById, 'A3', a4)).toBe(true);
-    expect(canDropCard(withMats, cardsById, 'A1', a4)).toBe(false); // occupied slot not a drop target
+    // A tribute card can be dropped onto ANY A/C column (even an occupied one) —
+    // materials free a slot and the target is chosen afterward.
+    expect(slotHighlightedForCard(withMats, cardsById, 'A1', a4)).toBe(true);
+    expect(canDropCard(withMats, cardsById, 'A1', a4)).toBe(true);
+    // B zones are never a tribute drop target.
+    expect(canDropCard(withMats, cardsById, 'B1', a4)).toBe(false);
   });
 });

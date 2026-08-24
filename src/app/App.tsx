@@ -4,6 +4,7 @@ import { PointerControls } from '../input/PointerControls';
 import { InspectionPanel } from '../ui/InspectionPanel';
 import { PileSearchHost } from '../ui/PileSearchHost';
 import { TributeModal } from '../ui/TributeModal';
+import { SummonSlotPrompt } from '../ui/SummonSlotPrompt';
 import { TurnHud } from '../ui/TurnHud';
 import { PhaseBanner } from '../ui/PhaseBanner';
 import { CAMERA_FOV, CAMERA_POSITION, CAMERA_TARGET } from '../board/boardConfig';
@@ -34,6 +35,7 @@ export function App() {
       <TurnHud />
       <PhaseBanner />
       <TributeModal />
+      <SummonSlotPrompt />
     </div>
   );
 }

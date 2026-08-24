@@ -69,7 +69,7 @@ export function OpponentBoard() {
             scale={visual.scale}
             from={visual.zone === 'summon' ? opponentSummonFromPose() : undefined}
           >
-            <CardView card={card} pickable={false} auraActive={oppAuraIds.has(id)} />
+            <CardView card={card} pickable={false} auraActive={oppAuraIds.has(id)} armorBars={state.currentArmorBars[id]} />
           </MotionCard>
         );
       })}

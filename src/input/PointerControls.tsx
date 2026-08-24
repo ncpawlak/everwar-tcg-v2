@@ -10,7 +10,8 @@ import {
 } from './pickMath';
 import { handCardPoses, deckCardPose, graveyardCardPose, replenCardPose, opponentGraveyardCardPose, opponentReplenCardPose } from '../board/layout';
 import { boardCardAt, slotAtPoint, oppSlotAtPoint, oppCardAtPoint } from './hitTest';
-import { resolveLinkedTarget, resolveAttackerSlot } from '../board/slotRules';
+import { resolveLinkedTarget, resolveAttackerSlot, requiresTribute } from '../board/slotRules';
+import { slotType } from '../state/types';
 import type { CardId, OppSlotId, PileSource, SlotId } from '../state/types';
 
 /**
@@ -144,9 +145,20 @@ export function PointerControls() {
         const point = projectToBoard(ndc, camera);
         if (!point) return;
         s.updateDrag(point);
-        const cardType = s.cardsById[s.dragging.cardId]?.type;
+        const dcard = s.cardsById[s.dragging.cardId];
         const raw = slotAtPoint(point);
-        s.hoverSlot(cardType ? resolveLinkedTarget(s.board, raw, cardType) : raw);
+        let hovered: SlotId | null = null;
+        if (dcard && requiresTribute(dcard) && !s.pendingSummon) {
+          // A tribute card can be dropped onto ANY A/C column (occupied included)
+          // to open material selection — the target slot is chosen afterward.
+          const zone = raw ? slotType(raw) : null;
+          hovered = raw && (zone === 'A' || zone === 'C') ? (`A${raw[1]}` as SlotId) : null;
+        } else if (dcard) {
+          hovered = resolveLinkedTarget(s.board, raw, dcard.type);
+        } else {
+          hovered = raw;
+        }
+        s.hoverSlot(hovered);
         return;
       }
 
@@ -158,8 +170,16 @@ export function PointerControls() {
         return;
       }
 
-      // Pressing a hand card: promote to a drag once past the threshold.
-      if (press && press.kind === 'hand' && !press.startedDrag && press.cardId) {
+      // Pressing a hand card: promote to a drag once past the threshold. While a
+      // level-3+ summon awaits its slot, only the pending card itself may be
+      // dragged (to drop it onto an open slot); other hand cards stay locked.
+      if (
+        press &&
+        press.kind === 'hand' &&
+        !press.startedDrag &&
+        press.cardId &&
+        (!s.pendingSummon || s.pendingSummon.cardId === press.cardId)
+      ) {
         if (exceededDragThreshold(press.downX, press.downY, e.clientX, e.clientY)) {
           press.startedDrag = true;
           s.beginDrag(press.cardId);
@@ -198,6 +218,20 @@ export function PointerControls() {
       if (press && !press.startedDrag) {
         const isDrag = exceededDragThreshold(press.downX, press.downY, e.clientX, e.clientY);
         if (!isDrag) {
+          // Placing a pending level-3+ summon (materials already consumed): click
+          // an open A slot — or its linked C zone — to summon the held card there.
+          // Any click is consumed while a summon is pending; a valid open slot
+          // always exists because the tribute freed at least one.
+          if (s.pendingSummon) {
+            if (press.slotId) {
+              const zone = slotType(press.slotId);
+              if (zone === 'A' || zone === 'C') {
+                s.placePendingSummon(`A${press.slotId[1]}` as SlotId);
+              }
+            }
+            press = null;
+            return;
+          }
           // Battle-phase attack declaration by targeting:
           //  - click one of your occupied A columns to start aiming it,
           //  - then click an opponent card to lock the target (draws an arrow),

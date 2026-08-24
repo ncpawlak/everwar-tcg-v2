@@ -193,15 +193,24 @@ export interface SummonState {
 }
 
 /**
- * A pending level-3 tribute summon. Set when the player drops a level-3 A card
- * onto a legal A column while enough board A-cards exist to tribute: the card is
- * held in hand and the material-selection modal opens. On confirm the chosen
- * materials (plus their linked C-cards) go to the replen pile and the card is
- * placed into `slotId`; on cancel it clears and the card stays in hand.
+ * A pending level-3 tribute summon. Set when the player drops a level-3+ A card
+ * while enough board A-cards exist to tribute: the card is held in hand and the
+ * material-selection modal opens. Confirming the materials sends them (plus their
+ * linked C-cards) to the replen pile (or graveyard for Commanders) and then hands
+ * off to a {@link PendingSummon} slot-selection step; cancel leaves the card in hand.
  */
 export interface PendingTribute {
   cardId: CardId;
-  slotId: SlotId;
+}
+
+/**
+ * A level-3+ summon whose materials have already been consumed and which now
+ * awaits the player choosing an open A slot to place it (materials free up
+ * slots, so this step happens AFTER the tribute). While set, open A slots light
+ * gold and clicking one summons the card there.
+ */
+export interface PendingSummon {
+  cardId: CardId;
 }
 
 /**
@@ -254,6 +263,10 @@ export interface GameState {
   /** An in-progress level-3 tribute summon awaiting material selection, or null.
    * While set, the material-selection modal is open and the card sits in hand. */
   pendingTribute: PendingTribute | null;
+  /** A level-3+ summon awaiting slot selection: its tribute materials are already
+   * consumed and the player must click an open A slot to place it. Null when no
+   * such summon is in progress. */
+  pendingSummon: PendingSummon | null;
   /** Current turn number (1-based). Increments on every turn handoff — the
    * player takes odd turns, the opponent even turns (Phase 7). */
   turn: number;
@@ -328,6 +341,11 @@ export interface GameState {
    * absent from this map is at full health (its max HP); an entry is written the
    * first time the card takes damage. Drives the animated HP bar fill + color. */
   currentHp: Record<CardId, number>;
+  /** Current Armor Bars per card, keyed by card id. A card absent from this map
+   * still has all its bars (its `armorBars` stat); an entry is written the first
+   * time a bar is consumed. Bars absorb a full hit then break (see armorCombat)
+   * and do not regenerate during the duel. */
+  currentArmorBars: Record<CardId, number>;
   /** Opponent slots whose card is being destroyed this Resolution (HP hit 0).
    * Set the instant lethal damage is applied and cleared when the cards vanish;
    * drives the red slash destruction FX drawn over each doomed opponent card. */

@@ -3,8 +3,10 @@ import type { BAbility, CardId, CardType, DiceState, GameState, OppBSlotId, OppC
 import { createInitialState } from './cardData';
 import { canDropCard, requiresTribute, canAffordTribute, validTargetSlots } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
-import { rollCBuff, effectiveStats, opponentEffectiveStats } from './combatStats';
+import { rollCBuff, effectiveStats, opponentEffectiveStats, boardHeroes } from './combatStats';
 import { resolveRoll } from './diceRules';
+import { applyArmorToHit } from './armorCombat';
+import { collectAuras, auraStatDelta } from '../abilities/auras';
 import { OPP_SLOT_IDS } from '../board/boardConfig';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 
@@ -106,13 +108,18 @@ export interface GameActions {
   autoPlaceCard: (cardId: CardId) => void;
   /**
    * Confirm a pending level-3 tribute summon with the chosen material A-slots:
-   * send those A-cards (and their linked C-cards) to the replen pile, then place
-   * the pending card into its target slot. No-op unless a tribute is pending and
-   * the selected materials' levels sum exactly to the card's level.
+   * send those A-cards (and their linked C-cards) to the replen pile (or the
+   * graveyard for Commanders). This frees up board slots, then hands off to a
+   * slot-selection step (`pendingSummon`) where the player picks where to place
+   * the card. No-op unless a tribute is pending and the selected materials'
+   * levels sum exactly to the card's level.
    */
   confirmTributeSummon: (materialSlots: SlotId[]) => void;
   /** Cancel a pending tribute summon; the card stays in hand. */
   cancelTributeSummon: () => void;
+  /** Place a pending level-3+ summon (materials already consumed) into a chosen
+   * open A slot. No-op unless a summon is pending and the slot is an empty A slot. */
+  placePendingSummon: (slotId: SlotId) => void;
   /** Cancel the drag, leaving the card in its existing hand order. */
   returnToHand: (cardId: CardId) => void;
   /** Raise a hand card under the pointer (selection hint), or clear with null. */
@@ -359,29 +366,50 @@ export function createGameStore(
             // together while we STAY in Resolution so the End banner can't collide.
             set((s) => {
               const popups: Record<string, RollResult> = { ...s.resolutionResults };
-              const damageByTarget: Record<string, number> = {};
-              for (const src of Object.keys(s.attackTargets) as SlotId[]) {
-                const dmg = s.resolutionResults[src]?.damage ?? 0;
-                if (dmg <= 0) continue;
-                const target = s.attackTargets[src];
-                if (!target) continue;
-                damageByTarget[target] = (damageByTarget[target] ?? 0) + dmg;
-              }
               const currentHp = { ...s.currentHp };
-              const destroying: OppSlotId[] = [];
+              const currentArmorBars = { ...s.currentArmorBars };
               const damagePopups: Record<string, number> = {};
-              for (const target of Object.keys(damageByTarget) as OppSlotId[]) {
+              const destroyingSet = new Set<OppSlotId>();
+              // Opponent-side armor auras (e.g. Roaming Armor) fold into flat armor.
+              const oppAuras = collectAuras(boardHeroes(s.opponentBoard, s.opponentCards));
+              // Resolve each attacker's hit IN ORDER so Armor Bars deplete per hit
+              // (a bar absorbs one hit then breaks) instead of a lump-sum drain.
+              for (const src of Object.keys(s.attackTargets) as SlotId[]) {
+                const result = s.resolutionResults[src];
+                if (!result || result.outcome === 'miss') continue;
+                const target = s.attackTargets[src] as OppSlotId | null;
+                if (!target) continue;
                 const oppId = s.opponentBoard[target];
                 if (!oppId) continue;
-                const maxHp = s.opponentCards[oppId]?.hp ?? 0;
-                const cur = currentHp[oppId] ?? maxHp;
-                const dmg = damageByTarget[target];
-                const next = Math.max(0, cur - dmg);
-                currentHp[oppId] = next;
-                damagePopups[target] = dmg;
-                if (next <= 0) destroying.push(target);
+                const defCard = s.opponentCards[oppId];
+                const maxHp = defCard?.hp ?? 0;
+                const armor =
+                  (defCard?.armor ?? 0) +
+                  (defCard ? auraStatDelta(oppAuras, defCard, 'armor') : 0);
+                const bars = currentArmorBars[oppId] ?? defCard?.armorBars ?? 0;
+                const baseDmg = effectiveStats(s, src).dmg.value;
+                const hit = applyArmorToHit(
+                  { bars, armor },
+                  result.outcome,
+                  result.damage,
+                  baseDmg,
+                );
+                currentArmorBars[oppId] = hit.bars;
+                if (hit.hpDamage > 0) {
+                  const cur = currentHp[oppId] ?? maxHp;
+                  const next = Math.max(0, cur - hit.hpDamage);
+                  currentHp[oppId] = next;
+                  damagePopups[target] = (damagePopups[target] ?? 0) + hit.hpDamage;
+                  if (next <= 0) destroyingSet.add(target);
+                }
               }
-              return { outcomePopups: popups, damagePopups, currentHp, destroying };
+              return {
+                outcomePopups: popups,
+                damagePopups,
+                currentHp,
+                currentArmorBars,
+                destroying: [...destroyingSet],
+              };
             });
             // After the dwell, clear the dice + pop-ups and remove any opponent
             // whose HP hit 0 (it slashed, now it vanishes), THEN advance to End.
@@ -393,6 +421,7 @@ export function createGameStore(
                 const opponentCBoard = { ...s.opponentCBoard };
                 const opponentGraveyard = [...s.opponentGraveyard];
                 const currentHp = { ...s.currentHp };
+                const currentArmorBars = { ...s.currentArmorBars };
                 for (const slot of OPP_SLOT_IDS) {
                   const oppId = opponentBoard[slot];
                   if (!oppId || (currentHp[oppId] ?? Infinity) > 0) continue;
@@ -403,6 +432,7 @@ export function createGameStore(
                   opponentBoard[slot] = null;
                   opponentGraveyard.push(oppId);
                   delete currentHp[oppId];
+                  delete currentArmorBars[oppId];
                   // The linked opponent C-card (same column) falls with its A-card.
                   const ocSlot = `OC${slot[1]}` as OppCSlotId;
                   const ocId = opponentCBoard[ocSlot];
@@ -421,6 +451,7 @@ export function createGameStore(
                   opponentCBoard,
                   opponentGraveyard,
                   currentHp,
+                  currentArmorBars,
                 };
               });
               // If an opponent was destroyed, hold in Resolution briefly so the
@@ -554,29 +585,50 @@ export function createGameStore(
             // hit 0 for the slash FX.
             set((s) => {
               const popups: Record<string, RollResult> = { ...s.oppResolutionResults };
-              const damageByTarget: Record<string, number> = {};
-              for (const src of Object.keys(s.oppAttackTargets) as OppSlotId[]) {
-                const dmg = s.oppResolutionResults[src]?.damage ?? 0;
-                if (dmg <= 0) continue;
-                const target = s.oppAttackTargets[src];
-                if (!target) continue;
-                damageByTarget[target] = (damageByTarget[target] ?? 0) + dmg;
-              }
               const currentHp = { ...s.currentHp };
-              const oppDestroying: SlotId[] = [];
+              const currentArmorBars = { ...s.currentArmorBars };
               const oppDamagePopups: Partial<Record<SlotId, number>> = {};
-              for (const target of Object.keys(damageByTarget) as SlotId[]) {
+              const destroyingSet = new Set<SlotId>();
+              // Player-side armor auras (e.g. Roaming Armor) fold into flat armor.
+              const playerAuras = collectAuras(boardHeroes(s.board, s.cardsById));
+              // Resolve each opponent attacker's hit IN ORDER so Armor Bars deplete
+              // per hit (a bar absorbs one hit then breaks).
+              for (const src of Object.keys(s.oppAttackTargets) as OppSlotId[]) {
+                const result = s.oppResolutionResults[src];
+                if (!result || result.outcome === 'miss') continue;
+                const target = s.oppAttackTargets[src] as SlotId | null;
+                if (!target) continue;
                 const pid = s.board[target];
                 if (!pid) continue;
+                const defCard = s.cardsById[pid];
                 const maxHp = effectiveStats(s, target).hp.value;
-                const cur = currentHp[pid] ?? maxHp;
-                const dmg = damageByTarget[target];
-                const next = Math.max(0, cur - dmg);
-                currentHp[pid] = next;
-                oppDamagePopups[target] = dmg;
-                if (next <= 0) oppDestroying.push(target);
+                const armor =
+                  (defCard?.armor ?? 0) +
+                  (defCard ? auraStatDelta(playerAuras, defCard, 'armor') : 0);
+                const bars = currentArmorBars[pid] ?? defCard?.armorBars ?? 0;
+                const baseDmg = opponentEffectiveStats(s, src).dmg.value;
+                const hit = applyArmorToHit(
+                  { bars, armor },
+                  result.outcome,
+                  result.damage,
+                  baseDmg,
+                );
+                currentArmorBars[pid] = hit.bars;
+                if (hit.hpDamage > 0) {
+                  const cur = currentHp[pid] ?? maxHp;
+                  const next = Math.max(0, cur - hit.hpDamage);
+                  currentHp[pid] = next;
+                  oppDamagePopups[target] = (oppDamagePopups[target] ?? 0) + hit.hpDamage;
+                  if (next <= 0) destroyingSet.add(target);
+                }
               }
-              return { oppOutcomePopups: popups, oppDamagePopups, currentHp, oppDestroying };
+              return {
+                oppOutcomePopups: popups,
+                oppDamagePopups,
+                currentHp,
+                currentArmorBars,
+                oppDestroying: [...destroyingSet],
+              };
             });
             // After the dwell, clear the dice + pop-ups and send any player card
             // that hit 0 to the player's graveyard, THEN hand back to the player.
@@ -587,6 +639,7 @@ export function createGameStore(
                 const board = { ...s.board };
                 const graveyard = [...s.graveyard];
                 const currentHp = { ...s.currentHp };
+                const currentArmorBars = { ...s.currentArmorBars };
                 for (const slot of ['A1', 'A2', 'A3', 'A4'] as SlotId[]) {
                   const pid = board[slot];
                   if (!pid || (currentHp[pid] ?? Infinity) > 0) continue;
@@ -594,6 +647,7 @@ export function createGameStore(
                   board[slot] = null;
                   graveyard.push(pid);
                   delete currentHp[pid];
+                  delete currentArmorBars[pid];
                   // The linked C-card (same column support) falls with its A-card.
                   const cSlot = `C${slot[1]}` as SlotId;
                   const cid = board[cSlot];
@@ -611,6 +665,7 @@ export function createGameStore(
                   board,
                   graveyard,
                   currentHp,
+                  currentArmorBars,
                 };
               });
               if (destroyedAny) {
@@ -838,6 +893,14 @@ export function createGameStore(
       const s = get();
       if (s.dragging === null || s.dragging.cardId !== cardId) return;
       const card = s.cardsById[cardId];
+      // If a level-3+ summon is awaiting its slot, dragging the held card onto an
+      // open A slot places it there (materials are already spent — don't re-open
+      // the tribute picker).
+      if (s.pendingSummon && s.pendingSummon.cardId === cardId) {
+        set({ dragging: null });
+        if (slotId) get().placePendingSummon(slotId);
+        return;
+      }
       // Cards may only be set during the Main phase.
       if (
         s.phase === 'main' &&
@@ -847,7 +910,9 @@ export function createGameStore(
       ) {
         if (requiresTribute(card)) {
           // Hold the card in hand and open material selection instead of placing.
-          set({ dragging: null, pendingTribute: { cardId, slotId } });
+          // The target slot is chosen AFTER materials are consumed (they free up
+          // slots), so the drop slot itself is irrelevant here.
+          set({ dragging: null, pendingTribute: { cardId } });
         } else {
           commitPlacement(cardId, card.type, slotId);
         }
@@ -859,19 +924,20 @@ export function createGameStore(
 
     autoPlaceCard: (cardId) => {
       const s = get();
-      // Quick-set is Main-phase only and never interrupts an active drag.
+      // Quick-set is Main-phase only and never interrupts an active drag or a
+      // tribute already in progress (material picker open, or awaiting a slot).
       if (s.activePlayer !== 'player') return;
       if (s.phase !== 'main' || s.dragging !== null) return;
+      if (s.pendingTribute !== null || s.pendingSummon !== null) return;
       if (!s.hand.includes(cardId)) return;
       const card = s.cardsById[cardId];
       if (!card) return;
       // A tribute-summon card can't just drop into a slot — open material
-      // selection (if affordable), targeting the first open A slot.
+      // selection (if affordable). The target slot is picked afterward, so no
+      // board slot needs to be free right now.
       if (requiresTribute(card)) {
         if (!canAffordTribute(s.board, s.cardsById, card)) return;
-        const target = validTargetSlots(s.board, 'A')[0];
-        if (!target) return;
-        set({ pendingTribute: { cardId, slotId: target } });
+        set({ pendingTribute: { cardId } });
         return;
       }
       // Next available legal slot in board order; do nothing if there is none.
@@ -913,13 +979,21 @@ export function createGameStore(
           board[cSlot] = null;
         }
       }
-      set({ board, replen, graveyard, pendingTribute: null });
-      // The target A slot is now guaranteed empty; run the normal placement +
-      // summon showcase for the card (still in hand until this fires).
-      commitPlacement(pending.cardId, 'A', pending.slotId);
+      set({ board, replen, graveyard, pendingTribute: null, pendingSummon: { cardId: pending.cardId } });
     },
 
     cancelTributeSummon: () => set(() => ({ pendingTribute: null })),
+
+    placePendingSummon: (slotId) => {
+      const s = get();
+      const pending = s.pendingSummon;
+      if (!pending) return;
+      // Only an empty A slot is a valid summon target.
+      if (slotId[0] !== 'A' || s.board[slotId] !== null) return;
+      set({ pendingSummon: null });
+      // Run the normal placement + summon showcase for the held card.
+      commitPlacement(pending.cardId, 'A', slotId);
+    },
 
     returnToHand: (cardId) =>
       set((s) => {

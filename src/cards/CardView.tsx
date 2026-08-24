@@ -107,13 +107,18 @@ export function CardView({
   card,
   pickable = true,
   auraActive = false,
+  armorBars,
 }: {
   card: Card;
   pickable?: boolean;
   auraActive?: boolean;
+  /** Live Armor Bars remaining (from combat state). Falls back to the card's
+   * base `armorBars` stat when omitted (e.g. in hand). */
+  armorBars?: number;
 }) {
   const accent = TYPE_ACCENT[card.type];
   const rarityColor = RARITY_COLOR[card.rarity];
+  const shownBars = armorBars ?? card.armorBars ?? 0;
 
   return (
     <group>
@@ -335,7 +340,7 @@ export function CardView({
             {`ACC ${card.acc}`}
           </Text>
           {/* Armor line (Phase 8) — flat Armor and/or Armor Bars when present. */}
-          {((card.armor ?? 0) > 0 || (card.armorBars ?? 0) > 0) && (
+          {((card.armor ?? 0) > 0 || shownBars > 0) && (
             <Text
               position={[0, -HALF_H + 0.145, ZF + 0.001]}
               fontSize={0.036}
@@ -345,7 +350,7 @@ export function CardView({
             >
               {[
                 (card.armor ?? 0) > 0 ? `ARM ${card.armor}` : null,
-                (card.armorBars ?? 0) > 0 ? `▮×${card.armorBars}` : null,
+                shownBars > 0 ? `▮×${shownBars}` : null,
               ]
                 .filter(Boolean)
                 .join('   ')}
