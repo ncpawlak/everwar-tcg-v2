@@ -14,18 +14,11 @@ export type Rarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
 export type StatKey = 'hp' | 'dmg' | 'acc';
 
 /**
- * A B-card's on-play ability. Enacted the moment the card is set in a B slot.
- * Each maps to an existing deck/hand action.
+ * A B-card's on-play ability id. Indexes the Phase 8 ability registry
+ * (`ABILITY_REGISTRY` in `abilities.ts`), which holds the structured timing,
+ * activation and effect data. Enacted the moment the card is set in a B slot.
  */
-export type BAbility = 'draw1' | 'graveyardIntoDeck' | 'replenIntoDeck' | 'draw2';
-
-/** Short human label for a B-card ability, shown on the card and in the panel. */
-export const B_ABILITY_LABEL: Record<BAbility, string> = {
-  draw1: 'Draw 1 card',
-  graveyardIntoDeck: 'Shuffle graveyard into deck',
-  replenIntoDeck: 'Shuffle replen into deck',
-  draw2: 'Draw 2 cards',
-};
+export type BAbilityId = string;
 
 /**
  * A stat modifier a C card applies to its linked A card. Rolled when the C card
@@ -150,7 +143,7 @@ export interface Card {
    * On-play ability. Only B (Arcane) cards carry one; enacted when the card is
    * set in a B slot. Absent for A/C cards.
    */
-  ability?: BAbility;
+  ability?: BAbilityId;
   /**
    * Continuous B cards stay on the field through the End phase instead of being
    * sent to the graveyard. Only meaningful for B cards.

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import type { Card } from '../state/types';
-import { B_ABILITY_LABEL } from '../state/types';
+import { abilityLabel } from '../state/abilities';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 
 /**
@@ -208,7 +208,7 @@ export function InspectionPanel() {
                   textAlign: 'center',
                 }}
               >
-                {shown.ability ? B_ABILITY_LABEL[shown.ability] : 'Ability'}
+                {shown.ability ? abilityLabel(shown.ability) : 'Ability'}
               </div>
             ) : (
               <div

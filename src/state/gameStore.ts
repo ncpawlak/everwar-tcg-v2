@@ -1,5 +1,6 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { BAbility, CardId, CardType, DiceState, GameState, OppBSlotId, OppCSlotId, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
+import type { CardId, CardType, DiceState, GameState, OppBSlotId, OppCSlotId, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
+import { ABILITY_REGISTRY, runEffect } from './abilities';
 import { createInitialState } from './cardData';
 import { canDropCard, requiresTribute, canAffordTribute, validTargetSlots } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
@@ -242,22 +243,22 @@ export function createGameStore(
        * action. Called after the summon showcase so the effect reads as the card
        * "activating" once it lands.
        */
-      const enactBAbility = (ability: BAbility) => {
+      /**
+       * Resolve a card's `on-set` ability through the Phase 8 ability engine.
+       * Looks the ability up in the registry, ignores anything whose timing is
+       * not `on-set`, and runs its effect via the pure dispatcher — the store
+       * supplies the side-effecting callbacks. Called after the summon showcase
+       * so the effect reads as the card "activating" once it lands.
+       */
+      const enactOnSetAbility = (abilityId: string) => {
+        const ability = ABILITY_REGISTRY[abilityId];
+        if (!ability || ability.timing !== 'on-set') return;
         const actions = get();
-        switch (ability) {
-          case 'draw1':
-            drawStaggered(1);
-            break;
-          case 'draw2':
-            drawStaggered(2);
-            break;
-          case 'graveyardIntoDeck':
-            actions.graveyardIntoDeck();
-            break;
-          case 'replenIntoDeck':
-            actions.replenIntoDeck();
-            break;
-        }
+        runEffect(ability.effect, {
+          draw: (count) => drawStaggered(count),
+          shuffleZoneIntoDeck: (zone) =>
+            zone === 'graveyard' ? actions.graveyardIntoDeck() : actions.replenIntoDeck(),
+        });
       };
 
       /**
@@ -288,7 +289,7 @@ export function createGameStore(
           set((st) =>
             st.summon && st.summon.cardId === cardId ? { ...st, summon: null } : st,
           );
-          if (ability) enactBAbility(ability);
+          if (ability) enactOnSetAbility(ability);
         }, SUMMON_SHOWCASE_MS);
       };
 

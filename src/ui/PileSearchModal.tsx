@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import type { Card, PileSource } from '../state/types';
-import { B_ABILITY_LABEL } from '../state/types';
+import { abilityLabel } from '../state/abilities';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 
 /**
@@ -100,7 +100,7 @@ function tileFoot(card: Card) {
   if (card.type === 'B') {
     return (
       <span style={{ color: '#b6a0e8', fontSize: 10, fontWeight: 700 }}>
-        {card.ability ? B_ABILITY_LABEL[card.ability] : 'Ability'}
+        {card.ability ? abilityLabel(card.ability) : 'Ability'}
       </span>
     );
   }

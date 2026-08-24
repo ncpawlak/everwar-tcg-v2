@@ -4,7 +4,7 @@ import { useFrame } from '@react-three/fiber';
 import type { Mesh } from 'three';
 import { CARD_HEIGHT, CARD_THICKNESS, CARD_WIDTH } from '../board/boardConfig';
 import type { Card } from '../state/types';
-import { B_ABILITY_LABEL } from '../state/types';
+import { abilityLabel } from '../state/abilities';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from './cardTheme';
 
 /**
@@ -306,7 +306,7 @@ export function CardView({
             anchorY="middle"
             textAlign="center"
           >
-            {card.ability ? B_ABILITY_LABEL[card.ability] : ''}
+            {card.ability ? abilityLabel(card.ability) : ''}
           </Text>
         </>
       ) : (
