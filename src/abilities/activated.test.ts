@@ -54,3 +54,59 @@ describe('P8 activated-ability views', () => {
     expect(hasAvailableActivated(hero([ECHO_ASSIST]), READY)).toBe(false);
   });
 });
+
+const QUICK_RELOAD =
+  'Quick Reload: Once per turn, you can send 1 card from your Hand to Replen: select another Infantry Hero you control to gain +20ACC.';
+
+function heroWith(id: string, subType: string, abilities: string[]): Card {
+  return {
+    id,
+    name: id,
+    type: 'A',
+    cost: 1,
+    rarity: 'Common',
+    effect: '',
+    flavor: '',
+    subType,
+    abilities,
+  } as unknown as Card;
+}
+
+describe('P8 activated-ability targeting feasibility', () => {
+  const source = heroWith('src', 'Infantry', [QUICK_RELOAD]);
+  const ally = heroWith('ally', 'Infantry', []);
+  const recon = heroWith('recon', 'Recon', []);
+
+  it('is activatable with a payable cost and a legal target', () => {
+    const ctx: ActivationContext = {
+      isPlayerMain: true,
+      onPlayerBoard: true,
+      usedNames: [],
+      handCount: 1,
+      allyBoard: [source, ally],
+    };
+    expect(activatedAbilityViews(source, ctx)[0].activatable).toBe(true);
+  });
+
+  it('is locked when the Hand cannot pay the cost', () => {
+    const ctx: ActivationContext = {
+      isPlayerMain: true,
+      onPlayerBoard: true,
+      usedNames: [],
+      handCount: 0,
+      allyBoard: [source, ally],
+    };
+    expect(activatedAbilityViews(source, ctx)[0].activatable).toBe(false);
+  });
+
+  it('is locked when no legal target exists (only self / wrong sub-type)', () => {
+    const ctx: ActivationContext = {
+      isPlayerMain: true,
+      onPlayerBoard: true,
+      usedNames: [],
+      handCount: 1,
+      allyBoard: [source, recon],
+    };
+    expect(activatedAbilityViews(source, ctx)[0].activatable).toBe(false);
+  });
+});

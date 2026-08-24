@@ -34,12 +34,44 @@ export interface SelfStatBuffEffect {
   amount: number;
 }
 
+/** Which cards an activated ability may target when the player triggers it.
+ *  `ally` = a Hero on the player's own A-board. `subType` (optional) restricts to
+ *  a Hero sub-type (e.g. "Infantry"). `excludeSelf` drops the ability's owner
+ *  ("another … Hero"). */
+export interface TargetSpec {
+  side: 'ally';
+  subType?: string;
+  excludeSelf: boolean;
+}
+
+/** An activated buff applied to a chosen target: "select another <sub> Hero you
+ *  control to gain +N STAT". The buff persists while that Hero stays on the field. */
+export interface TargetStatBuffEffect {
+  kind: 'targetStatBuff';
+  stat: AuraStat;
+  amount: number;
+  target: TargetSpec;
+}
+
 /** Fallback for ability text no rule models yet. Inert at runtime. */
 export interface UnimplementedEffect {
   kind: 'unimplemented';
 }
 
-export type AbilityEffect = StatAuraEffect | SelfStatBuffEffect | UnimplementedEffect;
+export type AbilityEffect =
+  | StatAuraEffect
+  | SelfStatBuffEffect
+  | TargetStatBuffEffect
+  | UnimplementedEffect;
+
+/** A cost the player must pay to trigger an activated ability. Modeled kinds so
+ *  far: send N cards from the Hand to the Replen pile. */
+export interface SendHandToReplenCost {
+  kind: 'sendHandToReplen';
+  count: number;
+}
+
+export type AbilityCost = SendHandToReplenCost;
 
 /** When an ability's effect is evaluated. `passive` (continuous) auras and
  *  `activated` (player-triggered, Main phase) abilities are modeled; more
@@ -66,4 +98,6 @@ export interface AbilityIR {
   constraints: AbilityConstraint[];
   /** True when an activated ability may only be triggered once per turn. */
   oncePerTurn?: boolean;
+  /** Cost the player must pay to trigger an activated ability, if any. */
+  cost?: AbilityCost;
 }

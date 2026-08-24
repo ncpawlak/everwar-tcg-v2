@@ -9,6 +9,7 @@ import { resolveRoll } from './diceRules';
 import { applyArmorToHit } from './armorCombat';
 import { collectAuras, auraStatDelta } from '../abilities/auras';
 import { parseAbility } from '../abilities/parseAbility';
+import { abilityValidTargets } from '../abilities/activated';
 import { OPP_SLOT_IDS } from '../board/boardConfig';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 
@@ -22,6 +23,10 @@ export const SUMMON_SHOWCASE_MS = 800;
 /** How long (ms) an activated ability is showcased (card pops to center with the
  *  amber ripple) before it springs back to its slot. */
 export const ABILITY_SHOWCASE_MS = 950;
+
+/** Beat (ms) to let a cost card's Hand→Replen glide read before the source
+ *  Hero's activation showcase pops, so both animations are legible in sequence. */
+export const ABILITY_COST_SEND_MS = 300;
 
 /** Target hand size the Draw phase fills up to (draws until this, else +1). */
 export const HAND_TARGET = 6;
@@ -138,6 +143,16 @@ export interface GameActions {
    * board, the ability is an activated one, and (if once-per-turn) it hasn't
    * been used this turn. */
   activateAbility: (cardId: CardId, abilityIndex: number) => void;
+  /** During an ability's `cost` step, stage a Hand card to send to Replen and
+   *  advance to the `target` step. No-op unless a cost selection is pending and
+   *  the card is in the player's Hand. */
+  chooseAbilityCost: (cardId: CardId) => void;
+  /** During an ability's `target` step, choose the target Hero and resolve the
+   *  ability: pay the staged cost, apply the buff, mark it used, and fire the
+   *  showcase. No-op unless a target selection is pending and the card is legal. */
+  chooseAbilityTarget: (cardId: CardId) => void;
+  /** Abort an in-progress activated ability, reverting any staged cost. */
+  cancelAbilityTargeting: () => void;
   /**
    * Temp Phase 3 mechanic (no Player 2 yet): "destroy" a random occupied zone-A
    * slot — send its card to the graveyard, along with the linked zone-C card in
@@ -491,6 +506,8 @@ export function createGameStore(
           phase: next,
           turn: incTurn ? s.turn + 1 : s.turn,
           phaseAnnounce: s.phaseAnnounce + 1,
+          // Any mid-resolution ability selection is abandoned on a phase change.
+          abilityTargeting: null,
           // Leaving Resolution for End consumes the attack declaration. The dice
           // + results linger with the outcome pop-up and clear together after it.
           ...(next === 'end' ? { attackTargets: {}, targeting: null, aimPoint: null } : {}),
@@ -866,6 +883,18 @@ export function createGameStore(
         }, OPP_PHASE_STEP_MS * 2 + OPP_MAIN_DURATION_MS);
       };
 
+    /** Fire the centered amber-ripple showcase for a card, clearing it after its
+     *  window unless a newer showcase replaced it. */
+    const scheduleShowcaseClear = (cardId: CardId) => {
+      setTimeout(() => {
+        set((st) =>
+          st.abilityShowcase && st.abilityShowcase.cardId === cardId
+            ? { ...st, abilityShowcase: null }
+            : st,
+        );
+      }, ABILITY_SHOWCASE_MS);
+    };
+
     return {
     ...initial,
 
@@ -1054,8 +1083,30 @@ export function createGameStore(
       const usedNames = s.usedActivatedAbilities[cardId] ?? [];
       if (ir.oncePerTurn && usedNames.includes(ir.name)) return;
 
-      // Apply the effect. Slice 3 models the self stat-buff; other activated
-      // effect kinds arrive with their own slices (inert here for now).
+      // Targeting abilities (with or without a cost) open a selection flow that
+      // resolves in chooseAbilityCost / chooseAbilityTarget. Verify feasibility
+      // first so we never open a flow the player can't finish.
+      if (ir.effect.kind === 'targetStatBuff') {
+        const allyBoard = Object.values(s.board)
+          .filter((id): id is CardId => id !== null)
+          .map((id) => s.cardsById[id])
+          .filter((c): c is NonNullable<typeof c> => Boolean(c));
+        const targets = abilityValidTargets(ir, allyBoard, cardId);
+        if (targets.length === 0) return;
+        if (ir.cost && s.hand.length < ir.cost.count) return;
+        set({
+          abilityTargeting: {
+            sourceCardId: cardId,
+            abilityIndex,
+            abilityName: ir.name,
+            step: ir.cost ? 'cost' : 'target',
+            costCardId: null,
+          },
+        });
+        return;
+      }
+
+      // Self stat-buff resolves immediately.
       let activatedStatBuffs = s.activatedStatBuffs;
       if (ir.effect.kind === 'selfStatBuff' && ir.effect.stat !== 'armor') {
         const prev = s.activatedStatBuffs[cardId] ?? {};
@@ -1075,16 +1126,80 @@ export function createGameStore(
         // Fire the centered amber-ripple showcase.
         abilityShowcase: { cardId, abilityName: ir.name },
       });
-
-      // Clear the showcase after its window, unless a newer one replaced it.
-      setTimeout(() => {
-        set((st) =>
-          st.abilityShowcase && st.abilityShowcase.cardId === cardId
-            ? { ...st, abilityShowcase: null }
-            : st,
-        );
-      }, ABILITY_SHOWCASE_MS);
+      scheduleShowcaseClear(cardId);
     },
+
+    chooseAbilityCost: (cardId) => {
+      const s = get();
+      const at = s.abilityTargeting;
+      if (!at || at.step !== 'cost') return;
+      if (!s.hand.includes(cardId)) return;
+      set({ abilityTargeting: { ...at, step: 'target', costCardId: cardId } });
+    },
+
+    chooseAbilityTarget: (targetId) => {
+      const s = get();
+      const at = s.abilityTargeting;
+      if (!at || at.step !== 'target') return;
+      const source = s.cardsById[at.sourceCardId];
+      if (!source || !source.abilities) return;
+      const ir = parseAbility(source.abilities[at.abilityIndex]);
+      if (ir.effect.kind !== 'targetStatBuff') return;
+
+      // Target must be a currently-legal choice.
+      const allyBoard = Object.values(s.board)
+        .filter((id): id is CardId => id !== null)
+        .map((id) => s.cardsById[id])
+        .filter((c): c is NonNullable<typeof c> => Boolean(c));
+      const legal = abilityValidTargets(ir, allyBoard, at.sourceCardId).some(
+        (c) => c.id === targetId,
+      );
+      if (!legal) return;
+
+      // Pay the staged cost (send the Hand card to Replen).
+      let hand = s.hand;
+      let replen = s.replen;
+      if (ir.cost?.kind === 'sendHandToReplen' && at.costCardId) {
+        if (!s.hand.includes(at.costCardId)) return;
+        hand = s.hand.filter((id) => id !== at.costCardId);
+        replen = [...s.replen, at.costCardId];
+      }
+
+      // Apply the buff to the chosen target (accumulates, persists while alive).
+      let activatedStatBuffs = s.activatedStatBuffs;
+      if (ir.effect.stat !== 'armor') {
+        const prev = s.activatedStatBuffs[targetId] ?? {};
+        const stat = ir.effect.stat;
+        activatedStatBuffs = {
+          ...s.activatedStatBuffs,
+          [targetId]: { ...prev, [stat]: (prev[stat] ?? 0) + ir.effect.amount },
+        };
+      }
+
+      const usedNames = s.usedActivatedAbilities[at.sourceCardId] ?? [];
+      const sourceId = at.sourceCardId;
+      // Commit the cost move + buff immediately so the cost card visibly glides
+      // from the Hand to the Replen pile and the modal closes.
+      set({
+        hand,
+        replen,
+        activatedStatBuffs,
+        usedActivatedAbilities: {
+          ...s.usedActivatedAbilities,
+          [sourceId]: [...usedNames, ir.name],
+        },
+        abilityTargeting: null,
+      });
+      // Then, after the send-to-Replen glide reads, pop the source Hero's
+      // activation showcase (matching the self-buff and summon showcases).
+      const name = ir.name;
+      setTimeout(() => {
+        set((st) => ({ ...st, abilityShowcase: { cardId: sourceId, abilityName: name } }));
+        scheduleShowcaseClear(sourceId);
+      }, ABILITY_COST_SEND_MS);
+    },
+
+    cancelAbilityTargeting: () => set(() => ({ abilityTargeting: null })),
 
     destroyZoneA: () =>
       set((s) => {

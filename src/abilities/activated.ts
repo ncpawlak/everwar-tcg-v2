@@ -6,7 +6,7 @@
  * ability popup, and the store action all read one source of truth.
  */
 
-import type { Card } from '../state/types';
+import type { Card, CardId } from '../state/types';
 import { parseAbilities } from './parseAbility';
 import type { AbilityIR } from './abilityIR';
 
@@ -18,6 +18,39 @@ export interface ActivationContext {
   onPlayerBoard: boolean;
   /** Ability names this card has already used this turn (once-per-turn gate). */
   usedNames: readonly string[];
+  /** Cards in the player's hand — used to check payable costs. Defaults to 0. */
+  handCount?: number;
+  /** Hero cards currently on the player's own A-board — used to check whether a
+   *  targeting ability has any legal target. Defaults to none. */
+  allyBoard?: readonly Card[];
+}
+
+/** Legal targets for a targeting ability, given the player's board Heroes. Empty
+ *  for non-targeting abilities. */
+export function abilityValidTargets(
+  ir: AbilityIR,
+  allyBoard: readonly Card[],
+  sourceId: CardId,
+): Card[] {
+  if (ir.effect.kind !== 'targetStatBuff') return [];
+  const t = ir.effect.target;
+  return allyBoard.filter((c) => {
+    if (t.excludeSelf && c.id === sourceId) return false;
+    if (t.subType && c.subType !== t.subType) return false;
+    return true;
+  });
+}
+
+/** True when the ability requires the player to pick a target. */
+export function abilityNeedsTarget(ir: AbilityIR): boolean {
+  return ir.effect.kind === 'targetStatBuff';
+}
+
+/** True when the ability's cost (if any) can currently be paid. */
+function costPayable(ir: AbilityIR, handCount: number): boolean {
+  if (!ir.cost) return true;
+  if (ir.cost.kind === 'sendHandToReplen') return handCount >= ir.cost.count;
+  return true;
 }
 
 /** One ability line as the UI should present it. */
@@ -39,10 +72,17 @@ export interface ActivatedAbilityView {
 /** Build the per-ability views for a card in the current context. */
 export function activatedAbilityViews(card: Card, ctx: ActivationContext): ActivatedAbilityView[] {
   const irs = parseAbilities(card.abilities);
+  const handCount = ctx.handCount ?? 0;
+  const allyBoard = ctx.allyBoard ?? [];
   return irs.map((ir, index) => {
     const isActivated = ir.trigger === 'activated';
     const used = ir.oncePerTurn === true && ctx.usedNames.includes(ir.name);
-    const activatable = isActivated && ctx.isPlayerMain && ctx.onPlayerBoard && !used;
+    // Feasible only if the cost is payable and, for targeting abilities, at
+    // least one legal target exists.
+    const feasible =
+      costPayable(ir, handCount) &&
+      (!abilityNeedsTarget(ir) || abilityValidTargets(ir, allyBoard, card.id).length > 0);
+    const activatable = isActivated && ctx.isPlayerMain && ctx.onPlayerBoard && !used && feasible;
     return { index, name: ir.name, text: ir.raw, ir, isActivated, used, activatable };
   });
 }

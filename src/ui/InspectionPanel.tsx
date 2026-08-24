@@ -39,9 +39,22 @@ export function InspectionPanel() {
     s.selectedCardId ? s.usedActivatedAbilities[s.selectedCardId] : undefined,
   );
   const activateAbility = useGameStore((s) => s.activateAbility);
+  const handCount = useGameStore((s) => s.hand.length);
+  const board = useGameStore((s) => s.board);
+  const cardsById = useGameStore((s) => s.cardsById);
+  const allyBoard = Object.values(board)
+    .filter((id): id is NonNullable<typeof id> => id !== null)
+    .map((id) => cardsById[id])
+    .filter((c): c is Card => Boolean(c));
   const abilityViews =
     shown && shown.type === 'A'
-      ? activatedAbilityViews(shown, { isPlayerMain, onPlayerBoard, usedNames: usedNames ?? [] })
+      ? activatedAbilityViews(shown, {
+          isPlayerMain,
+          onPlayerBoard,
+          usedNames: usedNames ?? [],
+          handCount,
+          allyBoard,
+        })
       : [];
 
   return (

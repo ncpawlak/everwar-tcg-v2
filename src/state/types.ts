@@ -196,6 +196,24 @@ export interface AbilityShowcase {
 }
 
 /**
+ * An in-progress activated ability that needs player selection to resolve (e.g.
+ * Quick Reload). The player first pays the cost (`step: 'cost'` — pick a Hand
+ * card to send to Replen), then picks the target (`step: 'target'` — an ally
+ * Hero to buff). The staged cost card is not spent until the target is chosen,
+ * so cancelling at either step reverts cleanly. Null when no ability is
+ * mid-resolution.
+ */
+export interface AbilityTargeting {
+  sourceCardId: CardId;
+  abilityIndex: number;
+  abilityName: string;
+  step: 'cost' | 'target';
+  /** Hand card staged for the cost during the `target` step; null while still
+   *  on the `cost` step (or for costless abilities). */
+  costCardId: CardId | null;
+}
+
+/**
  * A pending level-3 tribute summon. Set when the player drops a level-3+ A card
  * while enough board A-cards exist to tribute: the card is held in hand and the
  * material-selection modal opens. Confirming the materials sends them (plus their
@@ -266,6 +284,8 @@ export interface GameState {
   /** An activated ability currently playing its showcase (the owning card pops to
    * center with the amber ripple), or null. Purely visual and transient. */
   abilityShowcase: AbilityShowcase | null;
+  /** An activated ability mid-resolution awaiting cost/target selection, or null. */
+  abilityTargeting: AbilityTargeting | null;
   /** An in-progress level-3 tribute summon awaiting material selection, or null.
    * While set, the material-selection modal is open and the card sits in hand. */
   pendingTribute: PendingTribute | null;

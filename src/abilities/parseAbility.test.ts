@@ -40,6 +40,34 @@ describe('P8 ability parser', () => {
     expect(ir.effect).toEqual({ kind: 'selfStatBuff', stat: 'acc', amount: 20 });
   });
 
+  it('parses a targeted cost ability (Quick Reload) into an activated targetStatBuff with cost', () => {
+    const ir = parseAbility(
+      'Quick Reload: Once per turn, you can send 1 card from your Hand to Replen: select another Infantry Hero you control to gain +20ACC.',
+    );
+    expect(ir.name).toBe('Quick Reload');
+    expect(ir.trigger).toBe('activated');
+    expect(ir.oncePerTurn).toBe(true);
+    expect(ir.cost).toEqual({ kind: 'sendHandToReplen', count: 1 });
+    expect(ir.effect).toEqual({
+      kind: 'targetStatBuff',
+      stat: 'acc',
+      amount: 20,
+      target: { side: 'ally', subType: 'Infantry', excludeSelf: true },
+    });
+  });
+
+  it('parses a targeted ability with no sub-type restriction (any Hero you control)', () => {
+    const ir = parseAbility(
+      'Fire Support: Once per turn, you can send 1 card from your Hand to Replen: select another Hero you control to gain +10DMG.',
+    );
+    expect(ir.effect).toEqual({
+      kind: 'targetStatBuff',
+      stat: 'dmg',
+      amount: 10,
+      target: { side: 'ally', subType: undefined, excludeSelf: true },
+    });
+  });
+
   it('keeps the ability name but marks unrecognized text as unimplemented (inert, still displays)', () => {
     const ir = parseAbility(
       'Pink Mist: Once per turn, if this Hero inflicts damage with a Critical Hit: this Hero can attack again.',

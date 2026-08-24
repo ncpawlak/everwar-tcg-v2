@@ -1478,3 +1478,93 @@ describe('P8 activated abilities (self stat-buff)', () => {
     expect(store.getState().activatedStatBuffs['card-hero-1']).toBeUndefined();
   });
 });
+
+describe('P8 activated abilities (targeted cost — Quick Reload / Fire Support)', () => {
+  // Munitions Specialist (card-hero-4) carries "Fire Support: Once per turn, you
+  // can send 1 card from your Hand to Replen: select another Hero you control to
+  // gain +10DMG." Echo Reserve (card-hero-2) is the ally target.
+  function withDuo() {
+    const base = createInitialState();
+    return createGameStore({
+      ...base,
+      deck: base.deck.filter(
+        (id) => !['card-hero-2', 'card-hero-4', 'card-hero-5'].includes(id),
+      ),
+      board: { ...base.board, A1: 'card-hero-4', A2: 'card-hero-2' },
+      hand: ['card-hero-5'],
+      phase: 'main',
+    });
+  }
+
+  it('resolves the two-step flow: pay the cost, then buff the chosen target', () => {
+    const store = withDuo();
+    const beforeDmg = effectiveStats(store.getState(), 'A2').dmg.value;
+
+    store.getState().activateAbility('card-hero-4', 0);
+    expect(store.getState().abilityTargeting).toMatchObject({
+      sourceCardId: 'card-hero-4',
+      step: 'cost',
+      costCardId: null,
+    });
+
+    store.getState().chooseAbilityCost('card-hero-5');
+    expect(store.getState().abilityTargeting).toMatchObject({ step: 'target', costCardId: 'card-hero-5' });
+
+    store.getState().chooseAbilityTarget('card-hero-2');
+    const s = store.getState();
+    expect(s.abilityTargeting).toBeNull();
+    expect(s.hand).not.toContain('card-hero-5');
+    expect(s.replen).toContain('card-hero-5');
+    expect(s.activatedStatBuffs['card-hero-2']).toEqual({ dmg: 10 });
+    expect(s.usedActivatedAbilities['card-hero-4']).toEqual(['Fire Support']);
+    expect(effectiveStats(s, 'A2').dmg.value).toBe(beforeDmg + 10);
+  });
+
+  it('cancelling at the target step spends nothing', () => {
+    const store = withDuo();
+    store.getState().activateAbility('card-hero-4', 0);
+    store.getState().chooseAbilityCost('card-hero-5');
+    store.getState().cancelAbilityTargeting();
+    const s = store.getState();
+    expect(s.abilityTargeting).toBeNull();
+    expect(s.hand).toContain('card-hero-5');
+    expect(s.replen).not.toContain('card-hero-5');
+    expect(s.activatedStatBuffs['card-hero-2']).toBeUndefined();
+    expect(s.usedActivatedAbilities['card-hero-4']).toBeUndefined();
+  });
+
+  it('does not open the flow when the Hand cannot pay the cost', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      deck: base.deck.filter((id) => !['card-hero-2', 'card-hero-4'].includes(id)),
+      board: { ...base.board, A1: 'card-hero-4', A2: 'card-hero-2' },
+      hand: [],
+      phase: 'main',
+    });
+    store.getState().activateAbility('card-hero-4', 0);
+    expect(store.getState().abilityTargeting).toBeNull();
+  });
+
+  it('does not open the flow when there is no legal target', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      deck: base.deck.filter((id) => !['card-hero-4', 'card-hero-5'].includes(id)),
+      board: { ...base.board, A1: 'card-hero-4' },
+      hand: ['card-hero-5'],
+      phase: 'main',
+    });
+    store.getState().activateAbility('card-hero-4', 0);
+    expect(store.getState().abilityTargeting).toBeNull();
+  });
+
+  it('is once-per-turn: cannot re-open after resolving', () => {
+    const store = withDuo();
+    store.getState().activateAbility('card-hero-4', 0);
+    store.getState().chooseAbilityCost('card-hero-5');
+    store.getState().chooseAbilityTarget('card-hero-2');
+    store.getState().activateAbility('card-hero-4', 0);
+    expect(store.getState().abilityTargeting).toBeNull();
+  });
+});

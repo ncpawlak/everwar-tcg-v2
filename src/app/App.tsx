@@ -4,6 +4,7 @@ import { PointerControls } from '../input/PointerControls';
 import { InspectionPanel } from '../ui/InspectionPanel';
 import { PileSearchHost } from '../ui/PileSearchHost';
 import { TributeModal } from '../ui/TributeModal';
+import { AbilityTargetModal } from '../ui/AbilityTargetModal';
 import { SummonSlotPrompt } from '../ui/SummonSlotPrompt';
 import { TurnHud } from '../ui/TurnHud';
 import { PhaseBanner } from '../ui/PhaseBanner';
@@ -35,6 +36,7 @@ export function App() {
       <TurnHud />
       <PhaseBanner />
       <TributeModal />
+      <AbilityTargetModal />
       <SummonSlotPrompt />
     </div>
   );

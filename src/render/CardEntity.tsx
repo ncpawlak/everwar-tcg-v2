@@ -40,6 +40,8 @@ export function CardEntity({ cardId }: { cardId: CardId }) {
       isPlayerMain: state.activePlayer === 'player' && state.phase === 'main',
       onPlayerBoard,
       usedNames: state.usedActivatedAbilities[cardId] ?? [],
+      handCount: state.hand.length,
+      allyBoard: boardHeroes,
     });
 
   return (

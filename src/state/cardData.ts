@@ -95,7 +95,7 @@ export const HERO_LIBRARY: readonly HeroData[] = [
   { name: 'Duneside Scout', subType: 'Recon', allegiance: 'Coalition', level: 1, hp: 80, dmg: 50, acc: 60, armorBars: 0, armor: 0, unique: false, commander: false, abilities: ['Combat Focus: Once per turn, you can: this Hero gains +20 ACC.', 'Sand Veil: This Hero cannot be targeted by enemy abilities.'] },
   { name: 'Echo Reserve', subType: 'Infantry', allegiance: 'Coalition', level: 1, hp: 90, dmg: 60, acc: 60, armorBars: 0, armor: 0, unique: false, commander: false, abilities: ['Echo Assist: All "Echo" Heroes you control gain +10ACC. Only 1 "Echo Assist" Ability can be active on your field at once.'] },
   { name: 'Bobcat Convoy Escort', subType: 'Infantry', allegiance: 'Coalition', level: 1, hp: 70, dmg: 50, acc: 70, armorBars: 0, armor: 10, unique: false, commander: false, abilities: ['Roaming Armor: All "Bobcat" Heroes you control have +10 Armor. Only 1 "Roaming Armor" Ability can be active on your field at once.'] },
-  { name: 'Munitions Specialist', subType: 'Heavy', allegiance: 'Coalition', level: 1, hp: 70, dmg: 40, acc: 60, armorBars: 0, armor: 10, unique: false, commander: false, abilities: [] },
+  { name: 'Munitions Specialist', subType: 'Heavy', allegiance: 'Coalition', level: 1, hp: 70, dmg: 40, acc: 60, armorBars: 0, armor: 10, unique: false, commander: false, abilities: ['Fire Support: Once per turn, you can send 1 card from your Hand to Replen: select another Hero you control to gain +10DMG.'] },
   { name: 'Tundra Rifleman', subType: 'Infantry', allegiance: 'Coalition', level: 1, hp: 100, dmg: 40, acc: 80, armorBars: 0, armor: 10, unique: false, commander: false, abilities: [] },
   // ── Level 2 (4) ──
   { name: 'Devil Dog Rifleman', subType: 'Infantry', allegiance: 'Coalition', level: 2, hp: 100, dmg: 70, acc: 70, armorBars: 0, armor: 20, unique: false, commander: false, abilities: ['Devil Dog Reinforcement: At the end of your turn, place 1 counter on this Hero. When this Hero reaches 3 counters: if possible, you can Replen this Hero to Normal Set the top "Devil Dog" Special Hero in your Deck, then disturb your Deck.'] },
@@ -279,6 +279,7 @@ export function createInitialState(): GameState {
     pileSearch: null,
     summon: null,
     abilityShowcase: null,
+    abilityTargeting: null,
     pendingTribute: null,
     pendingSummon: null,
     turn: 1,

@@ -89,7 +89,33 @@ const SELF_STAT_BUFF_RULE: ParseRule = {
   }),
 };
 
-const RULES: ParseRule[] = [STAT_GAIN_AURA, ARMOR_AURA, SELF_STAT_BUFF_RULE];
+/**
+ * "Once per turn, you can send N card from your Hand to Replen: select another
+ *  [<SubType>] Hero you control to gain +M STAT."  (e.g. Quick Reload → send 1,
+ *  target another Infantry Hero, +20 ACC). Activated, once-per-turn, with a
+ *  hand→replen cost and an ally target. The optional sub-type word restricts the
+ *  target family; without it, any other Hero you control is eligible.
+ */
+const TARGET_STAT_BUFF_RULE: ParseRule = {
+  match:
+    /^Once per turn, you can send (\d+) card from your Hand to Replen:\s*select another (?:(\w+) )?Hero you control to gain\s+\+(\d+)\s*(ACC|DMG|HP)\.$/i,
+  build: (m, name, raw) => ({
+    name,
+    raw,
+    trigger: 'activated',
+    oncePerTurn: true,
+    cost: { kind: 'sendHandToReplen', count: Number(m[1]) },
+    effect: {
+      kind: 'targetStatBuff',
+      stat: STAT_WORD[m[4].toUpperCase()],
+      amount: Number(m[3]),
+      target: { side: 'ally', subType: m[2], excludeSelf: true },
+    },
+    constraints: [],
+  }),
+};
+
+const RULES: ParseRule[] = [STAT_GAIN_AURA, ARMOR_AURA, SELF_STAT_BUFF_RULE, TARGET_STAT_BUFF_RULE];
 
 /** Split "<Name>: <body>" into its parts. No colon → empty name, whole text is body. */
 function splitNameBody(text: string): { name: string; body: string } {
