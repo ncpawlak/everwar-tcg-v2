@@ -186,6 +186,16 @@ export interface SummonState {
 }
 
 /**
+ * A transient activated-ability showcase: the owning Hero pops to the center of
+ * the field with an amber ripple to signal the ability fired, then springs back
+ * to its slot. Purely visual; cleared after a short window.
+ */
+export interface AbilityShowcase {
+  cardId: CardId;
+  abilityName: string;
+}
+
+/**
  * A pending level-3 tribute summon. Set when the player drops a level-3+ A card
  * while enough board A-cards exist to tribute: the card is held in hand and the
  * material-selection modal opens. Confirming the materials sends them (plus their
@@ -253,6 +263,9 @@ export interface GameState {
   /** Card currently playing its summon-reveal (showcased over the field before
    * flying to its slot), or null. Purely visual and transient. */
   summon: SummonState | null;
+  /** An activated ability currently playing its showcase (the owning card pops to
+   * center with the amber ripple), or null. Purely visual and transient. */
+  abilityShowcase: AbilityShowcase | null;
   /** An in-progress level-3 tribute summon awaiting material selection, or null.
    * While set, the material-selection modal is open and the card sits in hand. */
   pendingTribute: PendingTribute | null;
@@ -339,6 +352,13 @@ export interface GameState {
    * time a bar is consumed. Bars absorb a full hit then break (see armorCombat)
    * and do not regenerate during the duel. */
   currentArmorBars: Record<CardId, number>;
+  /** Persistent stat buffs granted by a Hero's own activated abilities (Phase 8),
+   * keyed by card id then stat. Folded into `effectiveStats` on top of base /
+   * C-buff / aura, and cleared when the card leaves the field. Player-only. */
+  activatedStatBuffs: Record<CardId, Partial<Record<StatKey, number>>>;
+  /** Activated ability names each card has already used this turn (once-per-turn
+   * gate), keyed by card id. Reset at the start of the player's turn. */
+  usedActivatedAbilities: Record<CardId, string[]>;
   /** Opponent slots whose card is being destroyed this Resolution (HP hit 0).
    * Set the instant lethal damage is applied and cleared when the cards vanish;
    * drives the red slash destruction FX drawn over each doomed opponent card. */

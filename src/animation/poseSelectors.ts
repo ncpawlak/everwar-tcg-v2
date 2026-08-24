@@ -43,6 +43,18 @@ export function selectCardVisual(
     };
   }
 
+  // Activated-ability showcase: the owning Hero pops big & centered with the
+  // amber ripple, then springs back to its slot once the showcase clears.
+  if (state.abilityShowcase && state.abilityShowcase.cardId === cardId) {
+    return {
+      pose: summonShowcasePose(),
+      faceUp: true,
+      zone: 'summon',
+      config: SPRING.summon,
+      scale: SUMMON_SHOWCASE_SCALE,
+    };
+  }
+
   // Board (occupies a slot)
   for (const slotId of SLOT_IDS) {
     if (state.board[slotId] === cardId) {

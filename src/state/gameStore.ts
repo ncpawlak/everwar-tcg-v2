@@ -8,6 +8,7 @@ import { rollCBuff, effectiveStats, opponentEffectiveStats, boardHeroes } from '
 import { resolveRoll } from './diceRules';
 import { applyArmorToHit } from './armorCombat';
 import { collectAuras, auraStatDelta } from '../abilities/auras';
+import { parseAbility } from '../abilities/parseAbility';
 import { OPP_SLOT_IDS } from '../board/boardConfig';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 
@@ -17,6 +18,10 @@ export const SHUFFLE_SPREAD_MS = 300;
 /** How long (ms) a freshly set card is showcased over the field before it flies
  * down into its slot. */
 export const SUMMON_SHOWCASE_MS = 800;
+
+/** How long (ms) an activated ability is showcased (card pops to center with the
+ *  amber ripple) before it springs back to its slot. */
+export const ABILITY_SHOWCASE_MS = 950;
 
 /** Target hand size the Draw phase fills up to (draws until this, else +1). */
 export const HAND_TARGET = 6;
@@ -128,6 +133,11 @@ export interface GameActions {
   /** Open the expanded detail view for any existing card (hand, board, or a
    * pile-search window: deck/graveyard/replen), or close with null. */
   selectCard: (cardId: CardId | null) => void;
+  /** Trigger an activated ability of a player board Hero by its ability index.
+   * No-op unless it's the player's Main phase, the card is on the player's
+   * board, the ability is an activated one, and (if once-per-turn) it hasn't
+   * been used this turn. */
+  activateAbility: (cardId: CardId, abilityIndex: number) => void;
   /**
    * Temp Phase 3 mechanic (no Player 2 yet): "destroy" a random occupied zone-A
    * slot — send its card to the graveyard, along with the linked zone-C card in
@@ -536,7 +546,7 @@ export function createGameStore(
         set((s) => ({ phase: 'end', phaseAnnounce: s.phaseAnnounce + 1, oppAttackTargets: {} }));
         setTimeout(() => {
           if (!oppActive()) return;
-          set((s) => ({ turn: s.turn + 1, activePlayer: 'player' }));
+          set((s) => ({ turn: s.turn + 1, activePlayer: 'player', usedActivatedAbilities: {} }));
           goToPhase('draw');
         }, END_PHASE_DWELL_MS);
       };
@@ -641,6 +651,8 @@ export function createGameStore(
                 const graveyard = [...s.graveyard];
                 const currentHp = { ...s.currentHp };
                 const currentArmorBars = { ...s.currentArmorBars };
+                const activatedStatBuffs = { ...s.activatedStatBuffs };
+                const usedActivatedAbilities = { ...s.usedActivatedAbilities };
                 for (const slot of ['A1', 'A2', 'A3', 'A4'] as SlotId[]) {
                   const pid = board[slot];
                   if (!pid || (currentHp[pid] ?? Infinity) > 0) continue;
@@ -649,6 +661,8 @@ export function createGameStore(
                   graveyard.push(pid);
                   delete currentHp[pid];
                   delete currentArmorBars[pid];
+                  delete activatedStatBuffs[pid];
+                  delete usedActivatedAbilities[pid];
                   // The linked C-card (same column support) falls with its A-card.
                   const cSlot = `C${slot[1]}` as SlotId;
                   const cid = board[cSlot];
@@ -667,6 +681,8 @@ export function createGameStore(
                   graveyard,
                   currentHp,
                   currentArmorBars,
+                  activatedStatBuffs,
+                  usedActivatedAbilities,
                 };
               });
               if (destroyedAny) {
@@ -1021,6 +1037,54 @@ export function createGameStore(
         if (s.selectedCardId === cardId) return s;
         return { ...s, selectedCardId: cardId };
       }),
+
+    activateAbility: (cardId, abilityIndex) => {
+      const s = get();
+      // Gate: player's Main phase, card on the player's own A-board.
+      if (s.activePlayer !== 'player' || s.phase !== 'main') return;
+      const onBoard = Object.values(s.board).includes(cardId);
+      if (!onBoard) return;
+      const card = s.cardsById[cardId];
+      if (!card || !card.abilities || abilityIndex < 0 || abilityIndex >= card.abilities.length) {
+        return;
+      }
+      const ir = parseAbility(card.abilities[abilityIndex]);
+      if (ir.trigger !== 'activated') return;
+      // Once-per-turn gate.
+      const usedNames = s.usedActivatedAbilities[cardId] ?? [];
+      if (ir.oncePerTurn && usedNames.includes(ir.name)) return;
+
+      // Apply the effect. Slice 3 models the self stat-buff; other activated
+      // effect kinds arrive with their own slices (inert here for now).
+      let activatedStatBuffs = s.activatedStatBuffs;
+      if (ir.effect.kind === 'selfStatBuff' && ir.effect.stat !== 'armor') {
+        const prev = s.activatedStatBuffs[cardId] ?? {};
+        const stat = ir.effect.stat;
+        activatedStatBuffs = {
+          ...s.activatedStatBuffs,
+          [cardId]: { ...prev, [stat]: (prev[stat] ?? 0) + ir.effect.amount },
+        };
+      }
+
+      set({
+        activatedStatBuffs,
+        usedActivatedAbilities: {
+          ...s.usedActivatedAbilities,
+          [cardId]: [...usedNames, ir.name],
+        },
+        // Fire the centered amber-ripple showcase.
+        abilityShowcase: { cardId, abilityName: ir.name },
+      });
+
+      // Clear the showcase after its window, unless a newer one replaced it.
+      setTimeout(() => {
+        set((st) =>
+          st.abilityShowcase && st.abilityShowcase.cardId === cardId
+            ? { ...st, abilityShowcase: null }
+            : st,
+        );
+      }, ABILITY_SHOWCASE_MS);
+    },
 
     destroyZoneA: () =>
       set((s) => {

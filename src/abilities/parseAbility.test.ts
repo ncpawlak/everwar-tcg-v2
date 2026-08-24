@@ -32,6 +32,14 @@ describe('P8 ability parser', () => {
     expect(ir.constraints).toEqual([{ kind: 'maxActiveByName', name: 'Roaming Armor', max: 1 }]);
   });
 
+  it('parses an activated self-buff (Combat Focus) into an activated, once-per-turn IR', () => {
+    const ir = parseAbility('Combat Focus: Once per turn, you can: this Hero gains +20 ACC.');
+    expect(ir.name).toBe('Combat Focus');
+    expect(ir.trigger).toBe('activated');
+    expect(ir.oncePerTurn).toBe(true);
+    expect(ir.effect).toEqual({ kind: 'selfStatBuff', stat: 'acc', amount: 20 });
+  });
+
   it('keeps the ability name but marks unrecognized text as unimplemented (inert, still displays)', () => {
     const ir = parseAbility(
       'Pink Mist: Once per turn, if this Hero inflicts damage with a Critical Hit: this Hero can attack again.',

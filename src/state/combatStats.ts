@@ -71,11 +71,13 @@ export function effectiveStats(state: GameState, aSlot: SlotId): EffectiveStats 
   const cId = state.board[linkedCSlot(aSlot)];
   const buff = cId ? state.cardsById[cId]?.buff : undefined;
   const auras = collectAuras(boardHeroes(state.board, state.cardsById));
+  const selfBuff = aId ? state.activatedStatBuffs[aId] : undefined;
 
   const line = (stat: StatKey): StatLine => {
     const cDelta = buff && buff.stat === stat ? buff.amount : 0;
     const aDelta = card ? auraStatDelta(auras, card, stat) : 0;
-    const delta = cDelta + aDelta;
+    const sDelta = selfBuff?.[stat] ?? 0;
+    const delta = cDelta + aDelta + sDelta;
     return { value: base[stat] + delta, delta };
   };
 

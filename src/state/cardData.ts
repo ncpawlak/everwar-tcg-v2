@@ -92,7 +92,7 @@ export interface HeroData {
 
 export const HERO_LIBRARY: readonly HeroData[] = [
   // ── Level 1 (5) ──
-  { name: 'Duneside Scout', subType: 'Recon', allegiance: 'Coalition', level: 1, hp: 80, dmg: 50, acc: 60, armorBars: 0, armor: 0, unique: false, commander: false, abilities: [] },
+  { name: 'Duneside Scout', subType: 'Recon', allegiance: 'Coalition', level: 1, hp: 80, dmg: 50, acc: 60, armorBars: 0, armor: 0, unique: false, commander: false, abilities: ['Combat Focus: Once per turn, you can: this Hero gains +20 ACC.', 'Sand Veil: This Hero cannot be targeted by enemy abilities.'] },
   { name: 'Echo Reserve', subType: 'Infantry', allegiance: 'Coalition', level: 1, hp: 90, dmg: 60, acc: 60, armorBars: 0, armor: 0, unique: false, commander: false, abilities: ['Echo Assist: All "Echo" Heroes you control gain +10ACC. Only 1 "Echo Assist" Ability can be active on your field at once.'] },
   { name: 'Bobcat Convoy Escort', subType: 'Infantry', allegiance: 'Coalition', level: 1, hp: 70, dmg: 50, acc: 70, armorBars: 0, armor: 10, unique: false, commander: false, abilities: ['Roaming Armor: All "Bobcat" Heroes you control have +10 Armor. Only 1 "Roaming Armor" Ability can be active on your field at once.'] },
   { name: 'Munitions Specialist', subType: 'Heavy', allegiance: 'Coalition', level: 1, hp: 70, dmg: 40, acc: 60, armorBars: 0, armor: 10, unique: false, commander: false, abilities: [] },
@@ -278,6 +278,7 @@ export function createInitialState(): GameState {
     selectedCardId: null,
     pileSearch: null,
     summon: null,
+    abilityShowcase: null,
     pendingTribute: null,
     pendingSummon: null,
     turn: 1,
@@ -302,6 +303,8 @@ export function createInitialState(): GameState {
     damagePopups: {},
     currentHp: {},
     currentArmorBars: {},
+    activatedStatBuffs: {},
+    usedActivatedAbilities: {},
     destroying: [],
     oppAttackTargets: {},
     oppResolutionRolls: {},

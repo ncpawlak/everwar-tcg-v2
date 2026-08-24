@@ -1,7 +1,7 @@
 import { RoundedBox, Text } from '@react-three/drei';
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import type { Mesh } from 'three';
+import type { Mesh, MeshStandardMaterial } from 'three';
 import { CARD_HEIGHT, CARD_THICKNESS, CARD_WIDTH } from '../board/boardConfig';
 import type { Card } from '../state/types';
 import { abilityLabel } from '../state/abilities';
@@ -103,15 +103,83 @@ function AuraGlow() {
   );
 }
 
+/** Amber border ring that pulses while a board Hero has an activated ability the
+ *  player can trigger right now. Rendered as a rounded frame slightly larger than
+ *  the card and centered on it, so the opaque card face occludes the middle and
+ *  only the amber rim shows around the border. Amber so it can't be confused with
+ *  the teal aura or the gold placement outlines, and so both can glow at once. */
+const RING_MARGIN = 0.05; // how far the ring extends past each edge
+function ActivatableGlow() {
+  const mat = useRef<MeshStandardMaterial | null>(null);
+  useFrame((frameState) => {
+    if (!mat.current) return;
+    // Gentle breathing pulse, ~0.6 Hz.
+    const pulse = 0.5 + 0.5 * Math.sin(frameState.clock.elapsedTime * 4);
+    mat.current.emissiveIntensity = 0.5 + 1.1 * pulse;
+  });
+  return (
+    <RoundedBox
+      args={[CARD_WIDTH + RING_MARGIN, CARD_HEIGHT + RING_MARGIN, CARD_THICKNESS * 0.9]}
+      radius={0.04}
+      smoothness={4}
+      raycast={() => null}
+    >
+      <meshStandardMaterial ref={mat} color="#3a2400" emissive="#ffb020" emissiveIntensity={0.7} toneMapped={false} />
+    </RoundedBox>
+  );
+}
+
+/** Expanding amber ripple that plays once when an activated ability fires. Three
+ *  concentric rings, phase-offset, each grows outward from the card and fades —
+ *  a distinct "pulse out" look versus the summon reveal and the steady amber ring.
+ *  Rendered flat in the card's face plane, just proud of the front, facing +Z. */
+const RIPPLE_Z = CARD_THICKNESS / 2 + 0.02;
+const RIPPLE_BASE = Math.max(CARD_WIDTH, CARD_HEIGHT) * 0.55;
+const RIPPLE_PERIOD = 0.62; // seconds per ring cycle
+function AbilityRipple() {
+  const rings = useRef<(Mesh | null)[]>([]);
+  useFrame((frameState) => {
+    const t = frameState.clock.elapsedTime;
+    for (let i = 0; i < 3; i++) {
+      const m = rings.current[i];
+      if (!m) continue;
+      // Each ring runs the same cycle, offset by a third of the period.
+      const phase = ((t + (i * RIPPLE_PERIOD) / 3) % RIPPLE_PERIOD) / RIPPLE_PERIOD;
+      const scale = 1 + phase * 1.7;
+      m.scale.set(scale, scale, 1);
+      const mat = m.material as { opacity: number };
+      mat.opacity = 0.85 * (1 - phase);
+    }
+  });
+  return (
+    <group position={[0, 0, RIPPLE_Z]} raycast={() => null}>
+      {[0, 1, 2].map((i) => (
+        <mesh key={i} ref={(el) => (rings.current[i] = el)} raycast={() => null}>
+          <ringGeometry args={[RIPPLE_BASE, RIPPLE_BASE + 0.04, 48]} />
+          <meshBasicMaterial color="#ffb020" transparent opacity={0.85} toneMapped={false} depthWrite={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 export function CardView({
   card,
   pickable = true,
   auraActive = false,
+  activatable = false,
+  showcasing = false,
   armorBars,
 }: {
   card: Card;
   pickable?: boolean;
   auraActive?: boolean;
+  /** True when this board Hero has an activated ability the player can trigger
+   * now — shows the pulsing amber ring. */
+  activatable?: boolean;
+  /** True while this card is playing its activated-ability showcase — forces the
+   * amber ring on and plays the expanding ripple. */
+  showcasing?: boolean;
   /** Live Armor Bars remaining (from combat state). Falls back to the card's
    * base `armorBars` stat when omitted (e.g. in hand). */
   armorBars?: number;
@@ -123,6 +191,8 @@ export function CardView({
   return (
     <group>
       {auraActive && <AuraGlow />}
+      {(activatable || showcasing) && <ActivatableGlow />}
+      {showcasing && <AbilityRipple />}
       <RoundedBox
         args={[CARD_WIDTH, CARD_HEIGHT, CARD_THICKNESS]}
         radius={0.025}

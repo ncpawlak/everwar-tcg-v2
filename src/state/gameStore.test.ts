@@ -3,6 +3,7 @@ import { createGameStore, SUMMON_SHOWCASE_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOM
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState, Card, OppSlotId } from './types';
+import { effectiveStats } from './combatStats';
 
 /** Build a store with a deterministic hand (cards removed from the deck). */
 function storeWithHand(hand: GameState['cardsById'][string]['id'][]) {
@@ -1418,5 +1419,62 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('P8 activated abilities (self stat-buff)', () => {
+  // Duneside Scout (card-hero-1) carries "Combat Focus: Once per turn, you can:
+  // this Hero gains +20 ACC." — a self-buff activated ability.
+  function withScoutOnBoard() {
+    const base = createInitialState();
+    return createGameStore({
+      ...base,
+      deck: base.deck.filter((id) => id !== 'card-hero-1'),
+      board: { ...base.board, A1: 'card-hero-1' },
+      phase: 'main',
+    });
+  }
+
+  it('activates a self stat-buff and folds it into effective ACC', () => {
+    const store = withScoutOnBoard();
+    const before = effectiveStats(store.getState(), 'A1').acc.value;
+    store.getState().activateAbility('card-hero-1', 0);
+    const s = store.getState();
+    expect(s.activatedStatBuffs['card-hero-1']).toEqual({ acc: 20 });
+    expect(s.usedActivatedAbilities['card-hero-1']).toEqual(['Combat Focus']);
+    expect(effectiveStats(s, 'A1').acc.value).toBe(before + 20);
+  });
+
+  it('is once-per-turn: a second activation the same turn is a no-op', () => {
+    const store = withScoutOnBoard();
+    store.getState().activateAbility('card-hero-1', 0);
+    store.getState().activateAbility('card-hero-1', 0);
+    expect(store.getState().activatedStatBuffs['card-hero-1']).toEqual({ acc: 20 });
+  });
+
+  it('does nothing outside the player Main phase', () => {
+    const store = withScoutOnBoard();
+    store.setState({ phase: 'battle' });
+    store.getState().activateAbility('card-hero-1', 0);
+    expect(store.getState().activatedStatBuffs['card-hero-1']).toBeUndefined();
+  });
+
+  it('does nothing on the opponent turn', () => {
+    const store = withScoutOnBoard();
+    store.setState({ activePlayer: 'opponent' });
+    store.getState().activateAbility('card-hero-1', 0);
+    expect(store.getState().activatedStatBuffs['card-hero-1']).toBeUndefined();
+  });
+
+  it('does nothing for a card that is not on the player board', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-1'],
+      deck: base.deck.filter((id) => id !== 'card-hero-1'),
+      phase: 'main',
+    });
+    store.getState().activateAbility('card-hero-1', 0);
+    expect(store.getState().activatedStatBuffs['card-hero-1']).toBeUndefined();
   });
 });

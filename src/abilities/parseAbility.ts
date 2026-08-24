@@ -67,7 +67,29 @@ const ARMOR_AURA: ParseRule = {
   }),
 };
 
-const RULES: ParseRule[] = [STAT_GAIN_AURA, ARMOR_AURA];
+/**
+ * "Once per turn, you can: this Hero gains +<n><STAT>."  (e.g. Combat Focus →
+ * activated, once-per-turn, +20 ACC to itself). The player triggers it from the
+ * ability popup; the buff persists while the Hero stays on the field.
+ */
+const SELF_STAT_BUFF_RULE: ParseRule = {
+  match:
+    /^Once per turn, you can:\s*this Hero gains\s+\+(\d+)\s*(ACC|DMG|HP)\.$/i,
+  build: (m, name, raw) => ({
+    name,
+    raw,
+    trigger: 'activated',
+    oncePerTurn: true,
+    effect: {
+      kind: 'selfStatBuff',
+      stat: STAT_WORD[m[2].toUpperCase()],
+      amount: Number(m[1]),
+    },
+    constraints: [],
+  }),
+};
+
+const RULES: ParseRule[] = [STAT_GAIN_AURA, ARMOR_AURA, SELF_STAT_BUFF_RULE];
 
 /** Split "<Name>: <body>" into its parts. No colon → empty name, whole text is body. */
 function splitNameBody(text: string): { name: string; body: string } {

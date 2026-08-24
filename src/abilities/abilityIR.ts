@@ -26,17 +26,25 @@ export interface StatAuraEffect {
   scope: AuraScope;
 }
 
+/** An activated self-buff: "this Hero gains +N STAT" applied to the ability's
+ *  own card when the player triggers it. Persists while the Hero is on the field. */
+export interface SelfStatBuffEffect {
+  kind: 'selfStatBuff';
+  stat: AuraStat;
+  amount: number;
+}
+
 /** Fallback for ability text no rule models yet. Inert at runtime. */
 export interface UnimplementedEffect {
   kind: 'unimplemented';
 }
 
-export type AbilityEffect = StatAuraEffect | UnimplementedEffect;
+export type AbilityEffect = StatAuraEffect | SelfStatBuffEffect | UnimplementedEffect;
 
-/** When an ability's effect is evaluated. Only `passive` (continuous) auras are
- *  modeled in this slice; more triggers (on-set, when-destroyed, on-hit, …)
- *  arrive with later slices. */
-export type AbilityTrigger = 'passive' | 'unimplemented';
+/** When an ability's effect is evaluated. `passive` (continuous) auras and
+ *  `activated` (player-triggered, Main phase) abilities are modeled; more
+ *  triggers (on-set, when-destroyed, on-hit, …) arrive with later slices. */
+export type AbilityTrigger = 'passive' | 'activated' | 'unimplemented';
 
 /** "Only 1 <name> Ability can be active on your field at once." */
 export interface MaxActiveConstraint {
@@ -56,4 +64,6 @@ export interface AbilityIR {
   trigger: AbilityTrigger;
   effect: AbilityEffect;
   constraints: AbilityConstraint[];
+  /** True when an activated ability may only be triggered once per turn. */
+  oncePerTurn?: boolean;
 }
