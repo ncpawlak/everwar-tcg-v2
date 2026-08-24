@@ -1,4 +1,7 @@
 import { RoundedBox, Text } from '@react-three/drei';
+import { useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
+import type { Mesh } from 'three';
 import { CARD_HEIGHT, CARD_THICKNESS, CARD_WIDTH } from '../board/boardConfig';
 import type { Card } from '../state/types';
 import { B_ABILITY_LABEL } from '../state/types';
@@ -21,12 +24,100 @@ function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 1).trimEnd() + '…' : text;
 }
 
-export function CardView({ card, pickable = true }: { card: Card; pickable?: boolean }) {
+/** Teal energy that circles a board Hero's border while it projects an active
+ *  passive aura. A faint static track shows the loop; a bright "comet" head with
+ *  a fading tail chases clockwise around the perimeter (the "snake"). Teal so it
+ *  can't be confused with the gold placement outlines, and it sits just proud of
+ *  the front face so it never occludes the card art. */
+const GLOW_BX = CARD_WIDTH / 2 + 0.01; // half-width of the travel rectangle
+const GLOW_BY = CARD_HEIGHT / 2 + 0.01; // half-height
+const GLOW_W = GLOW_BX * 2;
+const GLOW_H = GLOW_BY * 2;
+const GLOW_PERIM = 2 * (GLOW_W + GLOW_H);
+const GLOW_Z = CARD_THICKNESS / 2 + 0.006; // above the face + text
+const SNAKE_SEGMENTS = 16; // head + tail dots
+const SNAKE_SPACING = 0.012; // perimeter fraction between segments
+const SNAKE_SPEED = 0.42; // loops per second
+
+/** Point on the border rectangle at perimeter fraction `t` (clockwise from the
+ *  top-left corner). */
+function borderPoint(t: number): [number, number] {
+  let d = ((t % 1) + 1) % 1 * GLOW_PERIM;
+  if (d < GLOW_W) return [-GLOW_BX + d, GLOW_BY]; // top edge, L→R
+  d -= GLOW_W;
+  if (d < GLOW_H) return [GLOW_BX, GLOW_BY - d]; // right edge, T→B
+  d -= GLOW_H;
+  if (d < GLOW_W) return [GLOW_BX - d, -GLOW_BY]; // bottom edge, R→L
+  d -= GLOW_W;
+  return [-GLOW_BX, -GLOW_BY + d]; // left edge, B→T
+}
+
+function AuraGlow() {
+  const segs = useRef<(Mesh | null)[]>([]);
+  useFrame((frameState) => {
+    const head = frameState.clock.elapsedTime * SNAKE_SPEED;
+    for (let i = 0; i < SNAKE_SEGMENTS; i++) {
+      const m = segs.current[i];
+      if (!m) continue;
+      const [x, y] = borderPoint(head - i * SNAKE_SPACING);
+      m.position.set(x, y, GLOW_Z);
+    }
+  });
+  return (
+    <group>
+      {/* Faint static track so the loop reads even behind the comet's tail. */}
+      <RoundedBox
+        args={[GLOW_W, GLOW_H, CARD_THICKNESS * 0.5]}
+        radius={0.03}
+        smoothness={4}
+        raycast={() => null}
+      >
+        <meshStandardMaterial color="#05201d" emissive="#2fe6c8" emissiveIntensity={0.3} toneMapped={false} />
+      </RoundedBox>
+      {/* The comet: segment 0 is the bright head, later segments shrink + fade. */}
+      {Array.from({ length: SNAKE_SEGMENTS }).map((_, i) => {
+        const f = i / SNAKE_SEGMENTS;
+        const radius = 0.05 * (1 - 0.7 * f);
+        const opacity = 1 - 0.9 * f;
+        return (
+          <mesh
+            key={i}
+            ref={(m) => {
+              segs.current[i] = m;
+            }}
+            position={[GLOW_BX, GLOW_BY, GLOW_Z]}
+            raycast={() => null}
+          >
+            <circleGeometry args={[radius, 16]} />
+            <meshBasicMaterial
+              color={i === 0 ? '#8effee' : '#2fe6c8'}
+              transparent
+              opacity={opacity}
+              depthWrite={false}
+              toneMapped={false}
+            />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}
+
+export function CardView({
+  card,
+  pickable = true,
+  auraActive = false,
+}: {
+  card: Card;
+  pickable?: boolean;
+  auraActive?: boolean;
+}) {
   const accent = TYPE_ACCENT[card.type];
   const rarityColor = RARITY_COLOR[card.rarity];
 
   return (
     <group>
+      {auraActive && <AuraGlow />}
       <RoundedBox
         args={[CARD_WIDTH, CARD_HEIGHT, CARD_THICKNESS]}
         radius={0.025}

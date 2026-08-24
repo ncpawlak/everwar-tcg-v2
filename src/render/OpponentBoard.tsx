@@ -11,6 +11,7 @@ import { selectOpponentCardVisual } from '../animation/poseSelectors';
 import { CardView } from '../cards/CardView';
 import { opponentSummonFromPose } from '../board/layout';
 import { opponentEffectiveStats } from '../state/combatStats';
+import { projectingAuraCardIds } from '../abilities/auras';
 import {
   HpOverlay,
   DmgAccOverlay,
@@ -45,6 +46,12 @@ export function OpponentBoard() {
   const { opponentBoard, opponentCards, targeting } = state;
   const selectable = targeting !== null;
 
+  // Opponent Heroes projecting an active passive aura glow, same as the player.
+  const oppBoardHeroes = Object.values(opponentBoard)
+    .map((id) => (id ? opponentCards[id] : undefined))
+    .filter((c): c is NonNullable<typeof c> => !!c && c.type === 'A');
+  const oppAuraIds = projectingAuraCardIds(oppBoardHeroes);
+
   return (
     <>
       {/* Every opponent card (on-board or traveling to the grave) is a MotionCard
@@ -62,7 +69,7 @@ export function OpponentBoard() {
             scale={visual.scale}
             from={visual.zone === 'summon' ? opponentSummonFromPose() : undefined}
           >
-            <CardView card={card} pickable={false} />
+            <CardView card={card} pickable={false} auraActive={oppAuraIds.has(id)} />
           </MotionCard>
         );
       })}

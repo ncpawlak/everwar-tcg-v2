@@ -1,4 +1,5 @@
-import type { GameState, OppCSlotId, OppSlotId, SlotId, StatBuff, StatKey } from './types';
+import type { Card, GameState, OppCSlotId, OppSlotId, SlotId, StatBuff, StatKey } from './types';
+import { collectAuras, auraStatDelta } from '../abilities/auras';
 
 /**
  * Pure combat-stat math (Phase 3). An A card's shown stats are its base values
@@ -41,10 +42,22 @@ export interface EffectiveStats {
   acc: StatLine;
 }
 
+/** Hero (A) cards a side controls on its A-board, for aura collection. */
+function heroesOnBoard(board: Record<string, string | null>, lookup: Record<string, Card>): Card[] {
+  const out: Card[] = [];
+  for (const id of Object.values(board)) {
+    const c = id ? lookup[id] : undefined;
+    if (c && c.type === 'A') out.push(c);
+  }
+  return out;
+}
+
 /**
  * Effective stats for the A card in `aSlot`: its base hp/dmg/acc plus the boost
- * from the linked C card, if that C slot holds a card carrying a buff. Because
- * this reads live board occupancy, removing the C card reverts the boost.
+ * from the linked C card, if that C slot holds a card carrying a buff, plus any
+ * passive stat-auras the controller has active (Phase 8). Because this reads
+ * live board occupancy, removing the C card or the aura source reverts the
+ * boost with no cleanup code.
  */
 export function effectiveStats(state: GameState, aSlot: SlotId): EffectiveStats {
   const aId = state.board[aSlot];
@@ -57,9 +70,12 @@ export function effectiveStats(state: GameState, aSlot: SlotId): EffectiveStats 
 
   const cId = state.board[linkedCSlot(aSlot)];
   const buff = cId ? state.cardsById[cId]?.buff : undefined;
+  const auras = collectAuras(heroesOnBoard(state.board, state.cardsById));
 
   const line = (stat: StatKey): StatLine => {
-    const delta = buff && buff.stat === stat ? buff.amount : 0;
+    const cDelta = buff && buff.stat === stat ? buff.amount : 0;
+    const aDelta = card ? auraStatDelta(auras, card, stat) : 0;
+    const delta = cDelta + aDelta;
     return { value: base[stat] + delta, delta };
   };
 
@@ -83,9 +99,12 @@ export function opponentEffectiveStats(state: GameState, oppSlot: OppSlotId): Ef
 
   const cId = state.opponentCBoard[`OC${oppSlot[1]}` as OppCSlotId];
   const buff = cId ? state.opponentCards[cId]?.buff : undefined;
+  const auras = collectAuras(heroesOnBoard(state.opponentBoard, state.opponentCards));
 
   const line = (stat: StatKey): StatLine => {
-    const delta = buff && buff.stat === stat ? buff.amount : 0;
+    const cDelta = buff && buff.stat === stat ? buff.amount : 0;
+    const aDelta = card ? auraStatDelta(auras, card, stat) : 0;
+    const delta = cDelta + aDelta;
     return { value: base[stat] + delta, delta };
   };
 
