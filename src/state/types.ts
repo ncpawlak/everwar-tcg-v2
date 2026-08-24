@@ -214,6 +214,18 @@ export interface AbilityTargeting {
 }
 
 /**
+ * A pending on-sent pile ability awaiting the player's yes/no decision. Set when
+ * a Hero with a "when sent to <pile>" trigger has just landed in that pile; the
+ * player is asked whether to use it. Resolved by `resolveAbilityPrompt`. Null
+ * when no such prompt is showing.
+ */
+export interface AbilityPrompt {
+  cardId: CardId;
+  abilityIndex: number;
+  abilityName: string;
+}
+
+/**
  * A pending level-3 tribute summon. Set when the player drops a level-3+ A card
  * while enough board A-cards exist to tribute: the card is held in hand and the
  * material-selection modal opens. Confirming the materials sends them (plus their
@@ -286,6 +298,9 @@ export interface GameState {
   abilityShowcase: AbilityShowcase | null;
   /** An activated ability mid-resolution awaiting cost/target selection, or null. */
   abilityTargeting: AbilityTargeting | null;
+  /** A just-sent Hero's on-sent pile ability awaiting the player's yes/no
+   *  decision, or null. */
+  abilityPrompt: AbilityPrompt | null;
   /** An in-progress level-3 tribute summon awaiting material selection, or null.
    * While set, the material-selection modal is open and the card sits in hand. */
   pendingTribute: PendingTribute | null;

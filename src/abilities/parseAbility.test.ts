@@ -68,6 +68,22 @@ describe('P8 ability parser', () => {
     });
   });
 
+  it('parses an on-sent pile trigger (Salvage Beacon) into an onSentToPile draw IR', () => {
+    const ir = parseAbility('Salvage Beacon: When this Hero is sent to the Graveyard: draw 1 card.');
+    expect(ir.name).toBe('Salvage Beacon');
+    expect(ir.trigger).toBe('onSentToPile');
+    expect(ir.pile).toBe('graveyard');
+    expect(ir.effect).toEqual({ kind: 'draw', count: 1 });
+  });
+
+  it('parses an in-pile activated ability (Field Cache) into a pileActivated returnSelfToHand IR', () => {
+    const ir = parseAbility('Field Cache: While this Hero is in your Replen pile, you can: return it to your Hand.');
+    expect(ir.name).toBe('Field Cache');
+    expect(ir.trigger).toBe('pileActivated');
+    expect(ir.pile).toBe('replen');
+    expect(ir.effect).toEqual({ kind: 'returnSelfToHand' });
+  });
+
   it('keeps the ability name but marks unrecognized text as unimplemented (inert, still displays)', () => {
     const ir = parseAbility(
       'Pink Mist: Once per turn, if this Hero inflicts damage with a Critical Hit: this Hero can attack again.',

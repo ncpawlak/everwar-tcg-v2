@@ -339,7 +339,11 @@ export function InspectionPanel() {
                           )
                         ) : (
                           <span style={{ fontSize: 9, fontWeight: 700, color: '#6f7680', letterSpacing: 0.4 }}>
-                            PASSIVE
+                            {view?.ir.trigger === 'onSentToPile'
+                              ? 'TRIGGERED'
+                              : view?.ir.trigger === 'pileActivated'
+                                ? 'IN-PILE'
+                                : 'PASSIVE'}
                           </span>
                         )}
                       </div>

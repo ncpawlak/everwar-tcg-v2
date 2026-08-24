@@ -53,6 +53,20 @@ export interface TargetStatBuffEffect {
   target: TargetSpec;
 }
 
+/** Draw N cards from the top of the deck. Used by on-sent pile triggers
+ *  (e.g. "When this Hero is sent to the Graveyard: draw 1 card."). */
+export interface DrawEffect {
+  kind: 'draw';
+  count: number;
+}
+
+/** Return the ability's own card from the pile it sits in back to the Hand.
+ *  Used by in-pile activated abilities (e.g. "While this Hero is in your Replen
+ *  pile, you can: return it to your Hand."). */
+export interface ReturnSelfToHandEffect {
+  kind: 'returnSelfToHand';
+}
+
 /** Fallback for ability text no rule models yet. Inert at runtime. */
 export interface UnimplementedEffect {
   kind: 'unimplemented';
@@ -62,7 +76,12 @@ export type AbilityEffect =
   | StatAuraEffect
   | SelfStatBuffEffect
   | TargetStatBuffEffect
+  | DrawEffect
+  | ReturnSelfToHandEffect
   | UnimplementedEffect;
+
+/** A pile a card can be sent to / activate from. */
+export type PileKind = 'graveyard' | 'replen';
 
 /** A cost the player must pay to trigger an activated ability. Modeled kinds so
  *  far: send N cards from the Hand to the Replen pile. */
@@ -73,10 +92,16 @@ export interface SendHandToReplenCost {
 
 export type AbilityCost = SendHandToReplenCost;
 
-/** When an ability's effect is evaluated. `passive` (continuous) auras and
- *  `activated` (player-triggered, Main phase) abilities are modeled; more
- *  triggers (on-set, when-destroyed, on-hit, …) arrive with later slices. */
-export type AbilityTrigger = 'passive' | 'activated' | 'unimplemented';
+/** When an ability's effect is evaluated. `passive` (continuous) auras,
+ *  `activated` (player-triggered, Main phase), `onSentToPile` (fires when the
+ *  owning Hero is sent to a pile), and `pileActivated` (player-triggered while
+ *  the Hero sits in a pile) are modeled; more triggers arrive with later slices. */
+export type AbilityTrigger =
+  | 'passive'
+  | 'activated'
+  | 'onSentToPile'
+  | 'pileActivated'
+  | 'unimplemented';
 
 /** "Only 1 <name> Ability can be active on your field at once." */
 export interface MaxActiveConstraint {
@@ -100,4 +125,7 @@ export interface AbilityIR {
   oncePerTurn?: boolean;
   /** Cost the player must pay to trigger an activated ability, if any. */
   cost?: AbilityCost;
+  /** For `onSentToPile` / `pileActivated` triggers: which pile the trigger
+   *  concerns (Graveyard or Replen). Undefined for other triggers. */
+  pile?: PileKind;
 }

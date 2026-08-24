@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import type { Card, PileSource } from '../state/types';
 import { abilityLabel } from '../state/abilities';
+import { pileActivatedAbilityFor } from '../abilities/pile';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 
 /**
@@ -32,6 +33,14 @@ export function PileSearchModal({ source, onClose }: Props) {
   const cardsById = useGameStore((s) => s.cardsById);
   const opponentCards = useGameStore((s) => s.opponentCards);
   const selectCard = useGameStore((s) => s.selectCard);
+  const activatePileAbility = useGameStore((s) => s.activatePileAbility);
+  const activePlayer = useGameStore((s) => s.activePlayer);
+  const phase = useGameStore((s) => s.phase);
+
+  // Only the player's own Graveyard / Replen support in-pile activation, and only
+  // during the player's Main phase.
+  const pileKind = source === 'graveyard' ? 'graveyard' : source === 'replen' ? 'replen' : null;
+  const canActivate = pileKind !== null && activePlayer === 'player' && phase === 'main';
 
   return (
     <div
@@ -55,9 +64,20 @@ export function PileSearchModal({ source, onClose }: Props) {
         ) : (
           <div style={GRID_SCROLL_STYLE}>
             <div style={GRID_STYLE}>
-              {pile.map((id) => (
-                <CardTile key={id} card={cardsById[id] ?? opponentCards[id]} onSelect={() => selectCard(id)} />
-              ))}
+              {pile.map((id) => {
+                const card = cardsById[id] ?? opponentCards[id];
+                const activatable =
+                  canActivate && pileKind !== null && Boolean(card && pileActivatedAbilityFor(card, pileKind));
+                return (
+                  <CardTile
+                    key={id}
+                    card={card}
+                    activatable={activatable}
+                    onSelect={() => selectCard(id)}
+                    onActivate={() => activatePileAbility(id)}
+                  />
+                );
+              })}
             </div>
           </div>
         )}
@@ -66,24 +86,50 @@ export function PileSearchModal({ source, onClose }: Props) {
   );
 }
 
-function CardTile({ card, onSelect }: { card: Card | undefined; onSelect: () => void }) {
+function CardTile({
+  card,
+  activatable,
+  onSelect,
+  onActivate,
+}: {
+  card: Card | undefined;
+  activatable: boolean;
+  onSelect: () => void;
+  onActivate: () => void;
+}) {
   if (!card) return null;
   const accent = TYPE_ACCENT[card.type];
   const rarity = RARITY_COLOR[card.rarity];
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      style={{ ...TILE_STYLE, border: `1px solid ${rarity}` }}
-      title={`${card.name} — ${TYPE_LABEL[card.type]}`}
-    >
-      <div style={{ ...TILE_HEADER_STYLE, background: `linear-gradient(180deg, ${accent}cc, ${accent}77)` }}>
-        <span style={{ fontWeight: 800 }}>{card.type}</span>
-        <span style={TILE_COST_STYLE}>{card.cost}</span>
-      </div>
-      <div style={TILE_NAME_STYLE}>{card.name}</div>
-      <div style={TILE_FOOT_STYLE}>{tileFoot(card)}</div>
-    </button>
+    <div style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={onSelect}
+        style={{
+          ...TILE_STYLE,
+          border: `1px solid ${activatable ? '#ffb020' : rarity}`,
+          boxShadow: activatable ? '0 0 12px rgba(255,176,32,0.6)' : 'none',
+        }}
+        title={`${card.name} — ${TYPE_LABEL[card.type]}`}
+      >
+        <div style={{ ...TILE_HEADER_STYLE, background: `linear-gradient(180deg, ${accent}cc, ${accent}77)` }}>
+          <span style={{ fontWeight: 800 }}>{card.type}</span>
+          <span style={TILE_COST_STYLE}>{card.cost}</span>
+        </div>
+        <div style={TILE_NAME_STYLE}>{card.name}</div>
+        <div style={TILE_FOOT_STYLE}>{tileFoot(card)}</div>
+      </button>
+      {activatable && (
+        <button
+          type="button"
+          onClick={onActivate}
+          style={ACTIVATE_STYLE}
+          title="Activate this card's in-pile ability"
+        >
+          ⚡ Activate
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -231,4 +277,22 @@ const TILE_FOOT_STYLE: CSSProperties = {
   fontSize: 11,
   fontWeight: 700,
   borderTop: '1px solid #1e2530',
+};
+
+const ACTIVATE_STYLE: CSSProperties = {
+  position: 'absolute',
+  left: '50%',
+  bottom: -10,
+  transform: 'translateX(-50%)',
+  padding: '3px 8px',
+  fontSize: 10,
+  fontWeight: 800,
+  whiteSpace: 'nowrap',
+  color: '#1a1206',
+  background: 'linear-gradient(180deg, #ffe08a, #e6b53f)',
+  border: '1px solid #b98f2a',
+  borderRadius: 7,
+  cursor: 'pointer',
+  boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+  zIndex: 1,
 };

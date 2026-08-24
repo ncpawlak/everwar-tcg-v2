@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createGameStore, SUMMON_SHOWCASE_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS, SHUFFLE_SPREAD_MS, END_PHASE_DWELL_MS, OPP_PHASE_STEP_MS, OPP_PLAY_SHOWCASE_MS, OPP_PLAY_STEP_MS, OPP_MAIN_DURATION_MS } from './gameStore';
+import { createGameStore, SUMMON_SHOWCASE_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS, SHUFFLE_SPREAD_MS, END_PHASE_DWELL_MS, OPP_PHASE_STEP_MS, OPP_PLAY_SHOWCASE_MS, OPP_PLAY_STEP_MS, OPP_MAIN_DURATION_MS, ON_SENT_PROMPT_MS } from './gameStore';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState, Card, OppSlotId } from './types';
@@ -1566,5 +1566,103 @@ describe('P8 activated abilities (targeted cost — Quick Reload / Fire Support)
     store.getState().chooseAbilityTarget('card-hero-2');
     store.getState().activateAbility('card-hero-4', 0);
     expect(store.getState().abilityTargeting).toBeNull();
+  });
+});
+
+describe('P8-S05 pile abilities', () => {
+  it('destroyZoneA fires an on-sent prompt after the send, and Use draws a card', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    // card-hero-5 = Tundra Rifleman (Salvage Beacon: on-sent to Graveyard, draw 1).
+    const store = createGameStore({
+      ...base,
+      board: { ...base.board, A1: 'card-hero-5' },
+      phase: 'main',
+      activePlayer: 'player',
+    });
+    store.getState().destroyZoneA();
+    expect(store.getState().graveyard).toContain('card-hero-5');
+    // Prompt only appears once the send-to-pile travel lands.
+    expect(store.getState().abilityPrompt).toBeNull();
+    vi.advanceTimersByTime(ON_SENT_PROMPT_MS);
+    expect(store.getState().abilityPrompt).toMatchObject({
+      cardId: 'card-hero-5',
+      abilityName: 'Salvage Beacon',
+    });
+
+    const before = store.getState().hand.length;
+    store.getState().resolveAbilityPrompt(true);
+    expect(store.getState().hand.length).toBe(before + 1);
+    expect(store.getState().abilityPrompt).toBeNull();
+    expect(store.getState().abilityShowcase).toMatchObject({ cardId: 'card-hero-5' });
+    vi.useRealTimers();
+  });
+
+  it('declining an on-sent prompt draws nothing', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      board: { ...base.board, A1: 'card-hero-5' },
+      phase: 'main',
+      activePlayer: 'player',
+    });
+    store.getState().destroyZoneA();
+    vi.advanceTimersByTime(ON_SENT_PROMPT_MS);
+    const before = store.getState().hand.length;
+    store.getState().resolveAbilityPrompt(false);
+    expect(store.getState().hand.length).toBe(before);
+    expect(store.getState().abilityPrompt).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('does not prompt on the opponent turn', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      board: { ...base.board, A1: 'card-hero-5' },
+      phase: 'main',
+      activePlayer: 'opponent',
+    });
+    store.getState().destroyZoneA();
+    vi.advanceTimersByTime(ON_SENT_PROMPT_MS);
+    expect(store.getState().abilityPrompt).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('activatePileAbility returns a Field Cache Hero from Replen to the Hand and closes the pop-up', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    // card-hero-5 also carries Field Cache (in-Replen: return it to Hand).
+    const store = createGameStore({
+      ...base,
+      deck: base.deck.filter((id) => id !== 'card-hero-5'),
+      replen: ['card-hero-5'],
+      phase: 'main',
+      activePlayer: 'player',
+      pileSearch: 'replen',
+    });
+    store.getState().activatePileAbility('card-hero-5');
+    const s = store.getState();
+    expect(s.replen).not.toContain('card-hero-5');
+    expect(s.hand).toContain('card-hero-5');
+    expect(s.pileSearch).toBeNull();
+    expect(s.abilityShowcase).toMatchObject({ cardId: 'card-hero-5' });
+    vi.useRealTimers();
+  });
+
+  it('activatePileAbility is a no-op outside the player Main phase', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      deck: base.deck.filter((id) => id !== 'card-hero-5'),
+      replen: ['card-hero-5'],
+      phase: 'main',
+      activePlayer: 'opponent',
+    });
+    store.getState().activatePileAbility('card-hero-5');
+    expect(store.getState().replen).toContain('card-hero-5');
+    expect(store.getState().hand).not.toContain('card-hero-5');
   });
 });

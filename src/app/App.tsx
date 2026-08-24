@@ -5,6 +5,7 @@ import { InspectionPanel } from '../ui/InspectionPanel';
 import { PileSearchHost } from '../ui/PileSearchHost';
 import { TributeModal } from '../ui/TributeModal';
 import { AbilityTargetModal } from '../ui/AbilityTargetModal';
+import { AbilityPromptModal } from '../ui/AbilityPromptModal';
 import { SummonSlotPrompt } from '../ui/SummonSlotPrompt';
 import { TurnHud } from '../ui/TurnHud';
 import { PhaseBanner } from '../ui/PhaseBanner';
@@ -37,6 +38,7 @@ export function App() {
       <PhaseBanner />
       <TributeModal />
       <AbilityTargetModal />
+      <AbilityPromptModal />
       <SummonSlotPrompt />
     </div>
   );

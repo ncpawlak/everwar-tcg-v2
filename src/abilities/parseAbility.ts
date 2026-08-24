@@ -115,7 +115,45 @@ const TARGET_STAT_BUFF_RULE: ParseRule = {
   }),
 };
 
-const RULES: ParseRule[] = [STAT_GAIN_AURA, ARMOR_AURA, SELF_STAT_BUFF_RULE, TARGET_STAT_BUFF_RULE];
+/**
+ * "When this Hero is sent to the <Graveyard|Replen>: draw N card(s)."  (e.g.
+ *  Salvage Beacon → draw 1). A triggered ability: on conclusion of the send the
+ *  runtime prompts the player to use it. The pile word selects which pile the
+ *  send must land in for the trigger to fire.
+ */
+const ON_SENT_DRAW_RULE: ParseRule = {
+  match:
+    /^When this Hero is sent to the (Graveyard|Replen):\s*draw (\d+) cards?\.$/i,
+  build: (m, name, raw) => ({
+    name,
+    raw,
+    trigger: 'onSentToPile',
+    pile: m[1].toLowerCase() === 'replen' ? 'replen' : 'graveyard',
+    effect: { kind: 'draw', count: Number(m[2]) },
+    constraints: [],
+  }),
+};
+
+/**
+ * "While this Hero is in your <Replen|Graveyard> pile, you can: return it to
+ *  your Hand."  (e.g. Field Cache). An in-pile activated ability: the pile glows
+ *  amber and the card can be activated from the pile-search pop-up to move it
+ *  back to the Hand. The pile word selects which pile it activates from.
+ */
+const PILE_RETURN_SELF_RULE: ParseRule = {
+  match:
+    /^While this Hero is in your (Replen|Graveyard) pile, you can:\s*return it to your Hand\.$/i,
+  build: (m, name, raw) => ({
+    name,
+    raw,
+    trigger: 'pileActivated',
+    pile: m[1].toLowerCase() === 'graveyard' ? 'graveyard' : 'replen',
+    effect: { kind: 'returnSelfToHand' },
+    constraints: [],
+  }),
+};
+
+const RULES: ParseRule[] = [STAT_GAIN_AURA, ARMOR_AURA, SELF_STAT_BUFF_RULE, TARGET_STAT_BUFF_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE];
 
 /** Split "<Name>: <body>" into its parts. No colon → empty name, whole text is body. */
 function splitNameBody(text: string): { name: string; body: string } {

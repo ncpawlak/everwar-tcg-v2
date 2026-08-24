@@ -1,3 +1,6 @@
+import { useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
+import type { MeshBasicMaterial } from 'three';
 import { Edges, Text } from '@react-three/drei';
 import {
   BOARD_CARD_HEIGHT,
@@ -12,6 +15,7 @@ import { useGameStore } from '../state/useGameStore';
 import { slotType } from '../state/types';
 import type { SlotId } from '../state/types';
 import { slotHighlightedForCard } from '../board/slotRules';
+import { pileHasActivatable } from '../abilities/pile';
 
 /**
  * The 12 typed placement slots plus the labeled graveyard/replen placeholders.
@@ -31,6 +35,15 @@ export function SlotView() {
   const targeting = useGameStore((s) => s.targeting);
   const phase = useGameStore((s) => s.phase);
   const pendingSummon = useGameStore((s) => s.pendingSummon);
+  const graveyard = useGameStore((s) => s.graveyard);
+  const replen = useGameStore((s) => s.replen);
+  const activePlayer = useGameStore((s) => s.activePlayer);
+
+  // A pile glows amber when it holds a card with an in-pile activated ability the
+  // player could trigger right now (their Main phase).
+  const canActivatePile = activePlayer === 'player' && phase === 'main';
+  const graveActivatable = canActivatePile && pileHasActivatable(graveyard, 'graveyard', cardsById);
+  const replenActivatable = canActivatePile && pileHasActivatable(replen, 'replen', cardsById);
 
   return (
     <group>
@@ -81,8 +94,10 @@ export function SlotView() {
 
       {PLACEHOLDER_ZONES.map(({ label, anchor }) => {
         const [x, , z] = anchor;
+        const active = label === 'GRAVE' ? graveActivatable : label === 'REPLEN' ? replenActivatable : false;
         return (
           <group key={label} position={[x, BOARD_Y - 0.009, z]}>
+            {active && <AmberPileFrame />}
             <mesh rotation={[-Math.PI / 2, 0, 0]}>
               <planeGeometry args={[BOARD_CARD_WIDTH * 1.12, BOARD_CARD_HEIGHT * 1.12]} />
               <meshStandardMaterial color="#101a20" transparent opacity={0.3} />
@@ -101,6 +116,37 @@ export function SlotView() {
           </group>
         );
       })}
+    </group>
+  );
+}
+
+/**
+ * Pulsing amber halo + outline drawn under a pile placeholder when that pile
+ * holds a card with an in-pile activated ability. The larger amber plane sits
+ * just below the (translucent) placeholder plane so only its rim shows as a
+ * glowing border; its opacity breathes via useFrame. Reuses the `#ffb020`
+ * amber that marks activatable abilities elsewhere.
+ */
+function AmberPileFrame() {
+  const matRef = useRef<MeshBasicMaterial>(null);
+  const t = useRef(0);
+  useFrame((_, dt) => {
+    t.current += dt;
+    if (matRef.current) {
+      matRef.current.opacity = 0.28 + 0.22 * (0.5 + 0.5 * Math.sin(t.current * 4));
+    }
+  });
+  return (
+    <group>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.002, 0]}>
+        <planeGeometry args={[BOARD_CARD_WIDTH * 1.34, BOARD_CARD_HEIGHT * 1.34]} />
+        <meshBasicMaterial ref={matRef} color="#ffb020" transparent opacity={0.4} depthWrite={false} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.001, 0]}>
+        <planeGeometry args={[BOARD_CARD_WIDTH * 1.2, BOARD_CARD_HEIGHT * 1.2]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        <Edges scale={1} threshold={15} color="#ffcf5c" />
+      </mesh>
     </group>
   );
 }

@@ -10,6 +10,7 @@ import { applyArmorToHit } from './armorCombat';
 import { collectAuras, auraStatDelta } from '../abilities/auras';
 import { parseAbility } from '../abilities/parseAbility';
 import { abilityValidTargets } from '../abilities/activated';
+import { onSentAbilities, pileActivatedAbilityFor } from '../abilities/pile';
 import { OPP_SLOT_IDS } from '../board/boardConfig';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 
@@ -27,6 +28,10 @@ export const ABILITY_SHOWCASE_MS = 950;
 /** Beat (ms) to let a cost card's Hand→Replen glide read before the source
  *  Hero's activation showcase pops, so both animations are legible in sequence. */
 export const ABILITY_COST_SEND_MS = 300;
+
+/** Beat (ms) to let a Hero's send-to-pile travel land before its on-sent ability
+ *  prompt pops, so the card is visibly in the pile when we ask about it. */
+export const ON_SENT_PROMPT_MS = 550;
 
 /** Target hand size the Draw phase fills up to (draws until this, else +1). */
 export const HAND_TARGET = 6;
@@ -153,6 +158,14 @@ export interface GameActions {
   chooseAbilityTarget: (cardId: CardId) => void;
   /** Abort an in-progress activated ability, reverting any staged cost. */
   cancelAbilityTargeting: () => void;
+  /** Resolve a pending on-sent pile ability prompt: `true` uses the ability
+   *  (applies its effect + fires the showcase), `false` declines. No-op unless a
+   *  prompt is pending. */
+  resolveAbilityPrompt: (accept: boolean) => void;
+  /** Trigger a Hero's in-pile activated ability from the pile it sits in (e.g.
+   *  return it to the Hand). No-op unless it is the player's Main phase, the card
+   *  is in a player pile, and it has a matching pile-activated ability. */
+  activatePileAbility: (cardId: CardId) => void;
   /**
    * Temp Phase 3 mechanic (no Player 2 yet): "destroy" a random occupied zone-A
    * slot — send its card to the graveyard, along with the linked zone-C card in
@@ -508,6 +521,7 @@ export function createGameStore(
           phaseAnnounce: s.phaseAnnounce + 1,
           // Any mid-resolution ability selection is abandoned on a phase change.
           abilityTargeting: null,
+          abilityPrompt: null,
           // Leaving Resolution for End consumes the attack declaration. The dice
           // + results linger with the outcome pop-up and clear together after it.
           ...(next === 'end' ? { attackTargets: {}, targeting: null, aimPoint: null } : {}),
@@ -895,6 +909,30 @@ export function createGameStore(
       }, ABILITY_SHOWCASE_MS);
     };
 
+    /** After a send-to-pile lands, open the on-sent yes/no prompt for the first
+     *  just-sent Hero whose ability triggers for that pile. Only prompts on the
+     *  player's turn (a player choice) and never stacks over an open prompt or a
+     *  card that has since left the pile. */
+    const scheduleOnSentPrompt = (sentIds: readonly CardId[], pile: 'graveyard' | 'replen') => {
+      const hits = onSentAbilities(sentIds, pile, get().cardsById);
+      if (hits.length === 0) return;
+      setTimeout(() => {
+        const st = get();
+        if (st.activePlayer !== 'player') return;
+        if (st.abilityPrompt) return;
+        const pileIds = pile === 'graveyard' ? st.graveyard : st.replen;
+        const live = hits.find((h) => pileIds.includes(h.cardId));
+        if (!live) return;
+        set({
+          abilityPrompt: {
+            cardId: live.cardId,
+            abilityIndex: live.abilityIndex,
+            abilityName: live.ir.name,
+          },
+        });
+      }, ON_SENT_PROMPT_MS);
+    };
+
     return {
     ...initial,
 
@@ -1016,16 +1054,20 @@ export function createGameStore(
       const replen = [...s.replen];
       const graveyard = [...s.graveyard];
       const sink = toGraveyard ? graveyard : replen;
+      const sent: CardId[] = [];
       for (const aSlot of materialSlots) {
         sink.push(board[aSlot]!);
+        sent.push(board[aSlot]!);
         board[aSlot] = null;
         const cSlot = `C${aSlot[1]}` as SlotId;
         if (board[cSlot]) {
           sink.push(board[cSlot]!);
+          sent.push(board[cSlot]!);
           board[cSlot] = null;
         }
       }
       set({ board, replen, graveyard, pendingTribute: null, pendingSummon: { cardId: pending.cardId } });
+      scheduleOnSentPrompt(sent, toGraveyard ? 'graveyard' : 'replen');
     },
 
     cancelTributeSummon: () => set(() => ({ pendingTribute: null })),
@@ -1201,24 +1243,78 @@ export function createGameStore(
 
     cancelAbilityTargeting: () => set(() => ({ abilityTargeting: null })),
 
-    destroyZoneA: () =>
-      set((s) => {
-        const occupiedA = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).filter(
-          (slot) => s.board[slot] !== null,
-        );
-        if (occupiedA.length === 0) return s;
-        const aSlot = occupiedA[Math.floor(Math.random() * occupiedA.length)];
-        const aCard = s.board[aSlot] as CardId;
-        const cSlot = `C${aSlot[1]}` as SlotId;
-        const cCard = s.board[cSlot];
-        const board = { ...s.board, [aSlot]: null };
-        const sent: CardId[] = [aCard];
-        if (cCard !== null) {
-          board[cSlot] = null;
-          sent.push(cCard);
+    resolveAbilityPrompt: (accept) => {
+      const s = get();
+      const p = s.abilityPrompt;
+      if (!p) return;
+      set({ abilityPrompt: null });
+      if (!accept) return;
+      const card = s.cardsById[p.cardId];
+      if (!card || !card.abilities || p.abilityIndex < 0 || p.abilityIndex >= card.abilities.length) {
+        return;
+      }
+      const ir = parseAbility(card.abilities[p.abilityIndex]);
+      if (ir.trigger !== 'onSentToPile') return;
+      if (ir.effect.kind === 'draw') {
+        drawStaggered(ir.effect.count);
+      }
+      // Flash the card's activation showcase (it briefly pops from its pile).
+      set((st) => ({ ...st, abilityShowcase: { cardId: p.cardId, abilityName: ir.name } }));
+      scheduleShowcaseClear(p.cardId);
+    },
+
+    activatePileAbility: (cardId) => {
+      const s = get();
+      if (s.activePlayer !== 'player' || s.phase !== 'main') return;
+      const card = s.cardsById[cardId];
+      if (!card) return;
+      const pile: 'graveyard' | 'replen' | null = s.replen.includes(cardId)
+        ? 'replen'
+        : s.graveyard.includes(cardId)
+          ? 'graveyard'
+          : null;
+      if (!pile) return;
+      const hit = pileActivatedAbilityFor(card, pile);
+      if (!hit) return;
+      if (hit.ir.effect.kind === 'returnSelfToHand') {
+        if (pile === 'replen') {
+          set({
+            replen: s.replen.filter((id) => id !== cardId),
+            hand: [...s.hand, cardId],
+            pileSearch: null,
+          });
+        } else {
+          set({
+            graveyard: s.graveyard.filter((id) => id !== cardId),
+            hand: [...s.hand, cardId],
+            pileSearch: null,
+          });
         }
-        return { ...s, board, graveyard: [...s.graveyard, ...sent] };
-      }),
+      }
+      // Flash the activation showcase as the card travels back to the Hand.
+      set((st) => ({ ...st, abilityShowcase: { cardId, abilityName: hit.ir.name } }));
+      scheduleShowcaseClear(cardId);
+    },
+
+    destroyZoneA: () => {
+      const s = get();
+      const occupiedA = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).filter(
+        (slot) => s.board[slot] !== null,
+      );
+      if (occupiedA.length === 0) return;
+      const aSlot = occupiedA[Math.floor(Math.random() * occupiedA.length)];
+      const aCard = s.board[aSlot] as CardId;
+      const cSlot = `C${aSlot[1]}` as SlotId;
+      const cCard = s.board[cSlot];
+      const board = { ...s.board, [aSlot]: null };
+      const sent: CardId[] = [aCard];
+      if (cCard !== null) {
+        board[cSlot] = null;
+        sent.push(cCard);
+      }
+      set({ board, graveyard: [...s.graveyard, ...sent] });
+      scheduleOnSentPrompt(sent, 'graveyard');
+    },
 
     destroyZoneB: () =>
       set((s) => {
