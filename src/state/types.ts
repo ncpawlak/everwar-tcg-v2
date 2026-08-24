@@ -107,6 +107,25 @@ export interface Card {
    * but the tributed materials are sent to the GRAVEYARD instead of the replen
    * pile. Only meaningful for A cards. */
   commander?: boolean;
+  /** Hero role (Phase 8): Infantry / Recon / Heavy / Engineer / Medic. Only A
+   * (Hero) cards carry one. Drives future subtype-scoped abilities. */
+  subType?: string;
+  /** Faction the Hero fights for (Phase 8), e.g. "Coalition". Only A cards. */
+  allegiance?: string;
+  /** Flat armor value (Phase 8) — a damage-reduction stat layered under HP.
+   * Only A (Hero) cards carry one; the combat engine that consumes it lands in a
+   * later slice. */
+  armor?: number;
+  /** Armor Bars (Phase 8) — discrete armor segments some Heroes carry on top of
+   * flat Armor. Only A cards; mechanics arrive in a later slice. */
+  armorBars?: number;
+  /** Whether only one copy of this Hero may be fielded (Phase 8 "Unique" flag).
+   * Only A cards. */
+  unique?: boolean;
+  /** Up to three ability rules-text lines (Phase 8). Only A (Hero) cards carry
+   * these. Text only for now — the timing/dispatch engine lands in a later
+   * slice. */
+  abilities?: string[];
   /** Damage dealt on a normal hit (base-10). Only A (Vanguard) cards carry
    * combat stats. Scaled by the Resolution roll (glancing ×0.5, crit ×2). */
   dmg?: number;

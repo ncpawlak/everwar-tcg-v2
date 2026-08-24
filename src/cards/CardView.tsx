@@ -122,7 +122,7 @@ export function CardView({ card, pickable = true }: { card: Card; pickable?: boo
         {card.type}
       </Text>
 
-      {/* Type label */}
+      {/* Type label — Hero subtype (Infantry/Recon/…) for A cards, family label otherwise */}
       <Text
         position={[0, -0.14, ZF + 0.001]}
         fontSize={0.04}
@@ -130,7 +130,7 @@ export function CardView({ card, pickable = true }: { card: Card; pickable?: boo
         anchorX="center"
         anchorY="middle"
       >
-        {TYPE_LABEL[card.type]}
+        {card.type === 'A' && card.subType ? card.subType : TYPE_LABEL[card.type]}
       </Text>
 
       {/* Compact effect text */}
@@ -215,7 +215,7 @@ export function CardView({ card, pickable = true }: { card: Card; pickable?: boo
         </>
       ) : (
         <>
-          {/* HP (centered, just above the ATK/DEF row) */}
+          {/* HP (centered, just above the DMG/ACC row) */}
           <Text
             position={[0, -HALF_H + 0.075, ZF + 0.001]}
             fontSize={0.045}
@@ -243,6 +243,23 @@ export function CardView({ card, pickable = true }: { card: Card; pickable?: boo
           >
             {`ACC ${card.acc}`}
           </Text>
+          {/* Armor line (Phase 8) — flat Armor and/or Armor Bars when present. */}
+          {((card.armor ?? 0) > 0 || (card.armorBars ?? 0) > 0) && (
+            <Text
+              position={[0, -HALF_H + 0.145, ZF + 0.001]}
+              fontSize={0.036}
+              color="#8a7bd8"
+              anchorX="center"
+              anchorY="middle"
+            >
+              {[
+                (card.armor ?? 0) > 0 ? `ARM ${card.armor}` : null,
+                (card.armorBars ?? 0) > 0 ? `▮×${card.armorBars}` : null,
+              ]
+                .filter(Boolean)
+                .join('   ')}
+            </Text>
+          )}
         </>
       )}
 

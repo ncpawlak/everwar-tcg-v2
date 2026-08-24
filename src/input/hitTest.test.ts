@@ -67,8 +67,8 @@ describe('P7-S4b opponent card inspection hit-testing', () => {
 describe('P3-S02 board-card hit-testing', () => {
   it('returns the card occupying the slot under the point', () => {
     const board = createEmptyBoard();
-    board.A1 = 'card-A1';
-    expect(boardCardAt(SLOT_POSITIONS.A1, board)).toBe('card-A1');
+    board.A1 = 'card-hero-6';
+    expect(boardCardAt(SLOT_POSITIONS.A1, board)).toBe('card-hero-6');
   });
 
   it('returns null over an empty slot', () => {
@@ -78,7 +78,7 @@ describe('P3-S02 board-card hit-testing', () => {
 
   it('returns null when the point is not over any slot', () => {
     const board = createEmptyBoard();
-    board.A1 = 'card-A1';
+    board.A1 = 'card-hero-6';
     expect(boardCardAt([20, 0, 20], board)).toBeNull();
   });
 });

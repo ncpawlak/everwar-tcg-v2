@@ -9,13 +9,13 @@ import {
 } from './cardData';
 
 describe('P2-S01 initial state', () => {
-  it('creates 13 cards: 5 A (incl. Commander), 4 B, 4 C', () => {
+  it('creates 22 cards: 14 A (incl. Commander), 4 B, 4 C', () => {
     const { cardsById, deck } = createInitialCards();
     expect(deck).toHaveLength(DECK_SIZE);
-    expect(DECK_SIZE).toBe(13);
+    expect(DECK_SIZE).toBe(22);
     const counts = { A: 0, B: 0, C: 0 } as Record<string, number>;
     for (const id of deck) counts[cardsById[id].type]++;
-    expect(counts).toEqual({ A: 5, B: 4, C: 4 });
+    expect(counts).toEqual({ A: 14, B: 4, C: 4 });
   });
 
   it('starts with a full deck, empty hand, twelve empty slots, and no drag', () => {
@@ -39,16 +39,16 @@ describe('P2-S01 initial state', () => {
     for (const id of SLOT_IDS) expect(board[id]).toBeNull();
   });
 
-  it('interleaves types so the opening five come out mixed', () => {
+  it('stacks level-1 Heroes on top so the opening five are all Heroes', () => {
     const s = createInitialState();
-    // Draw the top five (last five elements) and confirm >1 distinct type.
+    // Draw the top five (last five elements) and confirm they are all Heroes.
     const top5 = s.deck.slice(-5).map((id) => s.cardsById[id].type);
-    expect(new Set(top5).size).toBeGreaterThan(1);
+    expect(top5).toEqual(['A', 'A', 'A', 'A', 'A']);
   });
 
   it('P7-S1/S4: gives the opponent its own full-player state + opening hand', () => {
     const s = createInitialState();
-    // Opponent draws its opening five off its own 13-card deck, so the draw
+    // Opponent draws its opening five off its own 22-card deck, so the draw
     // pile holds the remainder and the hand holds five (all opp-deck cards).
     expect(s.opponentDeck).toHaveLength(DECK_SIZE - OPENING_HAND_SIZE);
     expect(s.opponentHand).toHaveLength(OPENING_HAND_SIZE);
@@ -68,13 +68,13 @@ describe('P2-S01 initial state', () => {
   it('gives every card a full type-specific profile', () => {
     const { cardsById } = createInitialCards();
     const cards = Object.values(cardsById);
-    expect(cards).toHaveLength(13);
+    expect(cards).toHaveLength(22);
     const names = new Set<string>();
     for (const c of cards) {
       expect(c.name.length).toBeGreaterThan(0);
       names.add(c.name);
       expect(c.cost).toBeGreaterThan(0);
-      // A (Vanguard) cards carry combat stats; B carry an ability; C a boost.
+      // A (Hero) cards carry combat stats; B carry an ability; C a boost.
       if (c.type === 'A') {
         expect(c.dmg).toBeGreaterThanOrEqual(0);
         expect(c.acc).toBeGreaterThanOrEqual(0);
@@ -94,6 +94,6 @@ describe('P2-S01 initial state', () => {
       expect(c.flavor.length).toBeGreaterThan(0);
     }
     // Names are unique across the deck.
-    expect(names.size).toBe(13);
+    expect(names.size).toBe(22);
   });
 });

@@ -24,7 +24,7 @@ const withCards = (occupied: Partial<GameState['board']>): GameState['board'] =>
 
 describe('P2-S03 slot rules', () => {
   it('isSlotEmpty reflects occupancy', () => {
-    const b = withCards({ A1: 'card-A1' });
+    const b = withCards({ A1: 'card-hero-6' });
     expect(isSlotEmpty(b, 'A1')).toBe(false);
     expect(isSlotEmpty(b, 'A2')).toBe(true);
   });
@@ -37,17 +37,17 @@ describe('P2-S03 slot rules', () => {
 
   it('emptySlots returns all unoccupied slots', () => {
     expect(emptySlots(createEmptyBoard())).toHaveLength(12);
-    expect(emptySlots(withCards({ A1: 'card-A1' }))).not.toContain('A1');
+    expect(emptySlots(withCards({ A1: 'card-hero-6' }))).not.toContain('A1');
   });
 
   it('validTargetSlots are empty slots of the matching type', () => {
-    const targets = validTargetSlots(withCards({ A1: 'card-A1' }), 'A');
+    const targets = validTargetSlots(withCards({ A1: 'card-hero-6' }), 'A');
     expect(targets).toEqual(['A2', 'A3', 'A4']);
     expect(validTargetSlots(createEmptyBoard(), 'B')).toEqual(['B1', 'B2', 'B3', 'B4']);
   });
 
   it('canDrop requires an empty slot whose type matches the card', () => {
-    const b = withCards({ A1: 'card-A1' });
+    const b = withCards({ A1: 'card-hero-6' });
     expect(canDrop(b, 'A2', 'A')).toBe(true); // empty + matching
     expect(canDrop(b, 'A1', 'A')).toBe(false); // occupied
     expect(canDrop(b, 'B1', 'A')).toBe(false); // wrong type
@@ -59,7 +59,7 @@ describe('P2-S03 slot rules', () => {
     // Empty board: no A cards, so no C slot is placeable.
     expect(canDrop(createEmptyBoard(), 'C1', 'C')).toBe(false);
     // A2 occupied -> only C2 becomes a legal C target.
-    const b = withCards({ A2: 'card-A2' });
+    const b = withCards({ A2: 'card-hero-7' });
     expect(canDrop(b, 'C2', 'C')).toBe(true);
     expect(canDrop(b, 'C1', 'C')).toBe(false);
     expect(validTargetSlots(b, 'C')).toEqual(['C2']);
@@ -72,7 +72,7 @@ describe('P2-S03 slot rules', () => {
     expect(resolveLinkedTarget(empty, 'C2', 'A')).toBe('A2');
     // Dragging a C card needs the linked A occupied.
     expect(resolveLinkedTarget(empty, 'A2', 'C')).toBe(null); // A2 empty -> illegal
-    const withA2 = withCards({ A2: 'card-A2' });
+    const withA2 = withCards({ A2: 'card-hero-7' });
     expect(resolveLinkedTarget(withA2, 'A2', 'C')).toBe('C2'); // hover occupied A -> C2
     expect(resolveLinkedTarget(withA2, 'C2', 'C')).toBe('C2');
     // An occupied A column is not a valid target for another A card.
@@ -82,7 +82,7 @@ describe('P2-S03 slot rules', () => {
     expect(resolveLinkedTarget(empty, null, 'A')).toBe(null);
   });
 
-  it('slotHighlighted lights the whole linked column for A/C drags', () => {    const withA2 = withCards({ A2: 'card-A2' });
+  it('slotHighlighted lights the whole linked column for A/C drags', () => {    const withA2 = withCards({ A2: 'card-hero-7' });
     // Dragging a C card with A2 set: both A2 and C2 highlight.
     expect(slotHighlighted(withA2, 'A2', 'C')).toBe(true);
     expect(slotHighlighted(withA2, 'C2', 'C')).toBe(true);
@@ -98,7 +98,7 @@ describe('P2-S03 slot rules', () => {
   });
 
   it('resolveAttackerSlot picks the column A card from either linked zone', () => {
-    const withA2 = withCards({ A2: 'card-A2' });
+    const withA2 = withCards({ A2: 'card-hero-7' });
     // Clicking the occupied A zone or its linked C zone both select A2.
     expect(resolveAttackerSlot(withA2, 'A2')).toBe('A2');
     expect(resolveAttackerSlot(withA2, 'C2')).toBe('A2');
@@ -112,7 +112,7 @@ describe('P2-S03 slot rules', () => {
 });
 
 describe('tribute-summon rules (level-3 A cards)', () => {
-  const cardsById = createInitialState().cardsById; // card-A3=Lv1, A1/A2=Lv2, A4=Lv3
+  const cardsById = createInitialState().cardsById; // card-hero-1=Lv1, card-hero-6/7=Lv2, card-hero-10=Lv3
 
   it('hasSubsetSum finds exact-sum subsets only', () => {
     expect(hasSubsetSum([1, 2], 3)).toBe(true);
@@ -123,26 +123,26 @@ describe('tribute-summon rules (level-3 A cards)', () => {
   });
 
   it('requiresTribute is true only for level-3+ A cards', () => {
-    expect(requiresTribute(cardsById['card-A4'])).toBe(true); // Lv3
-    expect(requiresTribute(cardsById['card-A3'])).toBe(false); // Lv1
-    expect(requiresTribute(cardsById['card-A1'])).toBe(false); // Lv2
+    expect(requiresTribute(cardsById['card-hero-10'])).toBe(true); // Lv3
+    expect(requiresTribute(cardsById['card-hero-1'])).toBe(false); // Lv1
+    expect(requiresTribute(cardsById['card-hero-6'])).toBe(false); // Lv2
   });
 
   it('canAffordTribute needs board A-levels summing exactly to the card level', () => {
-    const a4 = cardsById['card-A4']; // needs 3
-    expect(canAffordTribute(withCards({ A1: 'card-A3', A2: 'card-A1' }), cardsById, a4)).toBe(true); // 1+2
-    expect(canAffordTribute(withCards({ A1: 'card-A1' }), cardsById, a4)).toBe(false); // 2
-    expect(canAffordTribute(withCards({ A1: 'card-A1', A2: 'card-A2' }), cardsById, a4)).toBe(false); // 2+2
+    const a4 = cardsById['card-hero-10']; // needs 3
+    expect(canAffordTribute(withCards({ A1: 'card-hero-1', A2: 'card-hero-6' }), cardsById, a4)).toBe(true); // 1+2
+    expect(canAffordTribute(withCards({ A1: 'card-hero-6' }), cardsById, a4)).toBe(false); // 2
+    expect(canAffordTribute(withCards({ A1: 'card-hero-6', A2: 'card-hero-7' }), cardsById, a4)).toBe(false); // 2+2
     expect(canAffordTribute(createEmptyBoard(), cardsById, a4)).toBe(false);
   });
 
   it('slotHighlightedForCard / canDropCard gate a level-3 card on affordable tribute', () => {
-    const a4 = cardsById['card-A4'];
+    const a4 = cardsById['card-hero-10'];
     const noMats = createEmptyBoard();
     expect(slotHighlightedForCard(noMats, cardsById, 'A2', a4)).toBe(false);
     expect(canDropCard(noMats, cardsById, 'A2', a4)).toBe(false);
 
-    const withMats = withCards({ A1: 'card-A3', A2: 'card-A1' }); // 1+2 = 3
+    const withMats = withCards({ A1: 'card-hero-1', A2: 'card-hero-6' }); // 1+2 = 3
     expect(slotHighlightedForCard(withMats, cardsById, 'A3', a4)).toBe(true); // empty A slot lights
     expect(canDropCard(withMats, cardsById, 'A3', a4)).toBe(true);
     expect(canDropCard(withMats, cardsById, 'A1', a4)).toBe(false); // occupied slot not a drop target

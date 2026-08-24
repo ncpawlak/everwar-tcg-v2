@@ -5,13 +5,15 @@ import { RARITY_COLOR, TYPE_ACCENT } from '../cards/cardTheme';
 import type { SlotId } from '../state/types';
 
 /**
- * Level-3 tribute-summon material picker. Opens when `pendingTribute` is set
- * (the player dropped a level-3 A-card onto a legal column). Lists the A-cards
- * currently on the player's board as selectable tiles — reusing the pile-search
- * modal's look — with a running "sum / needed" level counter. Confirm is enabled
- * only when the selected materials' levels sum EXACTLY to the pending card's
- * level; confirming sends them (and their linked C-cards) to replen and sets the
- * card. Cancel / backdrop / Escape aborts and leaves the card in hand.
+ * Level-3+ set-material picker (Replen Set / Commit Set). Opens when
+ * `pendingTribute` is set (the player dropped a level-3+ Hero onto a legal
+ * column). Lists the Heroes currently on the player's board as selectable tiles
+ * — reusing the pile-search modal's look — with a running "sum / needed" level
+ * counter. Confirm is enabled only when the selected materials' levels sum
+ * EXACTLY to the pending Hero's level. Confirming sends the materials (and their
+ * linked C-cards) to the replen pile (Replen Set) or the graveyard (Commit Set,
+ * for Commander Heroes) and sets the card. Cancel / backdrop / Escape aborts and
+ * leaves the card in hand.
  *
  * Marked `data-ui-overlay` so PointerControls ignores clicks on it.
  */
@@ -48,6 +50,10 @@ export function TributeModal() {
   const card = cardsById[pending.cardId];
   if (!card) return null;
   const need = card.level ?? 0;
+  // Commander Heroes Commit Set (materials → graveyard); other level-3+ Heroes
+  // Replen Set (materials → replen pile).
+  const setMethod = card.commander ? 'Commit Set' : 'Replen Set';
+  const destination = card.commander ? 'graveyard' : 'replen pile';
 
   const sum = selected.reduce((acc, slot) => {
     const id = board[slot];
@@ -65,7 +71,8 @@ export function TributeModal() {
       <div style={PANEL_STYLE} onClick={(e) => e.stopPropagation()}>
         <div style={HEADER_STYLE}>
           <span style={{ fontWeight: 700, letterSpacing: 0.4 }}>
-            Tribute for <span style={{ color: TYPE_ACCENT.A }}>{card.name}</span>
+            {setMethod} <span style={{ color: '#8b95a3', fontWeight: 500 }}>—</span>{' '}
+            <span style={{ color: TYPE_ACCENT.A }}>{card.name}</span>
             <span style={{ color: '#8b95a3', fontWeight: 500 }}> · Lv {need}</span>
           </span>
           <span style={{ ...COUNTER_STYLE, color: ready ? '#ffd75e' : '#c9d2dc' }}>
@@ -74,12 +81,12 @@ export function TributeModal() {
         </div>
 
         <div style={SUBTITLE_STYLE}>
-          Select A-cards whose levels sum to exactly {need}. Materials are sent to
-          the {card.commander ? 'graveyard' : 'replen pile'}.
+          Select Hero materials whose levels sum to exactly {need}. They are sent to
+          the {destination}.
         </div>
 
         {materials.length === 0 ? (
-          <div style={EMPTY_STYLE}>No A-cards on the board to tribute.</div>
+          <div style={EMPTY_STYLE}>No Heroes on the board to use as materials.</div>
         ) : (
           <div style={GRID_SCROLL_STYLE}>
             <div style={GRID_STYLE}>
@@ -135,7 +142,7 @@ export function TributeModal() {
               cursor: ready ? 'pointer' : 'not-allowed',
             }}
           >
-            Tribute &amp; Summon
+            {setMethod}
           </button>
         </div>
       </div>

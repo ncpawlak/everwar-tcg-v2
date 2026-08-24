@@ -7,15 +7,15 @@ import type { CardType, Rarity } from '../state/types';
  */
 
 export const TYPE_ACCENT: Record<CardType, string> = {
-  A: '#c0392b', // Vanguard — crimson
-  B: '#2e6fb0', // Arcane — azure
-  C: '#2f8f6b', // Bulwark — emerald
+  A: '#c0392b', // Hero — crimson
+  B: '#2e6fb0', // Ability — azure
+  C: '#2f8f6b', // Equipment — emerald
 };
 
 export const TYPE_LABEL: Record<CardType, string> = {
-  A: 'Vanguard',
-  B: 'Arcane',
-  C: 'Bulwark',
+  A: 'Hero',
+  B: 'Ability',
+  C: 'Equipment',
 };
 
 export const RARITY_COLOR: Record<Rarity, string> = {

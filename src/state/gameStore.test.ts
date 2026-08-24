@@ -59,77 +59,77 @@ describe('P2-S02/S08 game store actions', () => {
   });
 
   it('beginDrag only works for a card in hand and when not already dragging', () => {
-    const store = storeWithHand(['card-A1']);
+    const store = storeWithHand(['card-hero-6']);
 
-    store.getState().beginDrag('card-B1'); // not in hand
+    store.getState().beginDrag('card-ability-1'); // not in hand
     expect(store.getState().dragging).toBeNull();
 
-    store.getState().beginDrag('card-A1');
-    expect(store.getState().dragging?.cardId).toBe('card-A1');
+    store.getState().beginDrag('card-hero-6');
+    expect(store.getState().dragging?.cardId).toBe('card-hero-6');
 
     // second beginDrag ignored while dragging
-    store.getState().beginDrag('card-A1');
-    expect(store.getState().dragging?.cardId).toBe('card-A1');
+    store.getState().beginDrag('card-hero-6');
+    expect(store.getState().dragging?.cardId).toBe('card-hero-6');
   });
 
   it('dropCard on a matching empty slot moves the card hand -> board', () => {
-    const store = storeWithHand(['card-A1']);
-    store.getState().beginDrag('card-A1');
-    store.getState().dropCard('card-A1', 'A2');
+    const store = storeWithHand(['card-hero-6']);
+    store.getState().beginDrag('card-hero-6');
+    store.getState().dropCard('card-hero-6', 'A2');
 
     const s = store.getState();
-    expect(s.board.A2).toBe('card-A1');
-    expect(s.hand).not.toContain('card-A1');
+    expect(s.board.A2).toBe('card-hero-6');
+    expect(s.hand).not.toContain('card-hero-6');
     expect(s.dragging).toBeNull();
   });
 
   it('dropCard on a wrong-type slot returns the card to the hand', () => {
-    const store = storeWithHand(['card-A1']);
-    store.getState().beginDrag('card-A1');
-    store.getState().dropCard('card-A1', 'B1'); // wrong type
+    const store = storeWithHand(['card-hero-6']);
+    store.getState().beginDrag('card-hero-6');
+    store.getState().dropCard('card-hero-6', 'B1'); // wrong type
 
     const s = store.getState();
     expect(s.board.B1).toBeNull();
-    expect(s.hand).toContain('card-A1');
+    expect(s.hand).toContain('card-hero-6');
     expect(s.dragging).toBeNull();
   });
 
   it('dropCard on a filled slot returns the card to the hand', () => {
-    const store = storeWithHand(['card-A1', 'card-A2']);
-    store.getState().beginDrag('card-A1');
-    store.getState().dropCard('card-A1', 'A3');
+    const store = storeWithHand(['card-hero-6', 'card-hero-7']);
+    store.getState().beginDrag('card-hero-6');
+    store.getState().dropCard('card-hero-6', 'A3');
 
-    store.getState().beginDrag('card-A2');
-    store.getState().dropCard('card-A2', 'A3'); // occupied
+    store.getState().beginDrag('card-hero-7');
+    store.getState().dropCard('card-hero-7', 'A3'); // occupied
 
     const s = store.getState();
-    expect(s.board.A3).toBe('card-A1');
-    expect(s.hand).toContain('card-A2');
+    expect(s.board.A3).toBe('card-hero-6');
+    expect(s.hand).toContain('card-hero-7');
     expect(s.dragging).toBeNull();
   });
 
   it('dropCard blocks a C card when its linked A slot is empty', () => {
-    const store = storeWithHand(['card-C1']);
-    store.getState().beginDrag('card-C1');
-    store.getState().dropCard('card-C1', 'C1'); // A1 is empty -> illegal
+    const store = storeWithHand(['card-equipment-1']);
+    store.getState().beginDrag('card-equipment-1');
+    store.getState().dropCard('card-equipment-1', 'C1'); // A1 is empty -> illegal
 
     const s = store.getState();
     expect(s.board.C1).toBeNull();
-    expect(s.hand).toContain('card-C1');
+    expect(s.hand).toContain('card-equipment-1');
     expect(s.dragging).toBeNull();
   });
 
   it('dropCard sets a C card on its linked A column and rolls a stat buff', () => {
-    const store = storeWithHand(['card-A1', 'card-C1']);
-    store.getState().beginDrag('card-A1');
-    store.getState().dropCard('card-A1', 'A1');
+    const store = storeWithHand(['card-hero-6', 'card-equipment-1']);
+    store.getState().beginDrag('card-hero-6');
+    store.getState().dropCard('card-hero-6', 'A1');
 
-    store.getState().beginDrag('card-C1');
-    store.getState().dropCard('card-C1', 'C1'); // now legal: A1 occupied
+    store.getState().beginDrag('card-equipment-1');
+    store.getState().dropCard('card-equipment-1', 'C1'); // now legal: A1 occupied
 
     const s = store.getState();
-    expect(s.board.C1).toBe('card-C1');
-    const buff = s.cardsById['card-C1'].buff;
+    expect(s.board.C1).toBe('card-equipment-1');
+    const buff = s.cardsById['card-equipment-1'].buff;
     expect(buff).toBeDefined();
     expect(['hp', 'dmg', 'acc']).toContain(buff!.stat);
     expect(buff!.amount).toBeGreaterThan(0);
@@ -137,13 +137,13 @@ describe('P2-S02/S08 game store actions', () => {
 
   it('dropCard starts a summon reveal that clears after the showcase window', () => {
     vi.useFakeTimers();
-    const store = storeWithHand(['card-A1']);
-    store.getState().beginDrag('card-A1');
-    store.getState().dropCard('card-A1', 'A2');
+    const store = storeWithHand(['card-hero-6']);
+    store.getState().beginDrag('card-hero-6');
+    store.getState().dropCard('card-hero-6', 'A2');
 
     // Card is placed immediately, and the transient summon points at it.
-    expect(store.getState().board.A2).toBe('card-A1');
-    expect(store.getState().summon).toEqual({ cardId: 'card-A1', slotId: 'A2' });
+    expect(store.getState().board.A2).toBe('card-hero-6');
+    expect(store.getState().summon).toEqual({ cardId: 'card-hero-6', slotId: 'A2' });
 
     vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
     expect(store.getState().summon).toBeNull();
@@ -151,20 +151,20 @@ describe('P2-S02/S08 game store actions', () => {
   });
 
   it('an invalid drop does not start a summon reveal', () => {
-    const store = storeWithHand(['card-A1']);
-    store.getState().beginDrag('card-A1');
-    store.getState().dropCard('card-A1', 'B1'); // wrong type
+    const store = storeWithHand(['card-hero-6']);
+    store.getState().beginDrag('card-hero-6');
+    store.getState().dropCard('card-hero-6', 'B1'); // wrong type
     expect(store.getState().summon).toBeNull();
   });
 
   it('a level-3 A card cannot be dropped with no materials (stays in hand, no prompt)', () => {
-    // card-A4 (Warcry) is level 3; nothing on the board to tribute.
-    const store = storeWithHand(['card-A4']);
-    store.getState().beginDrag('card-A4');
-    store.getState().dropCard('card-A4', 'A2');
+    // card-hero-10 is level 3; nothing on the board to tribute.
+    const store = storeWithHand(['card-hero-10']);
+    store.getState().beginDrag('card-hero-10');
+    store.getState().dropCard('card-hero-10', 'A2');
     const s = store.getState();
     expect(s.board.A2).toBeNull();
-    expect(s.hand).toContain('card-A4');
+    expect(s.hand).toContain('card-hero-10');
     expect(s.pendingTribute).toBeNull();
     expect(s.dragging).toBeNull();
   });
@@ -173,17 +173,17 @@ describe('P2-S02/S08 game store actions', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      hand: ['card-A4'], // level 3
-      deck: base.deck.filter((id) => !['card-A4', 'card-A3', 'card-A1'].includes(id)),
-      // card-A3 = level 1, card-A1 = level 2 → sum 3.
-      board: { ...base.board, A1: 'card-A3', A2: 'card-A1' },
+      hand: ['card-hero-10'], // level 3
+      deck: base.deck.filter((id) => !['card-hero-10', 'card-hero-1', 'card-hero-6'].includes(id)),
+      // card-hero-1 = level 1, card-hero-6 = level 2 → sum 3.
+      board: { ...base.board, A1: 'card-hero-1', A2: 'card-hero-6' },
       phase: 'main',
     });
-    store.getState().beginDrag('card-A4');
-    store.getState().dropCard('card-A4', 'A3'); // empty A slot
+    store.getState().beginDrag('card-hero-10');
+    store.getState().dropCard('card-hero-10', 'A3'); // empty A slot
     const s = store.getState();
-    expect(s.pendingTribute).toEqual({ cardId: 'card-A4', slotId: 'A3' });
-    expect(s.hand).toContain('card-A4'); // still in hand until confirmed
+    expect(s.pendingTribute).toEqual({ cardId: 'card-hero-10', slotId: 'A3' });
+    expect(s.hand).toContain('card-hero-10'); // still in hand until confirmed
     expect(s.dragging).toBeNull();
   });
 
@@ -191,24 +191,24 @@ describe('P2-S02/S08 game store actions', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      hand: ['card-A4'],
+      hand: ['card-hero-10'],
       deck: base.deck.filter(
-        (id) => !['card-A4', 'card-A3', 'card-A1', 'card-C1'].includes(id),
+        (id) => !['card-hero-10', 'card-hero-1', 'card-hero-6', 'card-equipment-1'].includes(id),
       ),
-      board: { ...base.board, A1: 'card-A3', A2: 'card-A1', C1: 'card-C1' },
+      board: { ...base.board, A1: 'card-hero-1', A2: 'card-hero-6', C1: 'card-equipment-1' },
       phase: 'main',
     });
-    store.getState().beginDrag('card-A4');
-    store.getState().dropCard('card-A4', 'A3');
+    store.getState().beginDrag('card-hero-10');
+    store.getState().dropCard('card-hero-10', 'A3');
     store.getState().confirmTributeSummon(['A1', 'A2']); // levels 1 + 2 = 3
 
     const s = store.getState();
-    expect(s.board.A3).toBe('card-A4'); // summoned into the target slot
+    expect(s.board.A3).toBe('card-hero-10'); // summoned into the target slot
     expect(s.board.A1).toBeNull();
     expect(s.board.A2).toBeNull();
     expect(s.board.C1).toBeNull(); // linked C tributed too
-    expect(s.replen).toEqual(expect.arrayContaining(['card-A3', 'card-A1', 'card-C1']));
-    expect(s.hand).not.toContain('card-A4');
+    expect(s.replen).toEqual(expect.arrayContaining(['card-hero-1', 'card-hero-6', 'card-equipment-1']));
+    expect(s.hand).not.toContain('card-hero-10');
     expect(s.pendingTribute).toBeNull();
   });
 
@@ -216,27 +216,27 @@ describe('P2-S02/S08 game store actions', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      hand: ['card-A5'], // A5 = Commander (level 3)
+      hand: ['card-hero-14'], // Commander (level 4)
       deck: base.deck.filter(
-        (id) => !['card-A5', 'card-A3', 'card-A1', 'card-C1'].includes(id),
+        (id) => !['card-hero-14', 'card-hero-6', 'card-hero-7', 'card-equipment-1'].includes(id),
       ),
-      board: { ...base.board, A1: 'card-A3', A2: 'card-A1', C1: 'card-C1' },
+      board: { ...base.board, A1: 'card-hero-6', A2: 'card-hero-7', C1: 'card-equipment-1' },
       phase: 'main',
     });
-    store.getState().beginDrag('card-A5');
-    store.getState().dropCard('card-A5', 'A3');
-    store.getState().confirmTributeSummon(['A1', 'A2']); // levels 1 + 2 = 3
+    store.getState().beginDrag('card-hero-14');
+    store.getState().dropCard('card-hero-14', 'A3');
+    store.getState().confirmTributeSummon(['A1', 'A2']); // levels 2 + 2 = 4
 
     const s = store.getState();
-    expect(s.board.A3).toBe('card-A5'); // commander summoned
+    expect(s.board.A3).toBe('card-hero-14'); // commander summoned
     expect(s.board.A1).toBeNull();
     expect(s.board.A2).toBeNull();
     expect(s.board.C1).toBeNull();
     // Commander materials go to the graveyard, NOT the replen.
     expect(s.graveyard).toEqual(
-      expect.arrayContaining(['card-A3', 'card-A1', 'card-C1']),
+      expect.arrayContaining(['card-hero-6', 'card-hero-7', 'card-equipment-1']),
     );
-    expect(s.replen).not.toEqual(expect.arrayContaining(['card-A3']));
+    expect(s.replen).not.toEqual(expect.arrayContaining(['card-hero-6']));
     expect(s.pendingTribute).toBeNull();
   });
 
@@ -244,18 +244,18 @@ describe('P2-S02/S08 game store actions', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      hand: ['card-A4'],
-      deck: base.deck.filter((id) => !['card-A4', 'card-A3', 'card-A1'].includes(id)),
-      board: { ...base.board, A1: 'card-A3', A2: 'card-A1' },
+      hand: ['card-hero-10'],
+      deck: base.deck.filter((id) => !['card-hero-10', 'card-hero-1', 'card-hero-6'].includes(id)),
+      board: { ...base.board, A1: 'card-hero-1', A2: 'card-hero-6' },
       phase: 'main',
     });
-    store.getState().beginDrag('card-A4');
-    store.getState().dropCard('card-A4', 'A3');
+    store.getState().beginDrag('card-hero-10');
+    store.getState().dropCard('card-hero-10', 'A3');
     store.getState().confirmTributeSummon(['A2']); // level 2 ≠ 3
 
     const s = store.getState();
     expect(s.board.A3).toBeNull();
-    expect(s.board.A2).toBe('card-A1'); // material untouched
+    expect(s.board.A2).toBe('card-hero-6'); // material untouched
     expect(s.pendingTribute).not.toBeNull(); // prompt still open
   });
 
@@ -263,33 +263,33 @@ describe('P2-S02/S08 game store actions', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      hand: ['card-A4'],
-      deck: base.deck.filter((id) => !['card-A4', 'card-A3', 'card-A1'].includes(id)),
-      board: { ...base.board, A1: 'card-A3', A2: 'card-A1' },
+      hand: ['card-hero-10'],
+      deck: base.deck.filter((id) => !['card-hero-10', 'card-hero-1', 'card-hero-6'].includes(id)),
+      board: { ...base.board, A1: 'card-hero-1', A2: 'card-hero-6' },
       phase: 'main',
     });
-    store.getState().beginDrag('card-A4');
-    store.getState().dropCard('card-A4', 'A3');
+    store.getState().beginDrag('card-hero-10');
+    store.getState().dropCard('card-hero-10', 'A3');
     store.getState().cancelTributeSummon();
 
     const s = store.getState();
     expect(s.pendingTribute).toBeNull();
-    expect(s.hand).toContain('card-A4');
+    expect(s.hand).toContain('card-hero-10');
     expect(s.board.A3).toBeNull();
   });
 
   it('setting a B card enacts its ability after the showcase (draw 1 / draw 2)', () => {
     vi.useFakeTimers();
-    const draw1 = storeWithHand(['card-B1']); // B1 = draw1
-    draw1.getState().beginDrag('card-B1');
-    draw1.getState().dropCard('card-B1', 'B1');
+    const draw1 = storeWithHand(['card-ability-1']); // B1 = draw1
+    draw1.getState().beginDrag('card-ability-1');
+    draw1.getState().dropCard('card-ability-1', 'B1');
     expect(draw1.getState().hand).toHaveLength(0); // B card left the hand
     vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
     expect(draw1.getState().hand).toHaveLength(1); // drew 1
 
-    const draw2 = storeWithHand(['card-B4']); // B4 = draw2
-    draw2.getState().beginDrag('card-B4');
-    draw2.getState().dropCard('card-B4', 'B4');
+    const draw2 = storeWithHand(['card-ability-4']); // B4 = draw2
+    draw2.getState().beginDrag('card-ability-4');
+    draw2.getState().dropCard('card-ability-4', 'B4');
     vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
     expect(draw2.getState().hand).toHaveLength(1); // first card off the deck
     vi.advanceTimersByTime(MULTI_DRAW_STAGGER_MS);
@@ -302,73 +302,73 @@ describe('P2-S02/S08 game store actions', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      hand: ['card-B2'], // B2 = graveyardIntoDeck (now graveyard -> replen)
-      deck: base.deck.filter((id) => id !== 'card-B2' && id !== 'card-A3'),
-      graveyard: ['card-A3'],
+      hand: ['card-ability-2'], // B2 = graveyardIntoDeck (now graveyard -> replen)
+      deck: base.deck.filter((id) => id !== 'card-ability-2' && id !== 'card-hero-1'),
+      graveyard: ['card-hero-1'],
       phase: 'main',
     });
-    store.getState().beginDrag('card-B2');
-    store.getState().dropCard('card-B2', 'B2');
+    store.getState().beginDrag('card-ability-2');
+    store.getState().dropCard('card-ability-2', 'B2');
     vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
     expect(store.getState().graveyard).toHaveLength(0);
     // "Shuffle into deck" routes through replen, not the deck itself.
-    expect(store.getState().replen).toContain('card-A3');
-    expect(store.getState().deck).not.toContain('card-A3');
+    expect(store.getState().replen).toContain('card-hero-1');
+    expect(store.getState().deck).not.toContain('card-hero-1');
     vi.useRealTimers();
   });
 
   it('dropCard with no slot returns the card to the hand in its original order', () => {
-    const store = storeWithHand(['card-A1', 'card-B1']);
+    const store = storeWithHand(['card-hero-6', 'card-ability-1']);
     const handBefore = [...store.getState().hand];
 
-    store.getState().beginDrag('card-A1');
-    store.getState().dropCard('card-A1', null);
+    store.getState().beginDrag('card-hero-6');
+    store.getState().dropCard('card-hero-6', null);
 
     expect(store.getState().hand).toEqual(handBefore);
     expect(store.getState().dragging).toBeNull();
   });
 
   it('autoPlaceCard quick-sets a hand card into the first legal slot', () => {
-    const store = storeWithHand(['card-A1']);
-    store.getState().autoPlaceCard('card-A1');
+    const store = storeWithHand(['card-hero-6']);
+    store.getState().autoPlaceCard('card-hero-6');
     const s = store.getState();
     // A cards fill A1 first (board order).
-    expect(s.board.A1).toBe('card-A1');
-    expect(s.hand).not.toContain('card-A1');
+    expect(s.board.A1).toBe('card-hero-6');
+    expect(s.hand).not.toContain('card-hero-6');
   });
 
   it('autoPlaceCard fills the NEXT free slot when earlier ones are taken', () => {
-    const store = storeWithHand(['card-A1', 'card-A2']);
-    store.getState().autoPlaceCard('card-A1'); // -> A1
-    store.getState().autoPlaceCard('card-A2'); // -> A2 (A1 now taken)
+    const store = storeWithHand(['card-hero-6', 'card-hero-7']);
+    store.getState().autoPlaceCard('card-hero-6'); // -> A1
+    store.getState().autoPlaceCard('card-hero-7'); // -> A2 (A1 now taken)
     const s = store.getState();
-    expect(s.board.A1).toBe('card-A1');
-    expect(s.board.A2).toBe('card-A2');
+    expect(s.board.A1).toBe('card-hero-6');
+    expect(s.board.A2).toBe('card-hero-7');
   });
 
   it('autoPlaceCard does nothing when the card has no legal slot (C with no A)', () => {
-    const store = storeWithHand(['card-C1']);
+    const store = storeWithHand(['card-equipment-1']);
     const handBefore = [...store.getState().hand];
-    store.getState().autoPlaceCard('card-C1'); // no A card on field -> illegal
+    store.getState().autoPlaceCard('card-equipment-1'); // no A card on field -> illegal
     expect(store.getState().hand).toEqual(handBefore);
-    expect(Object.values(store.getState().board).every((v) => v !== 'card-C1')).toBe(true);
+    expect(Object.values(store.getState().board).every((v) => v !== 'card-equipment-1')).toBe(true);
   });
 
   it('autoPlaceCard is blocked outside the Main phase', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      hand: ['card-A1'],
-      deck: base.deck.filter((id) => id !== 'card-A1'),
+      hand: ['card-hero-6'],
+      deck: base.deck.filter((id) => id !== 'card-hero-6'),
       phase: 'battle',
     });
-    store.getState().autoPlaceCard('card-A1');
-    expect(store.getState().hand).toContain('card-A1');
+    store.getState().autoPlaceCard('card-hero-6');
+    expect(store.getState().hand).toContain('card-hero-6');
   });
 
   it('updateDrag and hoverSlot record drag details', () => {
-    const store = storeWithHand(['card-A1']);
-    store.getState().beginDrag('card-A1');
+    const store = storeWithHand(['card-hero-6']);
+    store.getState().beginDrag('card-hero-6');
     store.getState().updateDrag([1, 0, 2]);
     store.getState().hoverSlot('C3');
 
@@ -378,84 +378,84 @@ describe('P2-S02/S08 game store actions', () => {
   });
 
   it('returnToHand cancels the drag without moving the card', () => {
-    const store = storeWithHand(['card-A1']);
-    store.getState().beginDrag('card-A1');
-    store.getState().returnToHand('card-A1');
+    const store = storeWithHand(['card-hero-6']);
+    store.getState().beginDrag('card-hero-6');
+    store.getState().returnToHand('card-hero-6');
 
     expect(store.getState().dragging).toBeNull();
-    expect(store.getState().hand).toContain('card-A1');
+    expect(store.getState().hand).toContain('card-hero-6');
   });
 
   it('hoverCard raises a hand card and clears with null', () => {
-    const store = storeWithHand(['card-A1']);
+    const store = storeWithHand(['card-hero-6']);
 
-    store.getState().hoverCard('card-A1');
-    expect(store.getState().hoveredCardId).toBe('card-A1');
+    store.getState().hoverCard('card-hero-6');
+    expect(store.getState().hoveredCardId).toBe('card-hero-6');
 
     store.getState().hoverCard(null);
     expect(store.getState().hoveredCardId).toBeNull();
   });
 
   it('hoverCard ignores cards not in hand and clears hover while dragging', () => {
-    const store = storeWithHand(['card-A1']);
+    const store = storeWithHand(['card-hero-6']);
 
     // A card that isn't in the hand cannot be hovered.
-    store.getState().hoverCard('card-B1');
+    store.getState().hoverCard('card-ability-1');
     expect(store.getState().hoveredCardId).toBeNull();
 
     // Starting a drag clears any hover, and hover is refused mid-drag.
-    store.getState().hoverCard('card-A1');
-    store.getState().beginDrag('card-A1');
+    store.getState().hoverCard('card-hero-6');
+    store.getState().beginDrag('card-hero-6');
     expect(store.getState().hoveredCardId).toBeNull();
-    store.getState().hoverCard('card-A1');
+    store.getState().hoverCard('card-hero-6');
     expect(store.getState().hoveredCardId).toBeNull();
   });
 });
 
 describe('P3-S02 card selection (inspection)', () => {
   it('selects a card that is in the hand', () => {
-    const store = storeWithHand(['card-A1']);
-    store.getState().selectCard('card-A1');
-    expect(store.getState().selectedCardId).toBe('card-A1');
+    const store = storeWithHand(['card-hero-6']);
+    store.getState().selectCard('card-hero-6');
+    expect(store.getState().selectedCardId).toBe('card-hero-6');
   });
 
   it('selects a card that is on the board', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      board: { ...base.board, C3: 'card-C1' },
+      board: { ...base.board, C3: 'card-equipment-1' },
     });
-    store.getState().selectCard('card-C1');
-    expect(store.getState().selectedCardId).toBe('card-C1');
+    store.getState().selectCard('card-equipment-1');
+    expect(store.getState().selectedCardId).toBe('card-equipment-1');
   });
 
   it('selects a card that is in a pile (deck/graveyard/replen), e.g. via pile search', () => {
     const store = createGameStore();
-    // card-B1 is still in the deck; pile search lets it be inspected.
+    // card-ability-1 is still in the deck; pile search lets it be inspected.
     const deckCard = store.getState().deck[0];
     store.getState().selectCard(deckCard);
     expect(store.getState().selectedCardId).toBe(deckCard);
   });
 
   it('ignores a card id that does not exist', () => {
-    const store = storeWithHand(['card-A1']);
+    const store = storeWithHand(['card-hero-6']);
     store.getState().selectCard('card-does-not-exist');
     expect(store.getState().selectedCardId).toBeNull();
   });
 
   it('closes the panel when passed null', () => {
-    const store = storeWithHand(['card-A1']);
-    store.getState().selectCard('card-A1');
-    expect(store.getState().selectedCardId).toBe('card-A1');
+    const store = storeWithHand(['card-hero-6']);
+    store.getState().selectCard('card-hero-6');
+    expect(store.getState().selectedCardId).toBe('card-hero-6');
     store.getState().selectCard(null);
     expect(store.getState().selectedCardId).toBeNull();
   });
 
   it('switches selection from one card to another', () => {
-    const store = storeWithHand(['card-A1', 'card-B1']);
-    store.getState().selectCard('card-A1');
-    store.getState().selectCard('card-B1');
-    expect(store.getState().selectedCardId).toBe('card-B1');
+    const store = storeWithHand(['card-hero-6', 'card-ability-1']);
+    store.getState().selectCard('card-hero-6');
+    store.getState().selectCard('card-ability-1');
+    expect(store.getState().selectedCardId).toBe('card-ability-1');
   });
 });
 
@@ -464,14 +464,14 @@ describe('P3-S03 destroy (send occupied zone card -> graveyard)', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      board: { ...base.board, A2: 'card-A2', C2: 'card-C2' },
+      board: { ...base.board, A2: 'card-hero-7', C2: 'card-equipment-2' },
     });
     store.getState().destroyZoneA();
     const s = store.getState();
     expect(s.board.A2).toBeNull();
     expect(s.board.C2).toBeNull();
-    expect(s.graveyard).toContain('card-A2');
-    expect(s.graveyard).toContain('card-C2');
+    expect(s.graveyard).toContain('card-hero-7');
+    expect(s.graveyard).toContain('card-equipment-2');
     expect(s.graveyard).toHaveLength(2);
   });
 
@@ -479,23 +479,23 @@ describe('P3-S03 destroy (send occupied zone card -> graveyard)', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      board: { ...base.board, A1: 'card-A1' },
+      board: { ...base.board, A1: 'card-hero-6' },
     });
     store.getState().destroyZoneA();
     const s = store.getState();
     expect(s.board.A1).toBeNull();
-    expect(s.graveyard).toEqual(['card-A1']);
+    expect(s.graveyard).toEqual(['card-hero-6']);
   });
 
   it('destroyZoneA is a no-op when no Zone A slot is occupied', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      board: { ...base.board, C1: 'card-C1' },
+      board: { ...base.board, C1: 'card-equipment-1' },
     });
     store.getState().destroyZoneA();
     const s = store.getState();
-    expect(s.board.C1).toBe('card-C1');
+    expect(s.board.C1).toBe('card-equipment-1');
     expect(s.graveyard).toEqual([]);
   });
 
@@ -503,14 +503,14 @@ describe('P3-S03 destroy (send occupied zone card -> graveyard)', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      board: { ...base.board, A1: 'card-A1', A2: 'card-A2' },
+      board: { ...base.board, A1: 'card-hero-6', A2: 'card-hero-7' },
     });
     store.getState().destroyZoneA();
     store.getState().destroyZoneA();
     const s = store.getState();
     expect(s.graveyard).toHaveLength(2);
-    expect(s.graveyard).toContain('card-A1');
-    expect(s.graveyard).toContain('card-A2');
+    expect(s.graveyard).toContain('card-hero-6');
+    expect(s.graveyard).toContain('card-hero-7');
     expect(s.board.A1).toBeNull();
     expect(s.board.A2).toBeNull();
   });
@@ -519,26 +519,26 @@ describe('P3-S03 destroy (send occupied zone card -> graveyard)', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      board: { ...base.board, B3: 'card-B3', A3: 'card-A3', C3: 'card-C3' },
+      board: { ...base.board, B3: 'card-ability-3', A3: 'card-hero-1', C3: 'card-equipment-3' },
     });
     store.getState().destroyZoneB();
     const s = store.getState();
     expect(s.board.B3).toBeNull();
     // Zone B has no links: the A3/C3 pair is untouched.
-    expect(s.board.A3).toBe('card-A3');
-    expect(s.board.C3).toBe('card-C3');
-    expect(s.graveyard).toEqual(['card-B3']);
+    expect(s.board.A3).toBe('card-hero-1');
+    expect(s.board.C3).toBe('card-equipment-3');
+    expect(s.graveyard).toEqual(['card-ability-3']);
   });
 
   it('destroyZoneB is a no-op when no Zone B slot is occupied', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      board: { ...base.board, A1: 'card-A1' },
+      board: { ...base.board, A1: 'card-hero-6' },
     });
     store.getState().destroyZoneB();
     const s = store.getState();
-    expect(s.board.A1).toBe('card-A1');
+    expect(s.board.A1).toBe('card-hero-6');
     expect(s.graveyard).toEqual([]);
   });
 });
@@ -548,14 +548,14 @@ describe('P3-S04 replen (send cards to the replenish pile)', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      board: { ...base.board, A4: 'card-A4', C4: 'card-C4' },
+      board: { ...base.board, A4: 'card-hero-10', C4: 'card-equipment-4' },
     });
     store.getState().replenZoneA();
     const s = store.getState();
     expect(s.board.A4).toBeNull();
     expect(s.board.C4).toBeNull();
-    expect(s.replen).toContain('card-A4');
-    expect(s.replen).toContain('card-C4');
+    expect(s.replen).toContain('card-hero-10');
+    expect(s.replen).toContain('card-equipment-4');
     expect(s.replen).toHaveLength(2);
     // Nothing went to the graveyard.
     expect(s.graveyard).toEqual([]);
@@ -626,14 +626,14 @@ describe('P3-S05 shuffle (animated deck reshuffle)', () => {
     vi.useFakeTimers();
     try {
       const base = createInitialState();
-      const store = createGameStore({ ...base, replen: ['card-A1', 'card-B1'] });
+      const store = createGameStore({ ...base, replen: ['card-hero-6', 'card-ability-1'] });
       const deckLen = store.getState().deck.length;
 
       store.getState().replenIntoDeck();
       // Cards moved synchronously; replen emptied; spread begins.
       expect(store.getState().replen).toEqual([]);
       expect(store.getState().deck).toHaveLength(deckLen + 2);
-      expect(store.getState().deck).toContain('card-A1');
+      expect(store.getState().deck).toContain('card-hero-6');
       expect(store.getState().deckSpread).toBe(true);
 
       vi.runAllTimers();
@@ -646,14 +646,14 @@ describe('P3-S05 shuffle (animated deck reshuffle)', () => {
 
   it('graveyardIntoDeck routes the graveyard into the replen pile (shuffled)', () => {
     const base = createInitialState();
-    const store = createGameStore({ ...base, graveyard: ['card-C1'] });
+    const store = createGameStore({ ...base, graveyard: ['card-equipment-1'] });
     const replenLen = store.getState().replen.length;
     const deckLen = store.getState().deck.length;
 
     store.getState().graveyardIntoDeck();
     expect(store.getState().graveyard).toEqual([]);
     // Routes through replen, not the deck itself; replen folds into the deck at End.
-    expect(store.getState().replen).toContain('card-C1');
+    expect(store.getState().replen).toContain('card-equipment-1');
     expect(store.getState().replen).toHaveLength(replenLen + 1);
     expect(store.getState().deck).toHaveLength(deckLen);
   });
@@ -664,9 +664,9 @@ describe('P3-S05 shuffle (animated deck reshuffle)', () => {
       const base = createInitialState();
       const store = createGameStore({
         ...base,
-        hand: ['card-A1', 'card-A2'],
-        deck: base.deck.filter((id) => id !== 'card-A1' && id !== 'card-A2'),
-        hoveredCardId: 'card-A1',
+        hand: ['card-hero-6', 'card-hero-7'],
+        deck: base.deck.filter((id) => id !== 'card-hero-6' && id !== 'card-hero-7'),
+        hoveredCardId: 'card-hero-6',
       });
       const deckLen = store.getState().deck.length;
 
@@ -674,7 +674,7 @@ describe('P3-S05 shuffle (animated deck reshuffle)', () => {
       expect(store.getState().hand).toEqual([]);
       expect(store.getState().hoveredCardId).toBeNull();
       expect(store.getState().deck).toHaveLength(deckLen + 2);
-      expect(store.getState().deck).toContain('card-A1');
+      expect(store.getState().deck).toContain('card-hero-6');
 
       vi.runAllTimers();
       expect(store.getState().deckSpread).toBe(false);
@@ -812,8 +812,8 @@ describe('P4 turn / phase mechanics', () => {
         phase: 'battle',
         board: {
           ...base.board,
-          B1: 'card-B1', // not continuous
-          B3: 'card-B3', // continuous
+          B1: 'card-ability-1', // not continuous
+          B3: 'card-ability-3', // continuous
         },
       });
 
@@ -822,9 +822,9 @@ describe('P4 turn / phase mechanics', () => {
       const s = store.getState();
       expect(s.phase).toBe('end');
       expect(s.board.B1).toBeNull();
-      expect(s.graveyard).toContain('card-B1');
-      expect(s.board.B3).toBe('card-B3');
-      expect(s.graveyard).not.toContain('card-B3');
+      expect(s.graveyard).toContain('card-ability-1');
+      expect(s.board.B3).toBe('card-ability-3');
+      expect(s.graveyard).not.toContain('card-ability-3');
     } finally {
       vi.useRealTimers();
     }
@@ -837,14 +837,14 @@ describe('P4 turn / phase mechanics', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        replen: ['card-A1'],
+        replen: ['card-hero-6'],
       });
       const deckLen = store.getState().deck.length;
 
       store.getState().advancePhase(); // battle -> resolution
       vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + SHUFFLE_SPREAD_MS + 400); // -> end, replen folds in + shuffle completes (before hand-off)
       expect(store.getState().replen).toEqual([]);
-      expect(store.getState().deck).toContain('card-A1');
+      expect(store.getState().deck).toContain('card-hero-6');
       expect(store.getState().deck).toHaveLength(deckLen + 1);
       expect(store.getState().deckSpread).toBe(false);
     } finally {
@@ -877,14 +877,14 @@ describe('P4 turn / phase mechanics', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      hand: ['card-A1'],
-      deck: base.deck.filter((id) => id !== 'card-A1'),
+      hand: ['card-hero-6'],
+      deck: base.deck.filter((id) => id !== 'card-hero-6'),
       phase: 'battle',
     });
-    store.getState().beginDrag('card-A1');
-    store.getState().dropCard('card-A1', 'A1');
+    store.getState().beginDrag('card-hero-6');
+    store.getState().dropCard('card-hero-6', 'A1');
     expect(store.getState().board.A1).toBeNull();
-    expect(store.getState().hand).toContain('card-A1');
+    expect(store.getState().hand).toContain('card-hero-6');
     expect(store.getState().dragging).toBeNull();
   });
 
@@ -893,7 +893,7 @@ describe('P4 turn / phase mechanics', () => {
     const store = createGameStore({
       ...base,
       phase: 'battle',
-      board: { ...base.board, A1: 'card-A1' },
+      board: { ...base.board, A1: 'card-hero-6' },
       ...withOpponent(base, 'O1'),
     });
 
@@ -919,7 +919,7 @@ describe('P4 turn / phase mechanics', () => {
     const store = createGameStore({
       ...base,
       phase: 'battle',
-      board: { ...base.board, A1: 'card-A1', B1: 'card-B1' },
+      board: { ...base.board, A1: 'card-hero-6', B1: 'card-ability-1' },
     });
 
     store.getState().aimAttack('A2'); // empty A-slot
@@ -934,7 +934,7 @@ describe('P4 turn / phase mechanics', () => {
     const mainStore = createGameStore({
       ...base,
       phase: 'main',
-      board: { ...base.board, A1: 'card-A1' },
+      board: { ...base.board, A1: 'card-hero-6' },
     });
     mainStore.getState().aimAttack('A1'); // not Battle
     expect(mainStore.getState().targeting).toBeNull();
@@ -947,7 +947,7 @@ describe('P4 turn / phase mechanics', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-A1', A2: 'card-A2' },
+        board: { ...base.board, A1: 'card-hero-6', A2: 'card-hero-7' },
         // Both attackers aim at the same opponent; their damage stacks onto O1.
         attackTargets: { A1: 'O1', A2: 'O1' },
         ...withOpponent(base, 'O1'),
@@ -1031,15 +1031,15 @@ describe('P4 turn / phase mechanics', () => {
 
   it('an opponent reduced to 0 HP is slashed, then removed from the field', () => {
     vi.useFakeTimers();
-    // Force a mid-range roll (11) so the attack is a normal hit, not a miss.
-    const rand = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    // Force a low roll (1) so the remapped Hero's attack is a glancing hit, not a miss.
+    const rand = vi.spyOn(Math, 'random').mockReturnValue(0);
     try {
       const base = createInitialState();
       const oppId = 'opp-O1';
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-A1' },
+        board: { ...base.board, A1: 'card-hero-6' },
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1'),
         // O1 is dropped to 1 HP, so any hit is lethal.
@@ -1084,8 +1084,8 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
         phase: 'battle',
         activePlayer: 'player',
         // A lone player Vanguard on 1 HP: any opponent hit is lethal.
-        board: { ...base.board, A1: 'card-A1', C1: 'card-C1' },
-        currentHp: { 'card-A1': 1 },
+        board: { ...base.board, A1: 'card-hero-6', C1: 'card-equipment-1' },
+        currentHp: { 'card-hero-6': 1 },
         // Seed the opponent attacker directly and empty its hand so the AI
         // summon step is a no-op — this test isolates the combat path.
         ...withOpponent(base, 'O1'),
@@ -1116,11 +1116,11 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
       const s = store.getState();
       // The player's card took lethal damage and was sent to the PLAYER graveyard.
       expect(s.board.A1).toBeNull();
-      expect(s.graveyard).toContain('card-A1');
+      expect(s.graveyard).toContain('card-hero-6');
       // ...and its linked C-card (same column) fell with it.
       expect(s.board.C1).toBeNull();
-      expect(s.graveyard).toContain('card-C1');
-      expect(s.currentHp['card-A1']).toBeUndefined();
+      expect(s.graveyard).toContain('card-equipment-1');
+      expect(s.currentHp['card-hero-6']).toBeUndefined();
       expect(s.oppDestroying).toEqual([]);
 
       // Control returns to the player after the opponent's End dwell.
@@ -1162,14 +1162,14 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
       // Give the opponent a single free Vanguard in hand (A3 is level 1) so the
       // summon is deterministic; empty the deck-drawn ambiguity by controlling
       // the hand contents directly.
-      const freeCard = base.opponentCards['opp-deck-A3'];
+      const freeCard = base.opponentCards['opp-deck-hero-1'];
       expect(freeCard.type).toBe('A');
       const store = createGameStore({
         ...base,
         phase: 'battle',
         activePlayer: 'player',
-        opponentHand: ['opp-deck-A3'],
-        opponentDeck: ['opp-deck-A1'], // one card to draw (another Vanguard)
+        opponentHand: ['opp-deck-hero-1'],
+        opponentDeck: ['opp-deck-hero-6'], // one card to draw (another Vanguard)
         opponentBoard: { O1: null, O2: null, O3: null, O4: null },
       });
 
@@ -1182,23 +1182,23 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
 
       // Draw happens immediately on entering the opponent's draw phase.
       expect(store.getState().opponentDeck).toEqual([]);
-      expect(store.getState().opponentHand).toContain('opp-deck-A1');
+      expect(store.getState().opponentHand).toContain('opp-deck-hero-6');
 
       // Advance to Main: the opponent summons its first free Vanguard onto O1 and
       // showcases it (the reveal), removing it from hand. Only one Vanguard plays
       // per turn, so the second A stays in hand.
       vi.advanceTimersByTime(OPP_PHASE_STEP_MS + 20);
       expect(store.getState().phase).toBe('main');
-      expect(store.getState().opponentBoard.O1).toBe('opp-deck-A3');
-      expect(store.getState().opponentHand).not.toContain('opp-deck-A3');
-      expect(store.getState().opponentHand).toContain('opp-deck-A1');
-      expect(store.getState().oppSummon).toEqual({ cardId: 'opp-deck-A3', slotId: 'O1' });
+      expect(store.getState().opponentBoard.O1).toBe('opp-deck-hero-1');
+      expect(store.getState().opponentHand).not.toContain('opp-deck-hero-1');
+      expect(store.getState().opponentHand).toContain('opp-deck-hero-6');
+      expect(store.getState().oppSummon).toEqual({ cardId: 'opp-deck-hero-1', slotId: 'O1' });
 
       // The play showcase self-clears after OPP_PLAY_SHOWCASE_MS.
       vi.advanceTimersByTime(OPP_PLAY_SHOWCASE_MS + 20);
       expect(store.getState().oppSummon).toBeNull();
       // The summoned card stays on the board.
-      expect(store.getState().opponentBoard.O1).toBe('opp-deck-A3');
+      expect(store.getState().opponentBoard.O1).toBe('opp-deck-hero-1');
     } finally {
       vi.useRealTimers();
     }
@@ -1213,7 +1213,7 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
         phase: 'battle',
         activePlayer: 'player',
         // Only a tribute-level Commander: not a free summon, and no B/C to set.
-        opponentHand: ['opp-deck-A5'],
+        opponentHand: ['opp-deck-hero-14'],
         opponentDeck: [],
         opponentBoard: { O1: null, O2: null, O3: null, O4: null },
       });
@@ -1241,7 +1241,7 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
         activePlayer: 'player',
         // A free Vanguard, its linked-column Bulwark, and an Arcane.
         // A3 -> O3, C3 -> OC3 (linked to O3), B1 -> OB1.
-        opponentHand: ['opp-deck-A3', 'opp-deck-C3', 'opp-deck-B1'],
+        opponentHand: ['opp-deck-hero-1', 'opp-deck-equipment-3', 'opp-deck-ability-1'],
         opponentDeck: [],
         opponentBoard: { O1: null, O2: null, O3: null, O4: null },
         opponentBBoard: { OB1: null, OB2: null, OB3: null, OB4: null },
@@ -1258,13 +1258,13 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
       const s = store.getState();
 
       // Vanguard summoned to the first open O-slot (O1).
-      expect(s.opponentBoard.O1).toBe('opp-deck-A3');
+      expect(s.opponentBoard.O1).toBe('opp-deck-hero-1');
       // Bulwark set to a linked, occupied OC-slot (OC1, linked to O1).
-      expect(s.opponentCBoard.OC1).toBe('opp-deck-C3');
+      expect(s.opponentCBoard.OC1).toBe('opp-deck-equipment-3');
       // ...and it rolled a stat boost (mirror of the player's C set).
-      expect(s.opponentCards['opp-deck-C3'].buff).toBeTruthy();
+      expect(s.opponentCards['opp-deck-equipment-3'].buff).toBeTruthy();
       // Arcane set to the first open OB-slot (OB1).
-      expect(s.opponentBBoard.OB1).toBe('opp-deck-B1');
+      expect(s.opponentBBoard.OB1).toBe('opp-deck-ability-1');
       // All three left the hand.
       expect(s.opponentHand).toEqual([]);
       // The last reveal has cleared before Battle.

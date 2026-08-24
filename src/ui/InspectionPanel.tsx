@@ -118,7 +118,9 @@ export function InspectionPanel() {
           <div style={{ padding: '14px 16px 16px' }}>
             <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 2 }}>{shown.name}</div>
             <div style={{ fontSize: 12, color: accent, fontWeight: 600, marginBottom: 12 }}>
-              {TYPE_LABEL[shown.type]} · Type {shown.type}
+              {shown.type === 'A' && shown.subType
+                ? `${shown.allegiance ?? 'Hero'} · ${shown.subType}`
+                : `${TYPE_LABEL[shown.type]} · Type ${shown.type}`}
             </div>
 
             {/* Summon level + Commander tag (A cards) — mirrors the tribute rules. */}
@@ -160,11 +162,38 @@ export function InspectionPanel() {
 
             {/* Type-specific highlight: A = combat stats, B = ability, C = boost. */}
             {shown.type === 'A' ? (
-              <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-                <Stat label="HP" value={shown.hp ?? 0} color="#2f9e46" />
-                <Stat label="DMG" value={shown.dmg ?? 0} color="#e0663d" />
-                <Stat label="ACC" value={shown.acc ?? 0} color="#3d9be0" />
-              </div>
+              <>
+                <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                  <Stat label="HP" value={shown.hp ?? 0} color="#2f9e46" />
+                  <Stat label="DMG" value={shown.dmg ?? 0} color="#e0663d" />
+                  <Stat label="ACC" value={shown.acc ?? 0} color="#3d9be0" />
+                </div>
+                {((shown.armor ?? 0) > 0 || (shown.armorBars ?? 0) > 0 || shown.unique) && (
+                  <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                    <Stat label="ARMOR" value={shown.armor ?? 0} color="#9b8ce0" />
+                    <Stat label="BARS" value={shown.armorBars ?? 0} color="#9b8ce0" />
+                    {shown.unique && (
+                      <div
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: 'rgba(240,210,122,0.12)',
+                          border: '1px solid rgba(240,210,122,0.5)',
+                          borderRadius: 8,
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: 1,
+                          color: '#f0d27a',
+                        }}
+                      >
+                        UNIQUE
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             ) : shown.type === 'B' ? (
               <div
                 style={{
@@ -213,24 +242,68 @@ export function InspectionPanel() {
               </div>
             )}
 
-            {/* Effect */}
-            <div
-              style={{
-                fontSize: 13,
-                lineHeight: 1.5,
-                background: 'rgba(255,255,255,0.04)',
-                borderRadius: 8,
-                padding: '10px 12px',
-                marginBottom: 10,
-              }}
-            >
-              {shown.effect}
-            </div>
+            {/* Abilities (Hero cards) or effect text (B/C). Heroes list up to
+                three ability lines; other cards keep the single effect block. */}
+            {shown.type === 'A' && shown.abilities && shown.abilities.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                {shown.abilities.map((text, i) => {
+                  const colon = text.indexOf(':');
+                  const title = colon > 0 ? text.slice(0, colon) : `Ability ${i + 1}`;
+                  const body = colon > 0 ? text.slice(colon + 1).trim() : text;
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        background: 'rgba(255,255,255,0.04)',
+                        borderLeft: `3px solid ${accent}`,
+                        borderRadius: 6,
+                        padding: '8px 10px',
+                      }}
+                    >
+                      <div style={{ fontSize: 12, fontWeight: 800, color: accent, marginBottom: 3 }}>
+                        {title}
+                      </div>
+                      <div style={{ fontSize: 12, lineHeight: 1.45, color: '#d4d8dd' }}>{body}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : shown.type === 'A' ? (
+              <div
+                style={{
+                  fontSize: 12,
+                  fontStyle: 'italic',
+                  color: '#8a929c',
+                  background: 'rgba(255,255,255,0.03)',
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  marginBottom: 10,
+                  textAlign: 'center',
+                }}
+              >
+                No special ability
+              </div>
+            ) : (
+              <div
+                style={{
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                  background: 'rgba(255,255,255,0.04)',
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  marginBottom: 10,
+                }}
+              >
+                {shown.effect}
+              </div>
+            )}
 
             {/* Flavor */}
-            <div style={{ fontSize: 12, fontStyle: 'italic', color: '#97a0ab' }}>
-              &ldquo;{shown.flavor}&rdquo;
-            </div>
+            {shown.flavor && (
+              <div style={{ fontSize: 12, fontStyle: 'italic', color: '#97a0ab' }}>
+                &ldquo;{shown.flavor}&rdquo;
+              </div>
+            )}
           </div>
         </>
       )}
