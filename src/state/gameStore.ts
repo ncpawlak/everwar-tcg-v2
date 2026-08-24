@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { BAbility, CardId, CardType, DiceState, GameState, OppCSlotId, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
+import type { BAbility, CardId, CardType, DiceState, GameState, OppBSlotId, OppCSlotId, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
 import { createInitialState } from './cardData';
 import { canDropCard, requiresTribute, canAffordTribute, validTargetSlots } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
@@ -45,8 +45,30 @@ export const GRAVEYARD_TRAVEL_MS = 650;
 
 /** How long (ms) each of the opponent's auto-played phases dwells before the
  * next, during its turn. Kept ≥ the phase banner's animation length so each
- * phase announcement plays fully before the next one (Phase 7). */
+ * phase announcement plays fully before the next one (Phase 7). Used for the
+ * Draw and Battle phases; the Main phase gets its own longer window
+ * (OPP_MAIN_DURATION_MS) to fit its paced, one-at-a-time card plays. */
 export const OPP_PHASE_STEP_MS = 1800;
+
+/** How long (ms) each opponent card reveal is showcased center-screen during its
+ * Main phase before springing to its slot. Matches the player's summon showcase
+ * so the opponent's plays read the same way (Phase 7 Slice 4b). */
+export const OPP_PLAY_SHOWCASE_MS = 800;
+
+/** Pause (ms) after a card has sprung to its slot before the opponent begins its
+ * next play, so each summon/ability reads as a distinct, deliberate action
+ * rather than cards dropping back-to-back (Phase 7 Slice 4b). */
+export const OPP_PLAY_GAP_MS = 650;
+
+/** Cadence (ms) between successive opponent plays: one full showcase plus the
+ * pause after it. */
+export const OPP_PLAY_STEP_MS = OPP_PLAY_SHOWCASE_MS + OPP_PLAY_GAP_MS;
+
+/** How long (ms) the opponent's Main phase lasts before Battle. Sized to fit its
+ * maximum three paced plays (A, C, B) — the last starts at 2×OPP_PLAY_STEP_MS
+ * and clears one showcase later — with margin, so the whole row settles before
+ * attacks are declared. */
+export const OPP_MAIN_DURATION_MS = 3 * OPP_PLAY_STEP_MS;
 
 /** How long (ms) the End phase dwells before auto-handing the turn to the other
  * player. Lets the End banner + B-discard/replen-shuffle cleanup play before the
@@ -615,40 +637,136 @@ export function createGameStore(
         });
 
       /**
-       * Opponent summon step (Phase 7 Slice 4): a simple heuristic AI. Summon the
-       * first free-summonable Vanguard (an A-card of level ≤ 2 — no tribute, no
-       * Commander) from the opponent's hand into the first empty O-slot. The card
-       * is placed face-up on the board and showcased center-screen (its reveal)
-       * for SUMMON_SHOWCASE_MS before springing down to its slot, mirroring the
-       * player's summon. No-op when there's no free card or no open slot.
+       * Opponent draw phase: draw under the same rule as the player — refill the
+       * hand up to HAND_TARGET, or a single card if already at/above it — with the
+       * same stagger so the backs pop off the deck one at a time (Slice 4b).
        */
-      const opponentSummon = () => {
-        if (!oppActive()) return;
-        const s = get();
-        const slot = OPP_SLOT_IDS.find((o) => !s.opponentBoard[o]) as OppSlotId | undefined;
-        if (!slot) return;
-        const cardId = s.opponentHand.find((id) => {
-          const c = s.opponentCards[id];
-          return !!c && c.type === 'A' && !requiresTribute(c);
-        });
-        if (!cardId) return;
-        set((st) => ({
-          opponentHand: st.opponentHand.filter((id) => id !== cardId),
-          opponentBoard: { ...st.opponentBoard, [slot]: cardId },
-          oppSummon: { cardId, slotId: slot },
-        }));
+      const drawOpponentCards = () => {
+        const handSize = get().opponentHand.length;
+        const count = handSize < HAND_TARGET ? HAND_TARGET - handSize : 1;
+        drawOpponentCard();
+        for (let i = 1; i < count; i++) {
+          setTimeout(() => {
+            if (oppActive()) drawOpponentCard();
+          }, i * MULTI_DRAW_STAGGER_MS);
+        }
+      };
+
+      /**
+       * Reveal-and-clear a just-played opponent card: it's showcased face-up
+       * center-screen (its reveal) then springs to its slot. Kept short so a
+       * few plays can chain inside the Main window.
+       */
+      const revealOppCard = (cardId: CardId) =>
         setTimeout(() => {
           set((st) => (st.oppSummon && st.oppSummon.cardId === cardId ? { ...st, oppSummon: null } : st));
-        }, SUMMON_SHOWCASE_MS);
+        }, OPP_PLAY_SHOWCASE_MS);
+
+      /**
+       * Opponent play step (Phase 7 Slice 4b): a simple heuristic AI plays ONE
+       * card of a not-yet-played row type this turn, re-reading the live board so
+       * a Bulwark can attach to a Vanguard summoned earlier the same turn. Order
+       * of preference: summon a free Vanguard (A, level ≤ 2) into an open O-slot;
+       * else set a Bulwark (C) onto an OC-slot whose linked O-column is occupied
+       * (rolling its stat boost, like the player); else set an Arcane (B) into an
+       * open OB-slot. Returns the type it played, or null if nothing was playable.
+       * Each play is showcased as a reveal, mirroring the player's summon.
+       */
+      const opponentPlayStep = (playedTypes: Set<CardType>): CardType | null => {
+        if (!oppActive()) return null;
+        const s = get();
+        const hand = s.opponentHand;
+
+        // A — summon a free Vanguard into the first open O-slot.
+        if (!playedTypes.has('A')) {
+          const slot = OPP_SLOT_IDS.find((o) => !s.opponentBoard[o]);
+          const cardId = hand.find((id) => {
+            const c = s.opponentCards[id];
+            return !!c && c.type === 'A' && !requiresTribute(c);
+          });
+          if (slot && cardId) {
+            set((st) => ({
+              opponentHand: st.opponentHand.filter((id) => id !== cardId),
+              opponentBoard: { ...st.opponentBoard, [slot]: cardId },
+              oppSummon: { cardId, slotId: slot },
+            }));
+            revealOppCard(cardId);
+            return 'A';
+          }
+        }
+
+        // C — set a Bulwark onto a linked, occupied, still-open OC-slot; roll its
+        // stat boost for the linked Vanguard (mirror of the player's C set).
+        if (!playedTypes.has('C')) {
+          const cardId = hand.find((id) => s.opponentCards[id]?.type === 'C');
+          const ocSlot = (['OC1', 'OC2', 'OC3', 'OC4'] as OppCSlotId[]).find((oc) => {
+            const col = oc.slice(2);
+            return !s.opponentCBoard[oc] && !!s.opponentBoard[`O${col}` as OppSlotId];
+          });
+          if (cardId && ocSlot) {
+            set((st) => ({
+              opponentHand: st.opponentHand.filter((id) => id !== cardId),
+              opponentCBoard: { ...st.opponentCBoard, [ocSlot]: cardId },
+              opponentCards: {
+                ...st.opponentCards,
+                [cardId]: { ...st.opponentCards[cardId], buff: rollCBuff() },
+              },
+              oppSummon: { cardId, slotId: ocSlot },
+            }));
+            revealOppCard(cardId);
+            return 'C';
+          }
+        }
+
+        // B — set an Arcane into the first open OB-slot. (Opponent on-play B
+        // abilities don't resolve yet — deferred to a later slice.)
+        if (!playedTypes.has('B')) {
+          const cardId = hand.find((id) => s.opponentCards[id]?.type === 'B');
+          const obSlot = (['OB1', 'OB2', 'OB3', 'OB4'] as OppBSlotId[]).find((ob) => !s.opponentBBoard[ob]);
+          if (cardId && obSlot) {
+            set((st) => ({
+              opponentHand: st.opponentHand.filter((id) => id !== cardId),
+              opponentBBoard: { ...st.opponentBBoard, [obSlot]: cardId },
+              oppSummon: { cardId, slotId: obSlot },
+            }));
+            revealOppCard(cardId);
+            return 'B';
+          }
+        }
+        return null;
+      };
+
+      /**
+       * Opponent Main phase (Phase 7 Slice 4b): play up to one card of each row
+       * type, ONE AT A TIME — each card's reveal is showcased for a full
+       * OPP_PLAY_SHOWCASE_MS and springs to its slot before the next play begins,
+       * mirroring the deliberate feel of the player's summon (rather than a quick
+       * flash). Each attempt re-reads the board via opponentPlayStep, so a Bulwark
+       * can attach to a Vanguard summoned earlier this same turn. Stops as soon as
+       * an attempt finds nothing left to play.
+       */
+      const opponentMainPhase = () => {
+        const playedTypes = new Set<CardType>();
+        const playNext = () => {
+          if (!oppActive()) return;
+          const played = opponentPlayStep(playedTypes);
+          if (!played) return;
+          playedTypes.add(played);
+          // Pace the next play a full showcase + gap later, so the current card
+          // finishes its reveal and settles before the next one begins.
+          setTimeout(playNext, OPP_PLAY_STEP_MS);
+        };
+        playNext();
       };
 
       /**
        * Run the opponent's full auto-turn (Phase 7). Control passes here after
        * the player ends their turn. The opponent takes its own turn number and
        * steps draw -> main -> battle on a timer (shared HUD + banner announce
-       * each, field highlight flips to its side), declares its attacks at Battle,
-       * then runs its Resolution (real bidirectional combat, Slice 3). The
-       * Resolution engine shows the End banner and hands control back when done.
+       * each, field highlight flips to its side), plays its cards during Main,
+       * declares its attacks at Battle, then runs its Resolution (real
+       * bidirectional combat, Slice 3). The Resolution engine shows the End
+       * banner and hands control back when done.
        */
       const runOpponentTurn = () => {
         if (get().activePlayer !== 'player') return; // already running / idempotent
@@ -658,22 +776,22 @@ export function createGameStore(
           phase: 'draw',
           phaseAnnounce: s.phaseAnnounce + 1,
         }));
-        drawOpponentCard();
+        drawOpponentCards();
         setTimeout(() => {
           if (!oppActive()) return;
           set((s) => ({ phase: 'main', phaseAnnounce: s.phaseAnnounce + 1 }));
-          opponentSummon();
+          opponentMainPhase();
         }, OPP_PHASE_STEP_MS);
         setTimeout(() => {
           if (!oppActive()) return;
           set((s) => ({ phase: 'battle', phaseAnnounce: s.phaseAnnounce + 1 }));
           declareOpponentAttacks();
-        }, OPP_PHASE_STEP_MS * 2);
+        }, OPP_PHASE_STEP_MS + OPP_MAIN_DURATION_MS);
         setTimeout(() => {
           if (!oppActive()) return;
           set((s) => ({ phase: 'resolution', phaseAnnounce: s.phaseAnnounce + 1 }));
           beginOpponentResolution();
-        }, OPP_PHASE_STEP_MS * 3);
+        }, OPP_PHASE_STEP_MS * 2 + OPP_MAIN_DURATION_MS);
       };
 
     return {

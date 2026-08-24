@@ -9,6 +9,8 @@ import { Edges } from '@react-three/drei';
 import { MotionCard } from '../animation/MotionCard';
 import { selectOpponentCardVisual } from '../animation/poseSelectors';
 import { CardView } from '../cards/CardView';
+import { opponentSummonFromPose } from '../board/layout';
+import { opponentEffectiveStats } from '../state/combatStats';
 import {
   HpOverlay,
   DmgAccOverlay,
@@ -17,8 +19,7 @@ import {
   DA_Y_OFFSET,
   DA_Z_OFFSET,
 } from './StatOverlay';
-import type { EffectiveStats } from '../state/combatStats';
-import type { Card, OppSlotId, Vec3 } from '../state/types';
+import type { OppSlotId, Vec3 } from '../state/types';
 
 /**
  * The opponent's Vanguard row across the far side of the field. Each seeded
@@ -39,15 +40,6 @@ function oppOverlayPos(oppSlot: OppSlotId, yOff: number, zOff: number): Vec3 {
   return [x, y + yOff, z + zOff];
 }
 
-/** Opponent cards carry no C-buffs, so every stat is at base (delta 0). */
-function opponentStats(card: Card): EffectiveStats {
-  return {
-    hp: { value: card.hp ?? 0, delta: 0 },
-    dmg: { value: card.dmg ?? 0, delta: 0 },
-    acc: { value: card.acc ?? 0, delta: 0 },
-  };
-}
-
 export function OpponentBoard() {
   const state = useGameStore((s) => s);
   const { opponentBoard, opponentCards, targeting } = state;
@@ -63,7 +55,13 @@ export function OpponentBoard() {
         if (!visual) return null;
         const card = opponentCards[id];
         return (
-          <MotionCard key={id} pose={visual.pose} config={visual.config} scale={visual.scale}>
+          <MotionCard
+            key={id}
+            pose={visual.pose}
+            config={visual.config}
+            scale={visual.scale}
+            from={visual.zone === 'summon' ? opponentSummonFromPose() : undefined}
+          >
             <CardView card={card} pickable={false} />
           </MotionCard>
         );
@@ -86,12 +84,12 @@ export function OpponentBoard() {
               </mesh>
             )}
             <HpOverlay
-              stats={opponentStats(card)}
+              stats={opponentEffectiveStats(state, slot as OppSlotId)}
               position={oppOverlayPos(slot as OppSlotId, HP_Y_OFFSET, HP_Z_OFFSET)}
               currentHp={state.currentHp[id]}
             />
             <DmgAccOverlay
-              stats={opponentStats(card)}
+              stats={opponentEffectiveStats(state, slot as OppSlotId)}
               position={oppOverlayPos(slot as OppSlotId, DA_Y_OFFSET, DA_Z_OFFSET)}
             />
           </group>

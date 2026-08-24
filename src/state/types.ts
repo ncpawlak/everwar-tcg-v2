@@ -335,5 +335,5 @@ export interface GameState {
    * showcased face-up center-screen (its "reveal") before it springs down to
    * its slot; self-clears after the showcase. Null when the opponent isn't
    * mid-summon. */
-  oppSummon: { cardId: CardId; slotId: OppSlotId } | null;
+  oppSummon: { cardId: CardId; slotId: OppSlotId | OppBSlotId | OppCSlotId } | null;
 }

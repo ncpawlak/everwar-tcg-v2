@@ -13,11 +13,13 @@ export function MotionCard({
   pose,
   config,
   scale = 1,
+  from,
   children,
 }: {
   pose: Pose;
   config: SpringConfig;
   scale?: number;
+  from?: Pose;
   children: ReactNode;
 }) {
   const spring = useSpring({
@@ -25,6 +27,12 @@ export function MotionCard({
     rotation: pose.rotation,
     scale: [scale, scale, scale] as [number, number, number],
     config,
+    // `from` seeds the spring's starting transform on first mount only, so a
+    // freshly-mounted card (e.g. an opponent summon reveal) flies in from there
+    // instead of popping into place. Ignored on subsequent target changes.
+    ...(from
+      ? { from: { position: from.position, rotation: from.rotation, scale: [scale, scale, scale] as [number, number, number] } }
+      : {}),
   });
 
   return (

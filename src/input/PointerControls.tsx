@@ -9,7 +9,7 @@ import {
   projectToBoard,
 } from './pickMath';
 import { handCardPoses, deckCardPose, graveyardCardPose, replenCardPose, opponentGraveyardCardPose, opponentReplenCardPose } from '../board/layout';
-import { boardCardAt, slotAtPoint, oppSlotAtPoint } from './hitTest';
+import { boardCardAt, slotAtPoint, oppSlotAtPoint, oppCardAtPoint } from './hitTest';
 import { resolveLinkedTarget, resolveAttackerSlot } from '../board/slotRules';
 import type { CardId, OppSlotId, PileSource, SlotId } from '../state/types';
 
@@ -36,6 +36,9 @@ interface Press {
   slotId: SlotId | null;
   /** The opponent slot under the pointer at press time ('opp' presses). */
   oppSlot: OppSlotId | null;
+  /** The specific opponent card under the pointer at press time (any zone), for
+   * inspection — A, B or C. May be set even when oppSlot is null (a B card). */
+  oppCardId: CardId | null;
   downX: number;
   downY: number;
   startedDrag: boolean;
@@ -58,7 +61,7 @@ export function PointerControls() {
       if (s.dragging) return;
 
       const ndc = clientToNdc(e.clientX, e.clientY, canvas);
-      const base = { downX: e.clientX, downY: e.clientY, startedDrag: false, pile: null, slotId: null, oppSlot: null };
+      const base = { downX: e.clientX, downY: e.clientY, startedDrag: false, pile: null, slotId: null, oppSlot: null, oppCardId: null };
 
       // 1) Hand card — candidate for either inspect (click) or drag.
       const handPoses = handCardPoses(s.hand.length);
@@ -113,10 +116,13 @@ export function PointerControls() {
         return;
       }
 
-      // 4b) An opponent Vanguard card — a Battle-phase attack target.
+      // 4b) An opponent card — a Battle-phase attack target (any A/C zone in a
+      // column resolves to that column's Vanguard via oppSlot) and/or an
+      // inspectable card (the specific A/B/C card under the pointer via oppCardId).
       const oppSlot = point ? oppSlotAtPoint(point) : null;
-      if (oppSlot) {
-        press = { kind: 'opp', cardId: null, ...base, oppSlot };
+      const oppCardId = point ? oppCardAtPoint(point, s) : null;
+      if (oppSlot || oppCardId) {
+        press = { kind: 'opp', cardId: null, ...base, oppSlot, oppCardId };
         return;
       }
 
@@ -227,8 +233,9 @@ export function PointerControls() {
               break;
             case 'opp':
               // Click an opponent card to inspect it (when not declaring an
-              // attack). Empty opponent slots resolve to null → close panel.
-              if (press.oppSlot) s.selectCard(s.opponentBoard[press.oppSlot]);
+              // attack) — any of its A/B/C cards. Falls back to the column's
+              // Vanguard when the click landed on an empty linked zone.
+              s.selectCard(press.oppCardId ?? (press.oppSlot ? s.opponentBoard[press.oppSlot] : null));
               break;
             case 'pile':
               if (press.pile) s.openPileSearch(press.pile);

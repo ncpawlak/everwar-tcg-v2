@@ -1,7 +1,7 @@
 import type { GameState, CardId, OppSlotId, Pose } from '../state/types';
 import type { SpringConfig } from '@react-spring/three';
 import { SLOT_IDS } from '../state/cardData';
-import { deckCardPose, deckSpreadPose, handCardPoses, slotCardPose, graveyardCardPose, replenCardPose, summonShowcasePose, SUMMON_SHOWCASE_SCALE, FAN_UP, opponentSlotCardPose, opponentGraveyardCardPose } from '../board/layout';
+import { deckCardPose, deckSpreadPose, handCardPoses, slotCardPose, graveyardCardPose, replenCardPose, summonShowcasePose, SUMMON_SHOWCASE_SCALE, FAN_UP, opponentSlotCardPose, opponentBSlotCardPose, opponentCSlotCardPose, opponentGraveyardCardPose } from '../board/layout';
 import { BOARD_CARD_SCALE, CARD_HEIGHT, OPP_SLOT_IDS } from '../board/boardConfig';
 import { DRAG_LIFT, SPRING } from './motionConfig';
 
@@ -159,6 +159,28 @@ export function selectOpponentCardVisual(
       config: SPRING.snap,
       scale: BOARD_CARD_SCALE,
     };
+  }
+  // Opponent Arcane (B) row — mirror of the player's B slots.
+  for (const ob of ['OB1', 'OB2', 'OB3', 'OB4'] as const) {
+    if (state.opponentBBoard[ob] === cardId) {
+      return {
+        pose: opponentBSlotCardPose(Number(ob.slice(2))),
+        zone: 'board',
+        config: SPRING.snap,
+        scale: BOARD_CARD_SCALE,
+      };
+    }
+  }
+  // Opponent Bulwark (C) row — mirror of the player's C slots.
+  for (const oc of ['OC1', 'OC2', 'OC3', 'OC4'] as const) {
+    if (state.opponentCBoard[oc] === cardId) {
+      return {
+        pose: opponentCSlotCardPose(Number(oc.slice(2))),
+        zone: 'board',
+        config: SPRING.snap,
+        scale: BOARD_CARD_SCALE,
+      };
+    }
   }
   return null;
 }

@@ -258,12 +258,32 @@ export function opponentDeckPose(indexFromBottom: number): Pose {
   return mirrorPose(deckCardPose(indexFromBottom));
 }
 
+/** Where a summoned opponent card flies IN from: the center of the opponent's
+ * hand fan, facing the camera — so the reveal reads as lifting the card out of
+ * its hand up into the centered showcase, instead of popping in. */
+export function opponentSummonFromPose(): Pose {
+  const [p] = opponentHandPoses(1);
+  return { position: [...p.position] as Vec3, rotation: [...p.rotation] as Vec3 };
+}
+
 /** Opponent A-card resting in a far-row slot — the mirror of the matching
  * player slot pose, so it lies flat but upside-down on the opponent's side.
  * O1..O4 mirror A1..A4. */
 export function opponentSlotCardPose(oppSlotId: OppSlotId): Pose {
   const playerSlot = `A${oppSlotId.slice(1)}` as SlotId;
   return mirrorPose(slotCardPose(playerSlot));
+}
+
+/** Opponent Arcane (B) card resting in an OB slot — mirror of the matching
+ * player B slot pose. OB1..OB4 mirror B1..B4. */
+export function opponentBSlotCardPose(idx: number): Pose {
+  return mirrorPose(slotCardPose(`B${idx}` as SlotId));
+}
+
+/** Opponent Bulwark (C) card resting in an OC slot — mirror of the matching
+ * player C slot pose. OC1..OC4 mirror C1..C4. */
+export function opponentCSlotCardPose(idx: number): Pose {
+  return mirrorPose(slotCardPose(`C${idx}` as SlotId));
 }
 
 /** Opponent graveyard pile pose by index from the bottom (mirror of the

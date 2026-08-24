@@ -5,7 +5,6 @@ import { opponentDeckPose, opponentHandPoses } from '../board/layout';
 import { useGameStore } from '../state/useGameStore';
 import type { Pose } from '../state/types';
 import { CardBackMesh } from './CardBack';
-import { OPP_DECK_COUNT } from './OpponentField';
 
 /**
  * The opponent's hand (Phase 7 Slice 4). Now driven by real `opponentHand`
@@ -46,8 +45,10 @@ function OppHandBack({ pose, deckTop, delay }: { pose: Pose; deckTop: Pose; dela
 
 export function OpponentHand() {
   const opponentHand = useGameStore((s) => s.opponentHand);
+  const deckCount = useGameStore((s) => s.opponentDeck.length);
   const handPoses = opponentHandPoses(opponentHand.length);
-  const deckTop = opponentDeckPose(OPP_DECK_COUNT - 1);
+  // Draw fly-in starts from the current top of the (shrinking) opponent deck.
+  const deckTop = opponentDeckPose(Math.max(0, deckCount - 1));
 
   return (
     <>

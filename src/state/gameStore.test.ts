@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createGameStore, SUMMON_SHOWCASE_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS, SHUFFLE_SPREAD_MS, END_PHASE_DWELL_MS, OPP_PHASE_STEP_MS } from './gameStore';
+import { createGameStore, SUMMON_SHOWCASE_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS, SHUFFLE_SPREAD_MS, END_PHASE_DWELL_MS, OPP_PHASE_STEP_MS, OPP_PLAY_SHOWCASE_MS, OPP_PLAY_STEP_MS, OPP_MAIN_DURATION_MS } from './gameStore';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState, Card, OppSlotId } from './types';
@@ -1103,7 +1103,7 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
       expect(store.getState().activePlayer).toBe('opponent');
 
       // Step through draw -> main -> battle (attacks declared) -> resolution.
-      vi.advanceTimersByTime(OPP_PHASE_STEP_MS * 3 + 20);
+      vi.advanceTimersByTime(OPP_PHASE_STEP_MS * 2 + OPP_MAIN_DURATION_MS + 20);
       expect(store.getState().phase).toBe('resolution');
       // The opponent aimed its same-column Vanguard (O1) at the player's A1.
       expect(store.getState().oppAttackTargets.O1).toBe('A1');
@@ -1142,7 +1142,7 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
       vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
       vi.advanceTimersByTime(END_PHASE_DWELL_MS + 20);
       expect(store.getState().activePlayer).toBe('opponent');
-      vi.advanceTimersByTime(OPP_PHASE_STEP_MS * 3 + 20);
+      vi.advanceTimersByTime(OPP_PHASE_STEP_MS * 2 + OPP_MAIN_DURATION_MS + 20);
       expect(store.getState().oppAttackTargets).toEqual({});
       // With no targets, the opponent's Resolution still resolves and hands back.
       vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400 + END_PHASE_DWELL_MS + 40);
@@ -1169,7 +1169,7 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
         phase: 'battle',
         activePlayer: 'player',
         opponentHand: ['opp-deck-A3'],
-        opponentDeck: ['opp-deck-B1'], // one card to draw
+        opponentDeck: ['opp-deck-A1'], // one card to draw (another Vanguard)
         opponentBoard: { O1: null, O2: null, O3: null, O4: null },
       });
 
@@ -1182,18 +1182,20 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
 
       // Draw happens immediately on entering the opponent's draw phase.
       expect(store.getState().opponentDeck).toEqual([]);
-      expect(store.getState().opponentHand).toContain('opp-deck-B1');
+      expect(store.getState().opponentHand).toContain('opp-deck-A1');
 
-      // Advance to Main: the opponent summons its free Vanguard onto O1 and
-      // showcases it (the reveal), removing it from hand.
+      // Advance to Main: the opponent summons its first free Vanguard onto O1 and
+      // showcases it (the reveal), removing it from hand. Only one Vanguard plays
+      // per turn, so the second A stays in hand.
       vi.advanceTimersByTime(OPP_PHASE_STEP_MS + 20);
       expect(store.getState().phase).toBe('main');
       expect(store.getState().opponentBoard.O1).toBe('opp-deck-A3');
       expect(store.getState().opponentHand).not.toContain('opp-deck-A3');
+      expect(store.getState().opponentHand).toContain('opp-deck-A1');
       expect(store.getState().oppSummon).toEqual({ cardId: 'opp-deck-A3', slotId: 'O1' });
 
-      // The summon showcase self-clears after SUMMON_SHOWCASE_MS.
-      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + 20);
+      // The play showcase self-clears after OPP_PLAY_SHOWCASE_MS.
+      vi.advanceTimersByTime(OPP_PLAY_SHOWCASE_MS + 20);
       expect(store.getState().oppSummon).toBeNull();
       // The summoned card stays on the board.
       expect(store.getState().opponentBoard.O1).toBe('opp-deck-A3');
@@ -1202,7 +1204,7 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
     }
   });
 
-  it('the opponent summons nothing when its hand holds no free Vanguard', () => {
+  it('the opponent plays nothing when its hand holds no free Vanguard, Bulwark, or Arcane', () => {
     vi.useFakeTimers();
     try {
       const base = createInitialState();
@@ -1210,18 +1212,63 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
         ...base,
         phase: 'battle',
         activePlayer: 'player',
-        // Only a tribute-level Commander + a support card: neither is free.
-        opponentHand: ['opp-deck-A5', 'opp-deck-B1'],
+        // Only a tribute-level Commander: not a free summon, and no B/C to set.
+        opponentHand: ['opp-deck-A5'],
         opponentDeck: [],
         opponentBoard: { O1: null, O2: null, O3: null, O4: null },
       });
       store.getState().advancePhase();
       vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
       vi.advanceTimersByTime(END_PHASE_DWELL_MS + 20);
-      vi.advanceTimersByTime(OPP_PHASE_STEP_MS + 20); // -> main + summon attempt
+      vi.advanceTimersByTime(OPP_PHASE_STEP_MS + OPP_PLAY_STEP_MS * 2 + OPP_PLAY_SHOWCASE_MS + 20); // main + all paced play attempts
       expect(store.getState().phase).toBe('main');
       expect(Object.values(store.getState().opponentBoard).every((v) => v === null)).toBe(true);
+      expect(Object.values(store.getState().opponentBBoard).every((v) => v === null)).toBe(true);
+      expect(Object.values(store.getState().opponentCBoard).every((v) => v === null)).toBe(true);
       expect(store.getState().oppSummon).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the opponent plays one of each row type per turn — a Vanguard, a linked Bulwark (with a stat boost), and an Arcane', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        activePlayer: 'player',
+        // A free Vanguard, its linked-column Bulwark, and an Arcane.
+        // A3 -> O3, C3 -> OC3 (linked to O3), B1 -> OB1.
+        opponentHand: ['opp-deck-A3', 'opp-deck-C3', 'opp-deck-B1'],
+        opponentDeck: [],
+        opponentBoard: { O1: null, O2: null, O3: null, O4: null },
+        opponentBBoard: { OB1: null, OB2: null, OB3: null, OB4: null },
+        opponentCBoard: { OC1: null, OC2: null, OC3: null, OC4: null },
+      });
+
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
+      vi.advanceTimersByTime(END_PHASE_DWELL_MS + 20);
+      expect(store.getState().activePlayer).toBe('opponent');
+
+      // Advance into Main and let all three paced play attempts fire.
+      vi.advanceTimersByTime(OPP_PHASE_STEP_MS + OPP_PLAY_STEP_MS * 2 + OPP_PLAY_SHOWCASE_MS + 20);
+      const s = store.getState();
+
+      // Vanguard summoned to the first open O-slot (O1).
+      expect(s.opponentBoard.O1).toBe('opp-deck-A3');
+      // Bulwark set to a linked, occupied OC-slot (OC1, linked to O1).
+      expect(s.opponentCBoard.OC1).toBe('opp-deck-C3');
+      // ...and it rolled a stat boost (mirror of the player's C set).
+      expect(s.opponentCards['opp-deck-C3'].buff).toBeTruthy();
+      // Arcane set to the first open OB-slot (OB1).
+      expect(s.opponentBBoard.OB1).toBe('opp-deck-B1');
+      // All three left the hand.
+      expect(s.opponentHand).toEqual([]);
+      // The last reveal has cleared before Battle.
+      expect(s.oppSummon).toBeNull();
     } finally {
       vi.useRealTimers();
     }

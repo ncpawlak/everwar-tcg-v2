@@ -9,21 +9,23 @@ import {
 } from '../board/boardConfig';
 import { opponentDeckPose } from '../board/layout';
 import { CardBack } from './CardBack';
+import { useGameStore } from '../state/useGameStore';
 import type { SlotId } from '../state/types';
 
 /**
  * The opponent's field furniture — a purely visual 180° mirror of the player's
  * board (Phase 6). Renders the mirrored zone outlines for all 12 slots, the
  * grave/replen placeholders, and a face-down deck stack (top-left of the
- * screen). The opponent's hand is rendered/animated separately by OpponentHand,
- * and the live A-row cards + targeting live in OpponentBoard. Zone labels are
- * kept upright so they stay readable even though the field is mirrored.
+ * screen) whose height tracks the live opponent deck. The opponent's hand is
+ * rendered/animated separately by OpponentHand, and the live A-row cards +
+ * targeting live in OpponentBoard. Zone labels are kept upright so they stay
+ * readable even though the field is mirrored.
  */
 
-/** How many card backs to stack for the opponent's deck (visual only). */
-export const OPP_DECK_COUNT = 12;
-
 export function OpponentField() {
+  // The face-down deck stack shrinks as the opponent draws, mirroring the
+  // player's deck (which is drawn from the live `deck` array).
+  const opponentDeckCount = useGameStore((s) => s.opponentDeck.length);
   return (
     <group>
       {/* Mirrored zone outlines for all 12 slots. */}
@@ -74,8 +76,9 @@ export function OpponentField() {
         );
       })}
 
-      {/* Face-down deck stack (mirrors the player's, so it sits top-left). */}
-      {Array.from({ length: OPP_DECK_COUNT }, (_, i) => {
+      {/* Face-down deck stack (mirrors the player's, so it sits top-left). Its
+          height tracks the live opponent deck so it shrinks as cards are drawn. */}
+      {Array.from({ length: opponentDeckCount }, (_, i) => {
         const pose = opponentDeckPose(i);
         return (
           <CardBack
