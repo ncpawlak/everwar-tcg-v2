@@ -330,4 +330,10 @@ export interface GameState {
   /** Player A-slots whose card the opponent is destroying this Resolution (HP
    * hit 0); drives the red slash FX over the doomed player card. */
   oppDestroying: SlotId[];
+  /** An in-progress opponent summon reveal (Phase 7 Slice 4): the card the
+   * opponent just set and the O-slot it landed on. While set, that card is
+   * showcased face-up center-screen (its "reveal") before it springs down to
+   * its slot; self-clears after the showcase. Null when the opponent isn't
+   * mid-summon. */
+  oppSummon: { cardId: CardId; slotId: OppSlotId } | null;
 }

@@ -1,4 +1,4 @@
-import type { Card, CardId, CardType, GameState, OppSlotId, SlotId } from './types';
+import type { Card, CardId, CardType, GameState, SlotId } from './types';
 import { shuffleArray } from './shuffle';
 
 /** The three typed families, in canonical order. */
@@ -141,52 +141,15 @@ export function createEmptyBoard(): GameState['board'] {
 }
 
 /**
- * Static opponent Vanguard library for the combat simulation. Dummy A-cards the
- * player targets and destroys. Their HP is set well above the player's per-hit
- * DMG so a single target usually needs several attacks to fall — which is what
- * makes stacking multiple attackers onto one opponent meaningful.
- */
-export const OPPONENT_LIBRARY: Record<OppSlotId, Omit<Card, 'id' | 'type'>> = {
-  O1: {
-    name: 'Dread Harbinger', cost: 4, dmg: 1600, acc: 120, hp: 4200, rarity: 'Epic',
-    effect: 'An omen of the coming ruin.', flavor: 'It marches ahead of the storm.',
-  },
-  O2: {
-    name: 'Void Sentinel', cost: 6, dmg: 1900, acc: 140, hp: 5400, rarity: 'Legendary',
-    effect: 'Guards the rift between worlds.', flavor: 'Nothing passes. Nothing returns.',
-  },
-  O3: {
-    name: 'Gloom Warden', cost: 3, dmg: 1400, acc: 110, hp: 3600, rarity: 'Rare',
-    effect: 'Keeper of the black watchfires.', flavor: 'Its lantern burns without light.',
-  },
-  O4: {
-    name: 'Ashen Revenant', cost: 5, dmg: 2000, acc: 150, hp: 4800, rarity: 'Epic',
-    effect: 'Risen from the cinders of a fallen host.', flavor: 'Death was only an intermission.',
-  },
-};
-
-/** Opponent card id for a given opponent slot. */
-export function opponentCardId(slot: OppSlotId): CardId {
-  return `opp-${slot}`;
-}
-
-/**
- * Build the opponent's field for the simulation: three seeded Vanguard cards
- * (O1–O3 occupied, O4 left empty to show a gap), plus the full card lookup.
+ * Build the opponent's field for the simulation. Phase 7 Slice 4: the opponent
+ * now starts with an EMPTY board and summons its own cards from its hand over
+ * the course of its turns (the old pre-seeded O1–O3 dummy Vanguards are retired).
+ * The `opponentCards` lookup is populated entirely by {@link createOpponentDeck}.
  */
 export function createInitialOpponents(): {
-  opponentCards: Record<CardId, Card>;
   opponentBoard: GameState['opponentBoard'];
 } {
-  const opponentCards: Record<CardId, Card> = {};
-  const opponentBoard: GameState['opponentBoard'] = { O1: null, O2: null, O3: null, O4: null };
-  const seeded: OppSlotId[] = ['O1', 'O2', 'O3'];
-  for (const slot of seeded) {
-    const id = opponentCardId(slot);
-    opponentCards[id] = { id, type: 'A', ...OPPONENT_LIBRARY[slot] };
-    opponentBoard[slot] = id;
-  }
-  return { opponentCards, opponentBoard };
+  return { opponentBoard: { O1: null, O2: null, O3: null, O4: null } };
 }
 
 /** Card id for a card in the opponent's own deck (Phase 7). Distinct namespace
@@ -235,9 +198,12 @@ export function createEmptyOppCBoard(): GameState['opponentCBoard'] {
 /** A fresh Phase 2 game state: full deck, empty hand, empty board, no drag. */
 export function createInitialState(): GameState {
   const { cardsById, deck } = createInitialCards();
-  const { opponentCards, opponentBoard } = createInitialOpponents();
+  const { opponentBoard } = createInitialOpponents();
   const oppDeck = createOpponentDeck();
-  const allOpponentCards = { ...opponentCards, ...oppDeck.cards };
+  // Deal the opponent its opening hand off the top of its own deck (mirror of
+  // the player's opening five). The remaining cards stay in the draw pile.
+  const opponentDeck = [...oppDeck.deck];
+  const opponentHand = opponentDeck.splice(opponentDeck.length - OPENING_HAND_SIZE, OPENING_HAND_SIZE).reverse();
   return {
     cardsById,
     deck,
@@ -256,11 +222,11 @@ export function createInitialState(): GameState {
     phase: 'draw',
     activePlayer: 'player',
     phaseAnnounce: 0,
-    opponentCards: allOpponentCards,
+    opponentCards: oppDeck.cards,
     opponentBoard,
     opponentGraveyard: [],
-    opponentDeck: oppDeck.deck,
-    opponentHand: [],
+    opponentDeck,
+    opponentHand,
     opponentReplen: [],
     opponentBBoard: createEmptyOppBBoard(),
     opponentCBoard: createEmptyOppCBoard(),
@@ -280,6 +246,7 @@ export function createInitialState(): GameState {
     oppOutcomePopups: {},
     oppDamagePopups: {},
     oppDestroying: [],
+    oppSummon: null,
   };
 }
 

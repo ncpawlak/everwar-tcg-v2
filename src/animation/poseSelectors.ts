@@ -129,7 +129,18 @@ export function selectCardVisual(
 export function selectOpponentCardVisual(
   state: GameState,
   cardId: CardId,
-): { pose: Pose; zone: 'board' | 'graveyard'; config: SpringConfig; scale: number } | null {
+): { pose: Pose; zone: 'board' | 'graveyard' | 'summon'; config: SpringConfig; scale: number } | null {
+  // Summon reveal: a just-summoned opponent card is showcased big & centered
+  // facing the camera (its face-down hand back "flips up") before it springs to
+  // its slot — mirror of the player's summon showcase.
+  if (state.oppSummon && state.oppSummon.cardId === cardId) {
+    return {
+      pose: summonShowcasePose(),
+      zone: 'summon',
+      config: SPRING.summon,
+      scale: SUMMON_SHOWCASE_SCALE,
+    };
+  }
   for (const slot of OPP_SLOT_IDS) {
     if (state.opponentBoard[slot] === cardId) {
       return {

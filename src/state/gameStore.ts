@@ -602,6 +602,47 @@ export function createGameStore(
       };
 
       /**
+       * Opponent draw step (Phase 7 Slice 4): move the top card of the
+       * opponent's own deck into its hand. No-op on an empty deck. The hidden
+       * hand is rendered as face-down backs, so this just grows the fan.
+       */
+      const drawOpponentCard = () =>
+        set((s) => {
+          if (s.opponentDeck.length === 0) return {} as Partial<GameState>;
+          const deck = [...s.opponentDeck];
+          const top = deck.pop()!;
+          return { opponentDeck: deck, opponentHand: [...s.opponentHand, top] };
+        });
+
+      /**
+       * Opponent summon step (Phase 7 Slice 4): a simple heuristic AI. Summon the
+       * first free-summonable Vanguard (an A-card of level ≤ 2 — no tribute, no
+       * Commander) from the opponent's hand into the first empty O-slot. The card
+       * is placed face-up on the board and showcased center-screen (its reveal)
+       * for SUMMON_SHOWCASE_MS before springing down to its slot, mirroring the
+       * player's summon. No-op when there's no free card or no open slot.
+       */
+      const opponentSummon = () => {
+        if (!oppActive()) return;
+        const s = get();
+        const slot = OPP_SLOT_IDS.find((o) => !s.opponentBoard[o]) as OppSlotId | undefined;
+        if (!slot) return;
+        const cardId = s.opponentHand.find((id) => {
+          const c = s.opponentCards[id];
+          return !!c && c.type === 'A' && !requiresTribute(c);
+        });
+        if (!cardId) return;
+        set((st) => ({
+          opponentHand: st.opponentHand.filter((id) => id !== cardId),
+          opponentBoard: { ...st.opponentBoard, [slot]: cardId },
+          oppSummon: { cardId, slotId: slot },
+        }));
+        setTimeout(() => {
+          set((st) => (st.oppSummon && st.oppSummon.cardId === cardId ? { ...st, oppSummon: null } : st));
+        }, SUMMON_SHOWCASE_MS);
+      };
+
+      /**
        * Run the opponent's full auto-turn (Phase 7). Control passes here after
        * the player ends their turn. The opponent takes its own turn number and
        * steps draw -> main -> battle on a timer (shared HUD + banner announce
@@ -617,9 +658,11 @@ export function createGameStore(
           phase: 'draw',
           phaseAnnounce: s.phaseAnnounce + 1,
         }));
+        drawOpponentCard();
         setTimeout(() => {
           if (!oppActive()) return;
           set((s) => ({ phase: 'main', phaseAnnounce: s.phaseAnnounce + 1 }));
+          opponentSummon();
         }, OPP_PHASE_STEP_MS);
         setTimeout(() => {
           if (!oppActive()) return;

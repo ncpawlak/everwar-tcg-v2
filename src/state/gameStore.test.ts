@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createGameStore, SUMMON_SHOWCASE_MS, DICE_ROLL_MS, DICE_HOLD_MS, OUTCOME_POPUP_MS, GRAVEYARD_TRAVEL_MS, RESOLUTION_ROLL_DELAY_MS, SHUFFLE_SPREAD_MS, END_PHASE_DWELL_MS, OPP_PHASE_STEP_MS } from './gameStore';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
-import type { GameState } from './types';
+import type { GameState, Card, OppSlotId } from './types';
 
 /** Build a store with a deterministic hand (cards removed from the deck). */
 function storeWithHand(hand: GameState['cardsById'][string]['id'][]) {
@@ -14,6 +14,24 @@ function storeWithHand(hand: GameState['cardsById'][string]['id'][]) {
     // Cards can only be set during Main; put drop tests in the Main phase.
     phase: 'main',
   });
+}
+
+/**
+ * Seed a single opponent A-card onto an opponent board slot for combat tests.
+ * The opponent board now starts EMPTY (Slice 4 retired the dummy seeds), so
+ * player-attack tests must place a target explicitly. Returns a partial state
+ * to spread into createGameStore.
+ */
+function withOpponent(base: GameState, slot: OppSlotId, card?: Partial<Card>): Partial<GameState> {
+  const id = `opp-${slot}`;
+  const full = {
+    id, type: 'A', name: 'Test Sentinel', cost: 4, hp: 4000, dmg: 1600, acc: 120, rarity: 'Epic',
+    effect: '', flavor: '', ...card,
+  } as Card;
+  return {
+    opponentBoard: { ...base.opponentBoard, [slot]: id },
+    opponentCards: { ...base.opponentCards, [id]: full },
+  };
 }
 
 describe('P2-S02/S08 game store actions', () => {
@@ -876,6 +894,7 @@ describe('P4 turn / phase mechanics', () => {
       ...base,
       phase: 'battle',
       board: { ...base.board, A1: 'card-A1' },
+      ...withOpponent(base, 'O1'),
     });
 
     store.getState().aimAttack('A1');
@@ -931,6 +950,7 @@ describe('P4 turn / phase mechanics', () => {
         board: { ...base.board, A1: 'card-A1', A2: 'card-A2' },
         // Both attackers aim at the same opponent; their damage stacks onto O1.
         attackTargets: { A1: 'O1', A2: 'O1' },
+        ...withOpponent(base, 'O1'),
       });
 
       store.getState().advancePhase(); // battle -> resolution
@@ -967,8 +987,8 @@ describe('P4 turn / phase mechanics', () => {
       const s = store.getState();
       const totalDmg =
         (s.outcomePopups['A1'].damage ?? 0) + (s.outcomePopups['A2'].damage ?? 0);
-      const oppId = createInitialState().opponentBoard.O1!;
-      const maxHp = createInitialState().opponentCards[oppId].hp!;
+      const oppId = store.getState().opponentBoard.O1!;
+      const maxHp = store.getState().opponentCards[oppId].hp!;
       if (totalDmg > 0) {
         expect(s.currentHp[oppId]).toBe(Math.max(0, maxHp - totalDmg));
         expect(s.damagePopups.O1).toBe(totalDmg);
@@ -1015,12 +1035,13 @@ describe('P4 turn / phase mechanics', () => {
     const rand = vi.spyOn(Math, 'random').mockReturnValue(0.5);
     try {
       const base = createInitialState();
-      const oppId = base.opponentBoard.O1!;
+      const oppId = 'opp-O1';
       const store = createGameStore({
         ...base,
         phase: 'battle',
         board: { ...base.board, A1: 'card-A1' },
         attackTargets: { A1: 'O1' },
+        ...withOpponent(base, 'O1'),
         // O1 is dropped to 1 HP, so any hit is lethal.
         currentHp: { [oppId]: 1 },
       });
@@ -1065,6 +1086,10 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
         // A lone player Vanguard on 1 HP: any opponent hit is lethal.
         board: { ...base.board, A1: 'card-A1', C1: 'card-C1' },
         currentHp: { 'card-A1': 1 },
+        // Seed the opponent attacker directly and empty its hand so the AI
+        // summon step is a no-op — this test isolates the combat path.
+        ...withOpponent(base, 'O1'),
+        opponentHand: [],
       });
 
       // Player has no attackers: Battle -> Resolution flows straight to End...
@@ -1124,6 +1149,80 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
       expect(store.getState().activePlayer).toBe('player');
     } finally {
       rand.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('P7-S4 opponent AI (draw + summon)', () => {
+  it('the opponent draws a card and summons a free Vanguard onto an empty slot on its turn', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      // Give the opponent a single free Vanguard in hand (A3 is level 1) so the
+      // summon is deterministic; empty the deck-drawn ambiguity by controlling
+      // the hand contents directly.
+      const freeCard = base.opponentCards['opp-deck-A3'];
+      expect(freeCard.type).toBe('A');
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        activePlayer: 'player',
+        opponentHand: ['opp-deck-A3'],
+        opponentDeck: ['opp-deck-B1'], // one card to draw
+        opponentBoard: { O1: null, O2: null, O3: null, O4: null },
+      });
+
+      // Player has no attackers -> straight to End, then hand off to opponent.
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
+      vi.advanceTimersByTime(END_PHASE_DWELL_MS + 20);
+      expect(store.getState().activePlayer).toBe('opponent');
+      expect(store.getState().phase).toBe('draw');
+
+      // Draw happens immediately on entering the opponent's draw phase.
+      expect(store.getState().opponentDeck).toEqual([]);
+      expect(store.getState().opponentHand).toContain('opp-deck-B1');
+
+      // Advance to Main: the opponent summons its free Vanguard onto O1 and
+      // showcases it (the reveal), removing it from hand.
+      vi.advanceTimersByTime(OPP_PHASE_STEP_MS + 20);
+      expect(store.getState().phase).toBe('main');
+      expect(store.getState().opponentBoard.O1).toBe('opp-deck-A3');
+      expect(store.getState().opponentHand).not.toContain('opp-deck-A3');
+      expect(store.getState().oppSummon).toEqual({ cardId: 'opp-deck-A3', slotId: 'O1' });
+
+      // The summon showcase self-clears after SUMMON_SHOWCASE_MS.
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + 20);
+      expect(store.getState().oppSummon).toBeNull();
+      // The summoned card stays on the board.
+      expect(store.getState().opponentBoard.O1).toBe('opp-deck-A3');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the opponent summons nothing when its hand holds no free Vanguard', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        activePlayer: 'player',
+        // Only a tribute-level Commander + a support card: neither is free.
+        opponentHand: ['opp-deck-A5', 'opp-deck-B1'],
+        opponentDeck: [],
+        opponentBoard: { O1: null, O2: null, O3: null, O4: null },
+      });
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
+      vi.advanceTimersByTime(END_PHASE_DWELL_MS + 20);
+      vi.advanceTimersByTime(OPP_PHASE_STEP_MS + 20); // -> main + summon attempt
+      expect(store.getState().phase).toBe('main');
+      expect(Object.values(store.getState().opponentBoard).every((v) => v === null)).toBe(true);
+      expect(store.getState().oppSummon).toBeNull();
+    } finally {
       vi.useRealTimers();
     }
   });

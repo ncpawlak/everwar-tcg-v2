@@ -4,6 +4,7 @@ import {
   createInitialCards,
   createEmptyBoard,
   DECK_SIZE,
+  OPENING_HAND_SIZE,
   SLOT_IDS,
 } from './cardData';
 
@@ -45,14 +46,18 @@ describe('P2-S01 initial state', () => {
     expect(new Set(top5).size).toBeGreaterThan(1);
   });
 
-  it('P7-S1: gives the opponent its own full-player state', () => {
+  it('P7-S1/S4: gives the opponent its own full-player state + opening hand', () => {
     const s = createInitialState();
-    // Opponent has its own 13-card deck under the opp-deck namespace.
-    expect(s.opponentDeck).toHaveLength(DECK_SIZE);
-    expect(s.opponentDeck.every((id) => id.startsWith('opp-deck-'))).toBe(true);
-    expect(s.opponentDeck.every((id) => s.opponentCards[id])).toBe(true);
-    // Hand, replen start empty; B/C rows are all-null.
-    expect(s.opponentHand).toEqual([]);
+    // Opponent draws its opening five off its own 13-card deck, so the draw
+    // pile holds the remainder and the hand holds five (all opp-deck cards).
+    expect(s.opponentDeck).toHaveLength(DECK_SIZE - OPENING_HAND_SIZE);
+    expect(s.opponentHand).toHaveLength(OPENING_HAND_SIZE);
+    const oppInPlay = [...s.opponentDeck, ...s.opponentHand];
+    expect(oppInPlay.every((id) => id.startsWith('opp-deck-'))).toBe(true);
+    expect(oppInPlay.every((id) => s.opponentCards[id])).toBe(true);
+    // Opponent starts with an EMPTY board (Slice 4 retired the dummy seeds).
+    expect(Object.values(s.opponentBoard).every((v) => v === null)).toBe(true);
+    // Replen starts empty; B/C rows are all-null.
     expect(s.opponentReplen).toEqual([]);
     expect(Object.values(s.opponentBBoard).every((v) => v === null)).toBe(true);
     expect(Object.values(s.opponentCBoard).every((v) => v === null)).toBe(true);
