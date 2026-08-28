@@ -84,6 +84,28 @@ describe('P8 ability parser', () => {
     expect(ir.effect).toEqual({ kind: 'returnSelfToHand' });
   });
 
+  it('parses Bunker Busting Round into an optional, once-per-turn combatHit breakAllArmorBars IR', () => {
+    const ir = parseAbility(
+      'Bunker Busting Round: Once per turn, if this Hero lands a Successful Hit: you can break all Armor Bars on the target Hero. If you do, no damage is inflicted.',
+    );
+    expect(ir.name).toBe('Bunker Busting Round');
+    expect(ir.trigger).toBe('combatHit');
+    expect(ir.oncePerTurn).toBe(true);
+    expect(ir.optional).toBe(true);
+    expect(ir.effect).toEqual({ kind: 'breakAllArmorBars' });
+  });
+
+  it('parses Hidden Finisher into a mandatory combatHit instantEliminate IR', () => {
+    const ir = parseAbility(
+      'Hidden Finisher: If this Hero lands a Successful Hit against a Normal Hero with less than half HP: eliminate that Hero instantly.',
+    );
+    expect(ir.name).toBe('Hidden Finisher');
+    expect(ir.trigger).toBe('combatHit');
+    expect(ir.oncePerTurn).toBeUndefined();
+    expect(ir.optional).toBeUndefined();
+    expect(ir.effect).toEqual({ kind: 'instantEliminate' });
+  });
+
   it('keeps the ability name but marks unrecognized text as unimplemented (inert, still displays)', () => {
     const ir = parseAbility(
       'Pink Mist: Once per turn, if this Hero inflicts damage with a Critical Hit: this Hero can attack again.',

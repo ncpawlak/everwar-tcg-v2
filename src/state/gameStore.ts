@@ -11,6 +11,7 @@ import { collectAuras, auraStatDelta } from '../abilities/auras';
 import { parseAbility } from '../abilities/parseAbility';
 import { abilityValidTargets } from '../abilities/activated';
 import { onSentAbilities, pileActivatedAbilityFor } from '../abilities/pile';
+import { combatHitAbilities, finisherEliminates } from '../abilities/combat';
 import { OPP_SLOT_IDS } from '../board/boardConfig';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 
@@ -166,6 +167,11 @@ export interface GameActions {
    *  return it to the Hand). No-op unless it is the player's Main phase, the card
    *  is in a player pile, and it has a matching pile-activated ability. */
   activatePileAbility: (cardId: CardId) => void;
+  /** Resolve a paused Bunker Busting prompt: `true` wipes all Armor Bars on the
+   *  struck Hero and inflicts no damage, `false` applies normal armor math. Either
+   *  way Resolution resumes with the remaining attackers. No-op unless a combat
+   *  prompt is pending. */
+  resolveCombatPrompt: (accept: boolean) => void;
   /**
    * Temp Phase 3 mechanic (no Player 2 yet): "destroy" a random occupied zone-A
    * slot — send its card to the graveyard, along with the linked zone-C card in
@@ -354,6 +360,177 @@ export function createGameStore(
       };
 
       /**
+       * Apply ONE attacker's already-rolled hit to the opponent. Reads the live
+       * store, mutates copies, and commits. `bunkerBust=true` means the player
+       * accepted Snow Viper's Bunker Busting Round on this hit: wipe every Armor
+       * Bar on the target, deal no HP damage, and mark the ability used this turn.
+       * Otherwise Hidden Finisher is checked first (a low-HP Normal Hero is sent
+       * straight to the Graveyard, ignoring armor); failing that, normal armor
+       * math applies. A miss (or a vacated target) is a no-op.
+       */
+      const applyCombatHit = (src: SlotId, bunkerBust: boolean) => {
+        set((s) => {
+          const result = s.resolutionResults[src];
+          const targetSlot = s.attackTargets[src] as OppSlotId | null | undefined;
+          if (!result || result.outcome === 'miss' || !targetSlot) return {};
+          const oppId = s.opponentBoard[targetSlot];
+          if (!oppId) return {};
+          const defCard = s.opponentCards[oppId];
+          const maxHp = defCard?.hp ?? 0;
+          const currentHp = { ...s.currentHp };
+          const currentArmorBars = { ...s.currentArmorBars };
+          const damagePopups = { ...s.damagePopups };
+          const destroying = new Set<OppSlotId>(s.destroying);
+          const srcId = s.board[src] ?? undefined;
+          const srcCard = srcId ? s.cardsById[srcId] : undefined;
+          const combat = combatHitAbilities(srcCard);
+
+          // Bunker Busting Round (accepted): all bars break, no HP damage.
+          if (bunkerBust && combat.breakAllArmorBars) {
+            currentArmorBars[oppId] = 0;
+            const usedActivatedAbilities = { ...s.usedActivatedAbilities };
+            if (srcId) {
+              const used = usedActivatedAbilities[srcId] ?? [];
+              if (!used.includes(combat.breakAllArmorBars.name)) {
+                usedActivatedAbilities[srcId] = [...used, combat.breakAllArmorBars.name];
+              }
+            }
+            return { currentArmorBars, usedActivatedAbilities };
+          }
+
+          // Hidden Finisher (mandatory): low-HP Normal Hero → instant graveyard,
+          // ignoring armor + Armor Bars. Takes precedence over normal armor math.
+          const cur = currentHp[oppId] ?? maxHp;
+          if (finisherEliminates(combat, defCard, cur)) {
+            currentHp[oppId] = 0;
+            damagePopups[targetSlot] = (damagePopups[targetSlot] ?? 0) + cur;
+            destroying.add(targetSlot);
+            return { currentHp, damagePopups, destroying: [...destroying] };
+          }
+
+          // Normal armor math (opponent armor auras fold into flat armor).
+          const oppAuras = collectAuras(boardHeroes(s.opponentBoard, s.opponentCards));
+          const armor =
+            (defCard?.armor ?? 0) + (defCard ? auraStatDelta(oppAuras, defCard, 'armor') : 0);
+          const bars = currentArmorBars[oppId] ?? defCard?.armorBars ?? 0;
+          const baseDmg = effectiveStats(s, src).dmg.value;
+          const hit = applyArmorToHit({ bars, armor }, result.outcome, result.damage, baseDmg);
+          currentArmorBars[oppId] = hit.bars;
+          if (hit.hpDamage > 0) {
+            const next = Math.max(0, cur - hit.hpDamage);
+            currentHp[oppId] = next;
+            damagePopups[targetSlot] = (damagePopups[targetSlot] ?? 0) + hit.hpDamage;
+            if (next <= 0) destroying.add(targetSlot);
+          }
+          return { currentHp, currentArmorBars, damagePopups, destroying: [...destroying] };
+        });
+      };
+
+      /**
+       * After every attacker's hit has landed, dwell on the pop-ups, then clear
+       * the dice/pop-ups and remove any opponent at 0 HP (springing it to the
+       * opponent graveyard with its linked C-card), and finally advance to End.
+       * Mirrors the original tail of the Resolution step.
+       */
+      const settleResolution = () => {
+        setTimeout(() => {
+          if (get().phase !== 'resolution') return;
+          let destroyedAny = false;
+          set((s) => {
+            const opponentBoard = { ...s.opponentBoard };
+            const opponentCBoard = { ...s.opponentCBoard };
+            const opponentGraveyard = [...s.opponentGraveyard];
+            const currentHp = { ...s.currentHp };
+            const currentArmorBars = { ...s.currentArmorBars };
+            for (const slot of OPP_SLOT_IDS) {
+              const oppId = opponentBoard[slot];
+              if (!oppId || (currentHp[oppId] ?? Infinity) > 0) continue;
+              destroyedAny = true;
+              opponentBoard[slot] = null;
+              opponentGraveyard.push(oppId);
+              delete currentHp[oppId];
+              delete currentArmorBars[oppId];
+              const ocSlot = `OC${slot[1]}` as OppCSlotId;
+              const ocId = opponentCBoard[ocSlot];
+              if (ocId) {
+                opponentCBoard[ocSlot] = null;
+                opponentGraveyard.push(ocId);
+              }
+            }
+            return {
+              outcomePopups: {},
+              damagePopups: {},
+              resolutionRolls: {},
+              resolutionResults: {},
+              destroying: [],
+              opponentBoard,
+              opponentCBoard,
+              opponentGraveyard,
+              currentHp,
+              currentArmorBars,
+            };
+          });
+          if (destroyedAny) {
+            setTimeout(() => {
+              if (get().phase === 'resolution') goToPhase('end');
+            }, GRAVEYARD_TRAVEL_MS);
+          } else {
+            goToPhase('end');
+          }
+        }, OUTCOME_POPUP_MS);
+      };
+
+      /**
+       * Resolve the queued attackers IN ORDER. For each landing hit, if the
+       * attacker is a Snow Viper-type Hero whose Bunker Busting Round is available
+       * (unused this turn, target still has ≥1 Armor Bar) AND Hidden Finisher
+       * would NOT already eliminate the target, PAUSE: commit progress so far,
+       * stash the remaining attackers in `pendingCombatQueue`, and raise
+       * `combatPrompt` for a yes/no. `resolveCombatPrompt` resumes by re-entering
+       * with the stashed queue. When the queue empties, settle Resolution.
+       */
+      const advanceCombatQueue = (queue: SlotId[]) => {
+        if (get().phase !== 'resolution') return;
+        for (let i = 0; i < queue.length; i++) {
+          const src = queue[i];
+          const s = get();
+          const result = s.resolutionResults[src];
+          if (!result || result.outcome === 'miss') continue;
+          const targetSlot = s.attackTargets[src] as OppSlotId | null | undefined;
+          if (!targetSlot) continue;
+          const oppId = s.opponentBoard[targetSlot];
+          if (!oppId) continue;
+          const srcId = s.board[src] ?? undefined;
+          const srcCard = srcId ? s.cardsById[srcId] : undefined;
+          const combat = combatHitAbilities(srcCard);
+          const defCard = s.opponentCards[oppId];
+          const cur = s.currentHp[oppId] ?? defCard?.hp ?? 0;
+          // Hidden Finisher takes precedence: if it eliminates, no bunker prompt.
+          const finisher = finisherEliminates(combat, defCard, cur);
+          if (!finisher && combat.breakAllArmorBars && srcId) {
+            const bars = s.currentArmorBars[oppId] ?? defCard?.armorBars ?? 0;
+            const used = s.usedActivatedAbilities[srcId] ?? [];
+            const already = used.includes(combat.breakAllArmorBars.name);
+            if (bars >= 1 && !already) {
+              set({
+                combatPrompt: {
+                  sourceSlot: src,
+                  targetSlot,
+                  sourceCardId: srcId,
+                  targetCardId: oppId,
+                  abilityName: combat.breakAllArmorBars.name,
+                },
+                pendingCombatQueue: queue.slice(i + 1),
+              });
+              return;
+            }
+          }
+          applyCombatHit(src, false);
+        }
+        settleResolution();
+      };
+
+      /**
        * Resolution-phase roll (fires on ENTERING Resolution): for every declared
        * attacker A-slot, roll a D20 simultaneously. The dice wait for the
        * "Resolution Phase" banner to slide off screen (RESOLUTION_ROLL_DELAY_MS)
@@ -398,111 +575,12 @@ export function createGameStore(
           }, DICE_ROLL_MS);
           setTimeout(() => {
             if (get().phase !== 'resolution') return;
-            // Snapshot each attacker's result for the HIT/MISS word (over YOUR
-            // cards), then land the damage on the OPPONENT: aggregate every
-            // attacker's damage onto its target, drain that opponent's HP, and
-            // flag any opponent that hit 0 for the slash FX. Dice + pop-ups linger
-            // together while we STAY in Resolution so the End banner can't collide.
-            set((s) => {
-              const popups: Record<string, RollResult> = { ...s.resolutionResults };
-              const currentHp = { ...s.currentHp };
-              const currentArmorBars = { ...s.currentArmorBars };
-              const damagePopups: Record<string, number> = {};
-              const destroyingSet = new Set<OppSlotId>();
-              // Opponent-side armor auras (e.g. Roaming Armor) fold into flat armor.
-              const oppAuras = collectAuras(boardHeroes(s.opponentBoard, s.opponentCards));
-              // Resolve each attacker's hit IN ORDER so Armor Bars deplete per hit
-              // (a bar absorbs one hit then breaks) instead of a lump-sum drain.
-              for (const src of Object.keys(s.attackTargets) as SlotId[]) {
-                const result = s.resolutionResults[src];
-                if (!result || result.outcome === 'miss') continue;
-                const target = s.attackTargets[src] as OppSlotId | null;
-                if (!target) continue;
-                const oppId = s.opponentBoard[target];
-                if (!oppId) continue;
-                const defCard = s.opponentCards[oppId];
-                const maxHp = defCard?.hp ?? 0;
-                const armor =
-                  (defCard?.armor ?? 0) +
-                  (defCard ? auraStatDelta(oppAuras, defCard, 'armor') : 0);
-                const bars = currentArmorBars[oppId] ?? defCard?.armorBars ?? 0;
-                const baseDmg = effectiveStats(s, src).dmg.value;
-                const hit = applyArmorToHit(
-                  { bars, armor },
-                  result.outcome,
-                  result.damage,
-                  baseDmg,
-                );
-                currentArmorBars[oppId] = hit.bars;
-                if (hit.hpDamage > 0) {
-                  const cur = currentHp[oppId] ?? maxHp;
-                  const next = Math.max(0, cur - hit.hpDamage);
-                  currentHp[oppId] = next;
-                  damagePopups[target] = (damagePopups[target] ?? 0) + hit.hpDamage;
-                  if (next <= 0) destroyingSet.add(target);
-                }
-              }
-              return {
-                outcomePopups: popups,
-                damagePopups,
-                currentHp,
-                currentArmorBars,
-                destroying: [...destroyingSet],
-              };
-            });
-            // After the dwell, clear the dice + pop-ups and remove any opponent
-            // whose HP hit 0 (it slashed, now it vanishes), THEN advance to End.
-            setTimeout(() => {
-              if (get().phase !== 'resolution') return;
-              let destroyedAny = false;
-              set((s) => {
-                const opponentBoard = { ...s.opponentBoard };
-                const opponentCBoard = { ...s.opponentCBoard };
-                const opponentGraveyard = [...s.opponentGraveyard];
-                const currentHp = { ...s.currentHp };
-                const currentArmorBars = { ...s.currentArmorBars };
-                for (const slot of OPP_SLOT_IDS) {
-                  const oppId = opponentBoard[slot];
-                  if (!oppId || (currentHp[oppId] ?? Infinity) > 0) continue;
-                  destroyedAny = true;
-                  // Free the slot but keep the card alive in state so it springs
-                  // from the slot into the opponent graveyard pile (mirror of the
-                  // player's death → graveyard travel) instead of vanishing.
-                  opponentBoard[slot] = null;
-                  opponentGraveyard.push(oppId);
-                  delete currentHp[oppId];
-                  delete currentArmorBars[oppId];
-                  // The linked opponent C-card (same column) falls with its A-card.
-                  const ocSlot = `OC${slot[1]}` as OppCSlotId;
-                  const ocId = opponentCBoard[ocSlot];
-                  if (ocId) {
-                    opponentCBoard[ocSlot] = null;
-                    opponentGraveyard.push(ocId);
-                  }
-                }
-                return {
-                  outcomePopups: {},
-                  damagePopups: {},
-                  resolutionRolls: {},
-                  resolutionResults: {},
-                  destroying: [],
-                  opponentBoard,
-                  opponentCBoard,
-                  opponentGraveyard,
-                  currentHp,
-                  currentArmorBars,
-                };
-              });
-              // If an opponent was destroyed, hold in Resolution briefly so the
-              // slash finishes and the card visibly clears before the End banner.
-              if (destroyedAny) {
-                setTimeout(() => {
-                  if (get().phase === 'resolution') goToPhase('end');
-                }, GRAVEYARD_TRAVEL_MS);
-              } else {
-                goToPhase('end');
-              }
-            }, OUTCOME_POPUP_MS);
+            // Reveal every attacker's HIT/MISS word (over YOUR cards) at once, then
+            // land the damage on the OPPONENT one attacker at a time. Sequencing the
+            // hits lets Armor Bars deplete per hit AND lets Snow Viper's Bunker
+            // Busting PAUSE the loop for a yes/no prompt (see advanceCombatQueue).
+            set((s) => ({ outcomePopups: { ...s.resolutionResults } }));
+            advanceCombatQueue(Object.keys(get().attackTargets) as SlotId[]);
           }, DICE_ROLL_MS + DICE_HOLD_MS);
         }, RESOLUTION_ROLL_DELAY_MS);
       };
@@ -522,6 +600,8 @@ export function createGameStore(
           // Any mid-resolution ability selection is abandoned on a phase change.
           abilityTargeting: null,
           abilityPrompt: null,
+          combatPrompt: null,
+          pendingCombatQueue: null,
           // Leaving Resolution for End consumes the attack declaration. The dice
           // + results linger with the outcome pop-up and clear together after it.
           ...(next === 'end' ? { attackTargets: {}, targeting: null, aimPoint: null } : {}),
@@ -1294,6 +1374,18 @@ export function createGameStore(
       // Flash the activation showcase as the card travels back to the Hand.
       set((st) => ({ ...st, abilityShowcase: { cardId, abilityName: hit.ir.name } }));
       scheduleShowcaseClear(cardId);
+    },
+
+    resolveCombatPrompt: (accept) => {
+      const s = get();
+      const cp = s.combatPrompt;
+      if (!cp) return;
+      const rest = s.pendingCombatQueue ?? [];
+      set({ combatPrompt: null, pendingCombatQueue: null });
+      // Apply the paused attacker's hit (bunker-bust on accept, normal on decline),
+      // then resume Resolution with the remaining attackers.
+      applyCombatHit(cp.sourceSlot, accept);
+      advanceCombatQueue(rest);
     },
 
     destroyZoneA: () => {

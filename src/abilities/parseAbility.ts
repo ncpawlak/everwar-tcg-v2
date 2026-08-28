@@ -153,7 +153,47 @@ const PILE_RETURN_SELF_RULE: ParseRule = {
   }),
 };
 
-const RULES: ParseRule[] = [STAT_GAIN_AURA, ARMOR_AURA, SELF_STAT_BUFF_RULE, TARGET_STAT_BUFF_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE];
+/**
+ * "Once per turn, if this Hero lands a Successful Hit: you can break all Armor
+ *  Bars on the target Hero. If you do, no damage is inflicted."  (Snow Viper →
+ *  Bunker Busting Round). A `combatHit` trigger, once-per-turn, OPTIONAL ("you
+ *  can" → the player is prompted yes/no mid-Resolution). On accept it wipes every
+ *  Armor Bar on the struck Hero and inflicts no HP damage, overriding armor math.
+ */
+const BUNKER_BUSTING_RULE: ParseRule = {
+  match:
+    /^Once per turn, if this Hero lands a Successful Hit:\s*you can break all Armor Bars on the target Hero\.\s*If you do, no damage is inflicted\.$/i,
+  build: (_m, name, raw) => ({
+    name,
+    raw,
+    trigger: 'combatHit',
+    oncePerTurn: true,
+    optional: true,
+    effect: { kind: 'breakAllArmorBars' },
+    constraints: [],
+  }),
+};
+
+/**
+ * "If this Hero lands a Successful Hit against a Normal Hero with less than half
+ *  HP: eliminate that Hero instantly."  (Snow Viper → Hidden Finisher). A
+ *  `combatHit` trigger, MANDATORY (no "you can"), NOT once-per-turn. Fires on
+ *  every qualifying hit: a Normal Hero (level ≤ 2) already under half HP is sent
+ *  straight to the Graveyard, ignoring its armor and Armor Bars.
+ */
+const HIDDEN_FINISHER_RULE: ParseRule = {
+  match:
+    /^If this Hero lands a Successful Hit against a Normal Hero with less than half HP:\s*eliminate that Hero instantly\.$/i,
+  build: (_m, name, raw) => ({
+    name,
+    raw,
+    trigger: 'combatHit',
+    effect: { kind: 'instantEliminate' },
+    constraints: [],
+  }),
+};
+
+const RULES: ParseRule[] = [STAT_GAIN_AURA, ARMOR_AURA, SELF_STAT_BUFF_RULE, TARGET_STAT_BUFF_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE, BUNKER_BUSTING_RULE, HIDDEN_FINISHER_RULE];
 
 /** Split "<Name>: <body>" into its parts. No colon → empty name, whole text is body. */
 function splitNameBody(text: string): { name: string; body: string } {

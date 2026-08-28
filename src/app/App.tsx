@@ -6,6 +6,7 @@ import { PileSearchHost } from '../ui/PileSearchHost';
 import { TributeModal } from '../ui/TributeModal';
 import { AbilityTargetModal } from '../ui/AbilityTargetModal';
 import { AbilityPromptModal } from '../ui/AbilityPromptModal';
+import { CombatPromptModal } from '../ui/CombatPromptModal';
 import { SummonSlotPrompt } from '../ui/SummonSlotPrompt';
 import { TurnHud } from '../ui/TurnHud';
 import { PhaseBanner } from '../ui/PhaseBanner';
@@ -39,6 +40,7 @@ export function App() {
       <TributeModal />
       <AbilityTargetModal />
       <AbilityPromptModal />
+      <CombatPromptModal />
       <SummonSlotPrompt />
     </div>
   );

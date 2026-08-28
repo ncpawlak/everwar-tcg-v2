@@ -343,7 +343,9 @@ export function InspectionPanel() {
                               ? 'TRIGGERED'
                               : view?.ir.trigger === 'pileActivated'
                                 ? 'IN-PILE'
-                                : 'PASSIVE'}
+                                : view?.ir.trigger === 'combatHit'
+                                  ? 'ON HIT'
+                                  : 'PASSIVE'}
                           </span>
                         )}
                       </div>

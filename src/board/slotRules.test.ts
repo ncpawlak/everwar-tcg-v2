@@ -112,7 +112,7 @@ describe('P2-S03 slot rules', () => {
 });
 
 describe('tribute-summon rules (level-3 A cards)', () => {
-  const cardsById = createInitialState().cardsById; // card-hero-1=Lv1, card-hero-6/7=Lv2, card-hero-10=Lv3
+  const cardsById = createInitialState().cardsById; // card-hero-1=Lv1, card-hero-17=Lv2, card-hero-40=Lv3
 
   it('hasSubsetSum finds exact-sum subsets only', () => {
     expect(hasSubsetSum([1, 2], 3)).toBe(true);
@@ -123,26 +123,26 @@ describe('tribute-summon rules (level-3 A cards)', () => {
   });
 
   it('requiresTribute is true only for level-3+ A cards', () => {
-    expect(requiresTribute(cardsById['card-hero-10'])).toBe(true); // Lv3
+    expect(requiresTribute(cardsById['card-hero-40'])).toBe(true); // Lv3
     expect(requiresTribute(cardsById['card-hero-1'])).toBe(false); // Lv1
-    expect(requiresTribute(cardsById['card-hero-6'])).toBe(false); // Lv2
+    expect(requiresTribute(cardsById['card-hero-17'])).toBe(false); // Lv2
   });
 
   it('canAffordTribute needs board A-levels summing exactly to the card level', () => {
-    const a4 = cardsById['card-hero-10']; // needs 3
-    expect(canAffordTribute(withCards({ A1: 'card-hero-1', A2: 'card-hero-6' }), cardsById, a4)).toBe(true); // 1+2
-    expect(canAffordTribute(withCards({ A1: 'card-hero-6' }), cardsById, a4)).toBe(false); // 2
-    expect(canAffordTribute(withCards({ A1: 'card-hero-6', A2: 'card-hero-7' }), cardsById, a4)).toBe(false); // 2+2
+    const a4 = cardsById['card-hero-40']; // needs 3
+    expect(canAffordTribute(withCards({ A1: 'card-hero-1', A2: 'card-hero-17' }), cardsById, a4)).toBe(true); // 1+2
+    expect(canAffordTribute(withCards({ A1: 'card-hero-17' }), cardsById, a4)).toBe(false); // 2
+    expect(canAffordTribute(withCards({ A1: 'card-hero-17', A2: 'card-hero-21' }), cardsById, a4)).toBe(false); // 2+2
     expect(canAffordTribute(createEmptyBoard(), cardsById, a4)).toBe(false);
   });
 
   it('slotHighlightedForCard / canDropCard gate a level-3 card on affordable tribute', () => {
-    const a4 = cardsById['card-hero-10'];
+    const a4 = cardsById['card-hero-40'];
     const noMats = createEmptyBoard();
     expect(slotHighlightedForCard(noMats, cardsById, 'A2', a4)).toBe(false);
     expect(canDropCard(noMats, cardsById, 'A2', a4)).toBe(false);
 
-    const withMats = withCards({ A1: 'card-hero-1', A2: 'card-hero-6' }); // 1+2 = 3
+    const withMats = withCards({ A1: 'card-hero-1', A2: 'card-hero-17' }); // 1+2 = 3
     expect(slotHighlightedForCard(withMats, cardsById, 'A3', a4)).toBe(true); // empty A slot lights
     expect(canDropCard(withMats, cardsById, 'A3', a4)).toBe(true);
     // A tribute card can be dropped onto ANY A/C column (even an occupied one) —

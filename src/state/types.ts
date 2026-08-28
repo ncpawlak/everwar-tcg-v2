@@ -105,6 +105,13 @@ export interface Card {
   subType?: string;
   /** Faction the Hero fights for (Phase 8), e.g. "Coalition". Only A cards. */
   allegiance?: string;
+  /** Weapon class of an Equipment (C) card, e.g. "Assault" / "Precision" /
+   * "Suppressive" / "Breach". Only Weapon-subtype Equipment carry one. Data only
+   * for now; consumed by weapon-scoped abilities in a later slice. */
+  weaponClass?: string;
+  /** Play-window of an Ability (B) card: "Main" / "Battle" / "Cont." — gates WHEN
+   * the card may be activated. Data only for now. Only B cards carry one. */
+  timing?: string;
   /** Flat armor value (Phase 8) — a damage-reduction stat layered under HP.
    * Only A (Hero) cards carry one; the combat engine that consumes it lands in a
    * later slice. */
@@ -226,6 +233,27 @@ export interface AbilityPrompt {
 }
 
 /**
+ * A paused Resolution awaiting the player's yes/no on Snow Viper's Bunker Busting
+ * Round. Raised mid-combat when the attacker lands a Successful Hit on a target
+ * that still has ≥1 Armor Bar and the ability is unused this turn (and Hidden
+ * Finisher did not already eliminate the target). While set, the combat loop is
+ * suspended: accepting wipes all bars / deals no damage, declining applies normal
+ * armor math; either way Resolution resumes with the remaining attackers.
+ */
+export interface CombatPrompt {
+  /** The attacker's A-slot. */
+  sourceSlot: SlotId;
+  /** The struck opponent's A-slot. */
+  targetSlot: OppSlotId;
+  /** The attacker Hero's card id (owns Bunker Busting). */
+  sourceCardId: CardId;
+  /** The struck Hero's card id. */
+  targetCardId: CardId;
+  /** Ability name for the prompt header, e.g. "Bunker Busting Round". */
+  abilityName: string;
+}
+
+/**
  * A pending level-3 tribute summon. Set when the player drops a level-3+ A card
  * while enough board A-cards exist to tribute: the card is held in hand and the
  * material-selection modal opens. Confirming the materials sends them (plus their
@@ -301,6 +329,12 @@ export interface GameState {
   /** A just-sent Hero's on-sent pile ability awaiting the player's yes/no
    *  decision, or null. */
   abilityPrompt: AbilityPrompt | null;
+  /** A paused Resolution awaiting the player's yes/no on Snow Viper's Bunker
+   *  Busting Round, or null when combat is not paused for it. */
+  combatPrompt: CombatPrompt | null;
+  /** The attacker A-slots still to resolve after a Bunker Busting pause, or null
+   *  when Resolution is not mid-pause. Consumed by `resolveCombatPrompt`. */
+  pendingCombatQueue: SlotId[] | null;
   /** An in-progress level-3 tribute summon awaiting material selection, or null.
    * While set, the material-selection modal is open and the card sits in hand. */
   pendingTribute: PendingTribute | null;

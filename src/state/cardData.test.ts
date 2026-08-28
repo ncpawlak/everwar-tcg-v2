@@ -9,13 +9,13 @@ import {
 } from './cardData';
 
 describe('P2-S01 initial state', () => {
-  it('creates 22 cards: 14 A (incl. Commander), 4 B, 4 C', () => {
+  it('creates a 40-card constructed deck: 27 A, 7 B, 6 C', () => {
     const { cardsById, deck } = createInitialCards();
     expect(deck).toHaveLength(DECK_SIZE);
-    expect(DECK_SIZE).toBe(22);
+    expect(DECK_SIZE).toBe(40);
     const counts = { A: 0, B: 0, C: 0 } as Record<string, number>;
     for (const id of deck) counts[cardsById[id].type]++;
-    expect(counts).toEqual({ A: 14, B: 4, C: 4 });
+    expect(counts).toEqual({ A: 27, B: 7, C: 6 });
   });
 
   it('starts with a full deck, empty hand, twelve empty slots, and no drag', () => {
@@ -39,11 +39,18 @@ describe('P2-S01 initial state', () => {
     for (const id of SLOT_IDS) expect(board[id]).toBeNull();
   });
 
-  it('stacks level-1 Heroes on top so the opening five are all Heroes', () => {
-    const s = createInitialState();
-    // Draw the top five (last five elements) and confirm they are all Heroes.
-    const top5 = s.deck.slice(-5).map((id) => s.cardsById[id].type);
-    expect(top5).toEqual(['A', 'A', 'A', 'A', 'A']);
+  it('shuffles the constructed deck on startup (deterministic for a fixed rng)', () => {
+    // Two builds with the same seeded rng produce the same order...
+    const a = createInitialCards(() => 0.42).deck;
+    const b = createInitialCards(() => 0.42).deck;
+    expect(a).toEqual(b);
+    expect(a).toHaveLength(DECK_SIZE);
+    // ...and the shuffle preserves the exact multiset of the constructed deck
+    // (its type composition is unchanged: 27 A / 7 B / 6 C).
+    const { cardsById } = createInitialCards();
+    const counts = { A: 0, B: 0, C: 0 } as Record<string, number>;
+    for (const id of a) counts[cardsById[id].type]++;
+    expect(counts).toEqual({ A: 27, B: 7, C: 6 });
   });
 
   it('P7-S1/S4: gives the opponent its own full-player state + opening hand', () => {
@@ -65,10 +72,13 @@ describe('P2-S01 initial state', () => {
     expect(Object.keys(s.opponentCBoard)).toHaveLength(4);
   });
 
-  it('gives every card a full type-specific profile', () => {
+  it('gives every catalog card a full type-specific profile', () => {
     const { cardsById } = createInitialCards();
-    const cards = Object.values(cardsById);
-    expect(cards).toHaveLength(22);
+    // createInitialCards registers the whole 99-card catalog under canonical ids
+    // plus suffixed duplicate copies (`-c2`/`-c3`) for the constructed deck. The
+    // canonical cards are the unique catalog entries.
+    const cards = Object.values(cardsById).filter((c) => !/-c\d+$/.test(c.id));
+    expect(cards).toHaveLength(99);
     const names = new Set<string>();
     for (const c of cards) {
       expect(c.name.length).toBeGreaterThan(0);
@@ -93,7 +103,7 @@ describe('P2-S01 initial state', () => {
       expect(c.effect.length).toBeGreaterThan(0);
       expect(c.flavor.length).toBeGreaterThan(0);
     }
-    // Names are unique across the deck.
-    expect(names.size).toBe(22);
+    // Names are unique across the catalog.
+    expect(names.size).toBe(99);
   });
 });

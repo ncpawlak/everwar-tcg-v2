@@ -67,6 +67,19 @@ export interface ReturnSelfToHandEffect {
   kind: 'returnSelfToHand';
 }
 
+/** Break ALL Armor Bars on the target Hero and inflict no HP damage. Used by
+ *  Snow Viper's Bunker Busting Round (`combatHit`, optional, once-per-turn). */
+export interface BreakAllArmorBarsEffect {
+  kind: 'breakAllArmorBars';
+}
+
+/** Eliminate the target Hero instantly, ignoring its armor and Armor Bars. Used
+ *  by Snow Viper's Hidden Finisher (`combatHit`, mandatory). The runtime gates it
+ *  on the target being a Normal Hero (level ≤ 2) at less than half HP. */
+export interface InstantEliminateEffect {
+  kind: 'instantEliminate';
+}
+
 /** Fallback for ability text no rule models yet. Inert at runtime. */
 export interface UnimplementedEffect {
   kind: 'unimplemented';
@@ -78,6 +91,8 @@ export type AbilityEffect =
   | TargetStatBuffEffect
   | DrawEffect
   | ReturnSelfToHandEffect
+  | BreakAllArmorBarsEffect
+  | InstantEliminateEffect
   | UnimplementedEffect;
 
 /** A pile a card can be sent to / activate from. */
@@ -101,6 +116,7 @@ export type AbilityTrigger =
   | 'activated'
   | 'onSentToPile'
   | 'pileActivated'
+  | 'combatHit'
   | 'unimplemented';
 
 /** "Only 1 <name> Ability can be active on your field at once." */
@@ -128,4 +144,8 @@ export interface AbilityIR {
   /** For `onSentToPile` / `pileActivated` triggers: which pile the trigger
    *  concerns (Graveyard or Replen). Undefined for other triggers. */
   pile?: PileKind;
+  /** True when a `combatHit` effect is OPTIONAL — the player is prompted yes/no
+   *  when it triggers (e.g. Bunker Busting Round's "you can"). Mandatory combat
+   *  triggers (e.g. Hidden Finisher) leave this undefined. */
+  optional?: boolean;
 }
