@@ -5,7 +5,6 @@ import { createInitialState } from './cardData';
 import { canDropCard, requiresTribute, canAffordTribute, validTargetSlots } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
 import {
-  rollCBuff,
   effectiveStats,
   opponentEffectiveStats,
   playerAuraDelta,
@@ -337,15 +336,9 @@ export function createGameStore(
         setInfo: { kind: SetKind; materials: number } = { kind: 'normal', materials: 0 },
       ) => {
         const s = get();
-        // A C card rolls a random stat boost for its linked A card when set.
-        const cardsById =
-          cardType === 'C'
-            ? { ...s.cardsById, [cardId]: { ...s.cardsById[cardId], buff: rollCBuff() } }
-            : s.cardsById;
         // A B card's on-play ability resolves once its showcase finishes.
         const ability = cardType === 'B' ? s.cardsById[cardId]?.ability : undefined;
         set({
-          cardsById,
           hand: s.hand.filter((id) => id !== cardId),
           board: { ...s.board, [slotId]: cardId },
           dragging: null,
@@ -594,7 +587,7 @@ export function createGameStore(
                 const value = s.resolutionRolls[k].value;
                 settled[k] = { value, rolling: false };
                 // Resolve the roll against the attacker's EFFECTIVE stats (base
-                // DMG/ACC + any linked C-card boost) into an outcome + damage.
+                // DMG/ACC + auras and buffs) into an outcome + damage.
                 const eff = effectiveStats(s, k as SlotId);
                 results[k] = resolveRoll(value, eff.dmg.value, eff.acc.value);
               }
@@ -877,7 +870,7 @@ export function createGameStore(
        * a Bulwark can attach to a Vanguard summoned earlier the same turn. Order
        * of preference: summon a free Vanguard (A, level ≤ 2) into an open O-slot;
        * else set a Bulwark (C) onto an OC-slot whose linked O-column is occupied
-       * (rolling its stat boost, like the player); else set an Arcane (B) into an
+       * (like the player); else set an Arcane (B) into an
        * open OB-slot. Returns the type it played, or null if nothing was playable.
        * Each play is showcased as a reveal, mirroring the player's summon.
        */
@@ -904,8 +897,8 @@ export function createGameStore(
           }
         }
 
-        // C — set a Bulwark onto a linked, occupied, still-open OC-slot; roll its
-        // stat boost for the linked Vanguard (mirror of the player's C set).
+        // C — set a Bulwark onto a linked, occupied, still-open OC-slot (mirror
+        // of the player's C set).
         if (!playedTypes.has('C')) {
           const cardId = hand.find((id) => s.opponentCards[id]?.type === 'C');
           const ocSlot = (['OC1', 'OC2', 'OC3', 'OC4'] as OppCSlotId[]).find((oc) => {
@@ -916,10 +909,6 @@ export function createGameStore(
             set((st) => ({
               opponentHand: st.opponentHand.filter((id) => id !== cardId),
               opponentCBoard: { ...st.opponentCBoard, [ocSlot]: cardId },
-              opponentCards: {
-                ...st.opponentCards,
-                [cardId]: { ...st.opponentCards[cardId], buff: rollCBuff() },
-              },
               oppSummon: { cardId, slotId: ocSlot },
             }));
             revealOppCard(cardId);
@@ -1182,7 +1171,6 @@ export function createGameStore(
           set({
             deck: s.deck.filter((_, i) => i !== idx),
             board: { ...s.board, [cSlot]: eqId },
-            cardsById: { ...s.cardsById, [eqId]: { ...s.cardsById[eqId], buff: rollCBuff() } },
           });
           if (e.disturb) get().disturbDeck();
           showOnSet(cardId, ir.name);

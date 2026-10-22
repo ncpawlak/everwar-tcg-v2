@@ -10,7 +10,7 @@ export type CardType = 'A' | 'B' | 'C';
 /** Card rarity tier, ordered common -> legendary. Drives the panel's accent. */
 export type Rarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
 
-/** The three combat stats a card carries and a C-card boost can target. */
+/** The three combat stats a Hero carries. */
 export type StatKey = 'hp' | 'dmg' | 'acc';
 
 /**
@@ -19,16 +19,6 @@ export type StatKey = 'hp' | 'dmg' | 'acc';
  * activation and effect data. Enacted the moment the card is set in a B slot.
  */
 export type BAbilityId = string;
-
-/**
- * A stat modifier a C card applies to its linked A card. Rolled when the C card
- * is set (random stat + random amount). `amount` is signed: positive raises the
- * stat (shown green), negative lowers it (shown red).
- */
-export interface StatBuff {
-  stat: StatKey;
-  amount: number;
-}
 
 /** Slot column index within a type family (1-based, 4 per family). */
 export type SlotIndex = 1 | 2 | 3 | 4;
@@ -77,7 +67,7 @@ export type OppBSlotId = 'OB1' | 'OB2' | 'OB3' | 'OB4';
 
 /**
  * Opponent Bulwark (C) slot identifier — the opponent's support/boost row,
- * column-linked to its Vanguard row (OC1 boosts O1, etc.). Phase 7.
+ * column-linked to its Vanguard row (OC1 equips O1, etc.). Phase 7.
  */
 export type OppCSlotId = 'OC1' | 'OC2' | 'OC3' | 'OC4';
 
@@ -141,11 +131,6 @@ export interface Card {
   effect: string;
   /** Non-mechanical flavor line. */
   flavor: string;
-  /**
-   * Random stat boost this card grants its linked A card. Only C cards carry
-   * one, and only once set in a C slot (rolled at placement). Absent otherwise.
-   */
-  buff?: StatBuff;
   /**
    * On-play ability. Only B (Arcane) cards carry one; enacted when the card is
    * set in a B slot. Absent for A/C cards.
@@ -397,7 +382,7 @@ export interface GameState {
    * or null. Mirrors the player's B slots on the opponent's side of the field. */
   opponentBBoard: Record<OppBSlotId, CardId | null>;
   /** The opponent's Bulwark (C) row (Phase 7): which card occupies each OC slot,
-   * or null. Column-linked to the opponent Vanguard row for stat boosts. */
+   * or null. Column-linked to the opponent Vanguard row. */
   opponentCBoard: Record<OppCSlotId, CardId | null>;
   /** Attack declarations made during Battle: each of the player's attacking
    * A-slots mapped to the opponent slot it is aiming at. An A-card attacks only

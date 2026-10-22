@@ -123,3 +123,8 @@ export function runEffect(effect: EffectSpec, ctx: EffectContext): void {
       break;
   }
 }
+
+/** Short Equipment (C) descriptor, e.g. "Weapon · Assault", for card faces. */
+export function equipmentLabel(card: { subType?: string; weaponClass?: string }): string {
+  return [card.subType ?? 'Equipment', card.weaponClass].filter(Boolean).join(' · ');
+}

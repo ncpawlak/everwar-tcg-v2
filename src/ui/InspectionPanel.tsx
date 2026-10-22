@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import type { Card } from '../state/types';
-import { abilityLabel } from '../state/abilities';
+import { abilityLabel, equipmentLabel } from '../state/abilities';
 import { abilityZones, activatedAbilityViews } from '../abilities/activated';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 
@@ -243,29 +243,15 @@ export function InspectionPanel() {
                   marginBottom: 12,
                   padding: '10px 12px',
                   borderRadius: 8,
-                  background: shown.buff
-                    ? shown.buff.amount >= 0
-                      ? 'rgba(47,158,70,0.14)'
-                      : 'rgba(178,58,31,0.14)'
-                    : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${
-                    shown.buff
-                      ? shown.buff.amount >= 0
-                        ? 'rgba(47,158,70,0.5)'
-                        : 'rgba(178,58,31,0.5)'
-                      : 'rgba(255,255,255,0.1)'
-                  }`,
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
                   fontSize: 14,
                   fontWeight: 700,
-                  color: shown.buff ? (shown.buff.amount >= 0 ? '#5ed17a' : '#e08a72') : '#97a0ab',
+                  color: '#97a0ab',
                   textAlign: 'center',
                 }}
               >
-                {shown.buff
-                  ? `${shown.buff.amount >= 0 ? '▲' : '▼'} ${shown.buff.stat.toUpperCase()} ${
-                      shown.buff.amount >= 0 ? '+' : ''
-                    }${shown.buff.amount} to linked A card`
-                  : 'Boosts a random stat of its linked A card'}
+                {equipmentLabel(shown)}
               </div>
             )}
 

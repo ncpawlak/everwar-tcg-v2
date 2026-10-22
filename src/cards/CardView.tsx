@@ -4,7 +4,7 @@ import { useFrame } from '@react-three/fiber';
 import type { Mesh, MeshStandardMaterial } from 'three';
 import { CARD_HEIGHT, CARD_THICKNESS, CARD_WIDTH } from '../board/boardConfig';
 import type { Card } from '../state/types';
-import { abilityLabel } from '../state/abilities';
+import { abilityLabel, equipmentLabel } from '../state/abilities';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from './cardTheme';
 
 /**
@@ -320,23 +320,9 @@ export function CardView({
       </mesh>
 
       {card.type === 'C' ? (
-        /* C cards are supports: instead of their own stat line they show the
-           random boost they grant a linked A card. The concrete roll appears
-           once the card is set; in hand it reads as a generic promise. */
-        card.buff ? (
-          <Text
-            position={[0, -HALF_H + 0.09, ZF + 0.001]}
-            fontSize={0.058}
-            color={card.buff.amount >= 0 ? '#2f9e46' : '#b23a1f'}
-            anchorX="center"
-            anchorY="middle"
-          >
-            {`${card.buff.amount >= 0 ? '▲' : '▼'} ${card.buff.stat.toUpperCase()} ${
-              card.buff.amount >= 0 ? '+' : ''
-            }${card.buff.amount}`}
-          </Text>
-        ) : (
-          <Text
+        /* C cards are Equipment: instead of a stat line they show their
+           equipment type (e.g. "Weapon · Assault"). */
+        <Text
             position={[0, -HALF_H + 0.09, ZF + 0.001]}
             fontSize={0.036}
             maxWidth={CARD_WIDTH * 0.82}
@@ -346,9 +332,8 @@ export function CardView({
             anchorY="middle"
             textAlign="center"
           >
-            Boosts a random stat of its linked A card
+            {equipmentLabel(card)}
           </Text>
-        )
       ) : card.type === 'B' ? (
         /* B cards are spells: instead of combat stats they show the on-play
            ability they enact when set. Continuous B cards get a badge since they

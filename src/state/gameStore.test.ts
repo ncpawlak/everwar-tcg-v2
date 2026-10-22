@@ -120,7 +120,7 @@ describe('P2-S02/S08 game store actions', () => {
     expect(s.dragging).toBeNull();
   });
 
-  it('dropCard sets a C card on its linked A column and rolls a stat buff', () => {
+  it('dropCard sets a C card on its linked A column (no random stat buff)', () => {
     const store = storeWithHand(['card-hero-6', 'card-equipment-1']);
     store.getState().beginDrag('card-hero-6');
     store.getState().dropCard('card-hero-6', 'A1');
@@ -130,10 +130,7 @@ describe('P2-S02/S08 game store actions', () => {
 
     const s = store.getState();
     expect(s.board.C1).toBe('card-equipment-1');
-    const buff = s.cardsById['card-equipment-1'].buff;
-    expect(buff).toBeDefined();
-    expect(['hp', 'dmg', 'acc']).toContain(buff!.stat);
-    expect(buff!.amount).toBeGreaterThan(0);
+    expect(s.cardsById['card-equipment-1']).not.toHaveProperty('buff');
   });
 
   it('dropCard starts a summon reveal that clears after the showcase window', () => {
@@ -1392,7 +1389,7 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
     }
   });
 
-  it('the opponent plays one of each row type per turn — a Vanguard, a linked Bulwark (with a stat boost), and an Arcane', () => {
+  it('the opponent plays one of each row type per turn — a Vanguard, a linked Bulwark, and an Arcane', () => {
     vi.useFakeTimers();
     try {
       const base = createInitialState();
@@ -1422,8 +1419,6 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
       expect(s.opponentBoard.O1).toBe('opp-deck-hero-1');
       // Bulwark set to a linked, occupied OC-slot (OC1, linked to O1).
       expect(s.opponentCBoard.OC1).toBe('opp-deck-equipment-3');
-      // ...and it rolled a stat boost (mirror of the player's C set).
-      expect(s.opponentCards['opp-deck-equipment-3'].buff).toBeTruthy();
       // Arcane set to the first open OB-slot (OB1).
       expect(s.opponentBBoard.OB1).toBe('opp-deck-ability-1');
       // All three left the hand.
@@ -2103,7 +2098,6 @@ describe('P8 On-Set triggers (v3 wording)', () => {
       const s = store.getState();
       // Topmost Weapon is Headhunter (card-equipment-7 Tankwalker is not a Weapon).
       expect(s.board.C2).toBe('card-equipment-11');
-      expect(s.cardsById['card-equipment-11'].buff).toBeDefined();
       // Disturb: top card (Tankwalker) → Replen.
       expect(s.replen).toEqual(['card-equipment-7']);
       expect(s.deck).toEqual(['card-hero-6', 'card-hero-7']);

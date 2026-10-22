@@ -11,7 +11,7 @@ import type { EffectiveStats } from '../state/combatStats';
  *                     the TOP of the A/C link.
  *   - DmgAccOverlay : "DMG/ACC" (the two values), sitting UNDERNEATH the link.
  *
- * Values are the A card's EFFECTIVE stats (base + linked C-card boost), so they
+ * Values are the A card's EFFECTIVE stats (base + auras and buffs), so they
  * update the moment a C card is set or removed. Both are billboarded, so they
  * stay upright and readable for the player and the (mirrored) opponent alike.
  *
@@ -130,7 +130,7 @@ export function HpOverlay({
 }
 
 /** DMG / ACC values on one short line (underneath the link). DMG and ACC are
- * colored independently so a C-card boost shows on the affected stat. */
+ * colored independently so a buff shows on the affected stat. */
 export function DmgAccOverlay({ stats, position }: { stats: EffectiveStats; position: Vec3 }) {
   const pop = usePopIn();
 

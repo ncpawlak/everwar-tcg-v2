@@ -16,7 +16,7 @@ import {
  * health bar at the TOP of the A/C link, and a DMG/ACC line UNDERNEATH it. Both
  * appear (pop in) the moment a card is set and disappear when the slot empties,
  * driven purely by board state. Numbers are the A card's EFFECTIVE stats (base +
- * linked C-card boost), so setting/removing a C card recolors and updates them.
+ * auras and buffs), so setting/removing a C card recolors and updates them.
  *
  * A-zone only for now (Vanguard front line); other zones can opt in later. Both
  * overlays are centered horizontally over the linked A/C column pair (A_i ↔ C_i).
