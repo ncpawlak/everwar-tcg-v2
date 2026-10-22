@@ -2226,3 +2226,50 @@ describe('set permissions in the store', () => {
     expect(store.getState().pendingTribute).toBeNull();
   });
 });
+describe('B-card spells', () => {
+  it('Convoy Incoming: pick a Hand card for the GY, then tutor a Devil Dog and Disturb', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const dogs = base.deck.filter((id) => base.cardsById[id].type === 'A' && base.cardsById[id].name.includes('Devil Dog'));
+    expect(dogs.length).toBeGreaterThan(0);
+    const spell = 'card-ability-8';
+    const fodder = 'card-hero-1';
+    const deck = base.deck.filter((id) => id !== spell && id !== fodder);
+    const topDog = [...deck].reverse().find((id) => dogs.includes(id))!;
+    const store = createGameStore({ ...base, hand: [spell, fodder], deck, phase: 'main' });
+    store.getState().beginDrag(spell);
+    store.getState().dropCard(spell, 'B1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+    expect(store.getState().spellCost).toMatchObject({ sourceCardId: spell, to: 'graveyard', options: [fodder] });
+    store.getState().resolveSpellCost(fodder);
+    vi.advanceTimersByTime(5000);
+    const s = store.getState();
+    expect(s.spellCost).toBeNull();
+    expect(s.graveyard).toContain(fodder);
+    expect(s.hand).toContain(topDog);
+    expect(s.deck).not.toContain(topDog);
+    expect(s.replen.length).toBe(1); // Disturb moved the top deck card to Replen
+    vi.useRealTimers();
+  });
+
+  it('a Hand cost with nothing to pay fizzles the spell', () => {
+    vi.useFakeTimers();
+    const store = storeWithHand(['card-ability-8']);
+    store.getState().beginDrag('card-ability-8');
+    store.getState().dropCard('card-ability-8', 'B1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+    expect(store.getState().spellCost).toBeNull();
+    expect(store.getState().hand).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it('The Armory draws 2 cards', () => {
+    vi.useFakeTimers();
+    const store = storeWithHand(['card-ability-20']);
+    store.getState().beginDrag('card-ability-20');
+    store.getState().dropCard('card-ability-20', 'B1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + MULTI_DRAW_STAGGER_MS * 2);
+    expect(store.getState().hand).toHaveLength(2);
+    vi.useRealTimers();
+  });
+});

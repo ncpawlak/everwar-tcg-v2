@@ -25,6 +25,7 @@ import {
 import type { AbilityIR } from '../abilities/abilityIR';
 import { onSentAbilities, pileActivatedAbilityFor } from '../abilities/pile';
 import { combatHitAbilities, finisherEliminates } from '../abilities/combat';
+import { parseSpell, spellCostOptions, tutorPicks, type SpellIR } from '../abilities/spells';
 import { onSetAbilities, onSetNeedsChoice, onSetChoiceOptions, dominationVictims } from '../abilities/onSet';
 import type { SetKind } from '../abilities/abilityIR';
 import { OPP_SLOT_IDS } from '../board/boardConfig';
@@ -181,6 +182,8 @@ export interface GameActions {
   /** Resolve an open On-Set choice: a card id applies the effect to it; null
    *  skips the (optional) ability. No-op unless a choice is open. */
   resolveOnSetChoice: (cardId: CardId | null) => void;
+  /** Pay a B card's Hand cost with `cardId`, then resolve the rest of the spell. */
+  resolveSpellCost: (cardId: CardId) => void;
   /** Trigger a Hero's in-pile activated ability from the pile it sits in (e.g.
    *  return it to the Hand). No-op unless it is the player's Main phase, the card
    *  is in a player pile, and it has a matching pile-activated ability. */
@@ -350,7 +353,9 @@ export function createGameStore(
           set((st) =>
             st.summon && st.summon.cardId === cardId ? { ...st, summon: null } : st,
           );
-          if (ability) enactOnSetAbility(ability);
+          const spell = cardType === 'B' ? parseSpell(get().cardsById[cardId]?.effect) : null;
+          if (spell) castSpell(cardId, spell);
+          else if (ability) enactOnSetAbility(ability);
           if (cardType === 'A') runOnSetTriggers(cardId, slotId, setInfo);
         }, SUMMON_SHOWCASE_MS);
       };
@@ -1210,6 +1215,33 @@ export function createGameStore(
      *  just-sent Hero whose ability triggers for that pile. Only prompts on the
      *  player's turn (a player choice) and never stacks over an open prompt or a
      *  card that has since left the pile. */
+    /** Resolve a parsed B-card spell's steps in order (cost already paid). */
+    const runSpellSteps = (ir: SpellIR) => {
+      for (const step of ir.steps) {
+        if (step.kind === 'draw') drawStaggered(step.count);
+        else if (step.kind === 'disturb') get().disturbDeck();
+        else {
+          const s = get();
+          const picks = tutorPicks(s.deck, s.cardsById, step.select, step.count);
+          if (picks.length === 0) continue;
+          set({ deck: s.deck.filter((id) => !picks.includes(id)), hand: [...s.hand, ...picks] });
+        }
+      }
+    };
+
+    /** Cast a B-card spell: open the Hand-cost pick if it has one, else resolve.
+     *  A cost that can't be paid (no eligible Hand card) fizzles the spell. */
+    const castSpell = (cardId: CardId, ir: SpellIR) => {
+      if (!ir.cost) {
+        runSpellSteps(ir);
+        return;
+      }
+      const s = get();
+      const options = spellCostOptions(ir, s.hand, s.cardsById);
+      if (options.length === 0) return;
+      set({ spellCost: { sourceCardId: cardId, to: ir.cost.to, options } });
+    };
+
     const scheduleOnSentPrompt = (sentIds: readonly CardId[], pile: 'graveyard' | 'replen') => {
       const hits = onSentAbilities(sentIds, pile, get().cardsById);
       if (hits.length === 0) return;
@@ -1506,6 +1538,18 @@ export function createGameStore(
         return;
       }
       showOnSet(ch.sourceCardId, ch.abilityName);
+    },
+
+    resolveSpellCost: (pick) => {
+      const s = get();
+      const sc = s.spellCost;
+      if (!sc || !sc.options.includes(pick)) return;
+      const ir = parseSpell(s.cardsById[sc.sourceCardId]?.effect);
+      const hand = s.hand.filter((id) => id !== pick);
+      if (sc.to === 'graveyard') set({ hand, graveyard: [...s.graveyard, pick], spellCost: null });
+      else set({ hand, replen: [...s.replen, pick], spellCost: null });
+      scheduleOnSentPrompt([pick], sc.to);
+      if (ir) runSpellSteps(ir);
     },
 
     resolveAbilityPrompt: (accept) => {

@@ -277,6 +277,18 @@ export interface OnSetChoice {
 }
 
 /**
+ * An Ability (B) card's mandatory Hand cost awaiting the player's pick (e.g.
+ * Convoy Incoming: "Send 1 card from your Hand to the GY"). The rest of the
+ * spell resolves once the cost is paid. Null when no cost pick is open.
+ */
+export interface SpellCostChoice {
+  sourceCardId: CardId;
+  to: 'graveyard' | 'replen';
+  /** Hand cards that can pay the cost. */
+  options: CardId[];
+}
+
+/**
  * Transient D20 dice-roll state. The `value` is chosen immediately when the roll
  * starts; the animation merely reveals it. `rolling` is true while the die
  * tumbles and false once it has settled on `value`.
@@ -333,6 +345,7 @@ export interface GameState {
   abilityPrompt: AbilityPrompt | null;
   /** An On-Set ability awaiting the player's card pick (or skip), or null. */
   onSetChoice: OnSetChoice | null;
+  spellCost: SpellCostChoice | null;
   /** A paused Resolution awaiting the player's yes/no on Snow Viper's Bunker
    *  Busting Round, or null when combat is not paused for it. */
   combatPrompt: CombatPrompt | null;

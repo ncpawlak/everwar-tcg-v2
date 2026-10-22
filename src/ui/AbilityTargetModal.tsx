@@ -226,6 +226,61 @@ export function OnSetChoiceModal() {
   );
 }
 
+/**
+ * Mandatory Hand-cost pick for an Ability (B) card spell (e.g. Convoy Incoming:
+ * "Send 1 card from your Hand to the GY"). Opens when `spellCost` is set. The
+ * card is already on the field, so there is no Skip — the rest of the spell
+ * resolves once a card is confirmed.
+ */
+export function SpellCostModal() {
+  const sc = useGameStore((s) => s.spellCost);
+  const cardsById = useGameStore((s) => s.cardsById);
+  const resolve = useGameStore((s) => s.resolveSpellCost);
+  const [selected, setSelected] = useState<CardId | null>(null);
+
+  useEffect(() => {
+    setSelected(null);
+  }, [sc?.sourceCardId]);
+
+  if (!sc) return null;
+  const source = cardsById[sc.sourceCardId];
+  const tiles = sc.options.map((id) => cardsById[id]).filter((c): c is Card => Boolean(c));
+  const selectedCard = selected ? cardsById[selected] ?? null : null;
+  const dest = sc.to === 'graveyard' ? 'the GY' : 'Replen';
+
+  return (
+    <div data-ui-overlay style={BACKDROP_STYLE}>
+      <div style={PANEL_STYLE} onClick={(e) => e.stopPropagation()}>
+        <div style={HEADER_STYLE}>
+          <span style={{ fontWeight: 700, letterSpacing: 0.4 }}>
+            <span style={{ color: '#ffb020' }}>{source?.name ?? 'Ability'}</span>
+            <span style={{ color: '#8b95a3', fontWeight: 500 }}> · Cost</span>
+          </span>
+        </div>
+        <div style={SUBTITLE_STYLE}>{`Select 1 card from your Hand to send to ${dest}, then Confirm.`}</div>
+        <div style={GRID_SCROLL_STYLE}>
+          <div style={GRID_STYLE}>
+            {tiles.map((c) => (
+              <CardTile key={c.id} card={c} on={selected === c.id} onPick={() => setSelected(c.id)} />
+            ))}
+          </div>
+        </div>
+        {selectedCard && <CardDetail card={selectedCard} />}
+        <div style={FOOTER_STYLE}>
+          <button
+            type="button"
+            disabled={!selected}
+            onClick={() => selected && resolve(selected)}
+            style={{ ...CONFIRM_STYLE, opacity: selected ? 1 : 0.4, cursor: selected ? 'pointer' : 'not-allowed' }}
+          >
+            {sc.to === 'graveyard' ? 'Send to GY' : 'Send to Replen'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Prompt + button copy for the cost step. */
 function costCopy(ir: AbilityIR): { verb: string; button: string } {
   switch (ir.cost?.kind) {
