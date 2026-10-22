@@ -1,16 +1,18 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import { parseAbility } from '../abilities/parseAbility';
-import { abilityValidTargets } from '../abilities/activated';
+import { abilityNeedsTarget, abilityTargetOptions, abilityZones, costPickZone } from '../abilities/activated';
+import type { AbilityIR } from '../abilities/abilityIR';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 import type { Card, CardId } from '../state/types';
 
 /**
- * Two-step resolver for activated abilities that need player selection (e.g.
- * Quick Reload, Fire Support). Opens when `abilityTargeting` is set.
+ * One- or two-step resolver for activated abilities that need player selection
+ * (e.g. Quick Reload, First Aid Kit, Jackal Reinforcement). Opens when
+ * `abilityTargeting` is set.
  *
- *  - `cost` step: pick a Hand card to send to Replen (the ability's cost).
- *  - `target` step: pick an ally Hero to receive the buff.
+ *  - `cost` step: pick the Hand / Replen card the ability's cost moves.
+ *  - `target` step: pick the Hero (or Graveyard card) the effect applies to.
  *
  * Each step is select-then-confirm: click a card to inspect it (name, stats and
  * full ability text) so the player can read effects that trigger on the move,
@@ -23,6 +25,9 @@ export function AbilityTargetModal() {
   const cardsById = useGameStore((s) => s.cardsById);
   const board = useGameStore((s) => s.board);
   const hand = useGameStore((s) => s.hand);
+  const replen = useGameStore((s) => s.replen);
+  const deck = useGameStore((s) => s.deck);
+  const graveyard = useGameStore((s) => s.graveyard);
   const chooseAbilityCost = useGameStore((s) => s.chooseAbilityCost);
   const chooseAbilityTarget = useGameStore((s) => s.chooseAbilityTarget);
   const cancel = useGameStore((s) => s.cancelAbilityTargeting);
@@ -49,20 +54,18 @@ export function AbilityTargetModal() {
   if (!source || !source.abilities) return null;
   const ir = parseAbility(source.abilities[at.abilityIndex]);
 
-  const allyBoard: Card[] = Object.values(board)
-    .filter((id): id is CardId => id !== null)
-    .map((id) => cardsById[id])
-    .filter((c): c is Card => Boolean(c));
-
+  const zones = abilityZones({ board, cardsById, hand, replen, deck, graveyard });
   const isCost = at.step === 'cost';
+  const costZone = costPickZone(ir);
+  const totalSteps = (costZone ? 1 : 0) + (abilityNeedsTarget(ir) ? 1 : 0);
+  const stepNo = isCost || !costZone ? 1 : 2;
   const title = at.abilityName;
-  const subtitle = isCost
-    ? 'Click a Hand card to inspect it, then Confirm to send it to the Replen pile.'
-    : 'Click a Hero you control to inspect it, then Confirm to apply the buff.';
+  const copy = isCost ? costCopy(ir) : targetCopy(ir);
+  const subtitle = `Click a card to inspect it, then Confirm to ${copy.verb}.`;
 
   const tiles: Card[] = isCost
-    ? hand.map((id) => cardsById[id]).filter((c): c is Card => Boolean(c))
-    : abilityValidTargets(ir, allyBoard, at.sourceCardId);
+    ? (costZone === 'replen' ? replen : hand).map((id) => cardsById[id]).filter((c): c is Card => Boolean(c))
+    : abilityTargetOptions(ir, zones, at.sourceCardId);
 
   const selectedCard = selected ? cardsById[selected] ?? null : null;
   const confirm = () => {
@@ -79,14 +82,14 @@ export function AbilityTargetModal() {
             <span style={{ color: '#ffb020' }}>{title}</span>
             <span style={{ color: '#8b95a3', fontWeight: 500 }}> · {isCost ? 'Cost' : 'Target'}</span>
           </span>
-          <span style={STEP_STYLE}>{isCost ? 'Step 1 / 2' : 'Step 2 / 2'}</span>
+          <span style={STEP_STYLE}>{`Step ${stepNo} / ${totalSteps}`}</span>
         </div>
 
         <div style={SUBTITLE_STYLE}>{subtitle}</div>
 
         {tiles.length === 0 ? (
           <div style={EMPTY_STYLE}>
-            {isCost ? 'No cards in Hand.' : 'No legal targets on your board.'}
+            {isCost ? 'No cards to pay the cost.' : 'No legal targets.'}
           </div>
         ) : (
           <div style={GRID_SCROLL_STYLE}>
@@ -146,12 +149,36 @@ export function AbilityTargetModal() {
               cursor: selected ? 'pointer' : 'not-allowed',
             }}
           >
-            {isCost ? 'Send to Replen' : 'Apply Buff'}
+            {copy.button}
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+/** Prompt + button copy for the cost step. */
+function costCopy(ir: AbilityIR): { verb: string; button: string } {
+  switch (ir.cost?.kind) {
+    case 'discardHand':
+      return { verb: 'discard it from your Hand', button: 'Discard' };
+    case 'sendReplenToGraveyard':
+      return { verb: 'send it from your Replen to the GY', button: 'Send to GY' };
+    default:
+      return { verb: 'send it from your Hand to Replen', button: 'Send to Replen' };
+  }
+}
+
+/** Prompt + button copy for the target step. */
+function targetCopy(ir: AbilityIR): { verb: string; button: string } {
+  switch (ir.effect.kind) {
+    case 'healTarget':
+      return { verb: `restore ${ir.effect.amount} HP to it`, button: 'Recover HP' };
+    case 'recoverFromGraveyard':
+      return { verb: 'send it from your GY to Replen', button: 'Send to Replen' };
+    default:
+      return { verb: 'apply the buff', button: 'Apply Buff' };
+  }
 }
 
 /** Inline detail of the currently-selected card so the player can read its stats

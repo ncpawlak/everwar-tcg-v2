@@ -1436,155 +1436,234 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
   });
 });
 
-// TODO(ability-engine phase): these blocks exercise the activated / pile /
-// combat-trigger ability engine against fixture heroes (Combat Focus, Fire
-// Support, Salvage Beacon, Field Cache) that no longer exist in the v3 catalog.
+// TODO(ability-engine phase): the pile / combat-trigger blocks below still use
+// v1 fixture wording (Salvage Beacon, Field Cache) absent from the v3 catalog.
 // The engine is intact; the tests will be rewritten with explicit ability
 // fixtures when we build out ability parsing. Quarantined to keep the suite green
 // after the catalog swap.
-describe.skip('P8 activated abilities (self stat-buff)', () => {
-  // Duneside Scout (card-hero-1) carries "Combat Focus: Once per turn, you can:
-  // this Hero gains +20 ACC." — a self-buff activated ability.
-  function withScoutOnBoard() {
+describe('P8 activated abilities (self stat-buff, discard cost, end-of-turn)', () => {
+  // Roma (card-hero-49): "Wasteland Deadeye: Once per turn, you can discard 1
+  // card from your Hand: this Hero gains +30 ACC until the end of your turn."
+  const ROMA = 'card-hero-49';
+  const FODDER = 'card-hero-1';
+  function withRomaOnBoard(hand: string[] = [FODDER]) {
     const base = createInitialState();
     return createGameStore({
       ...base,
-      deck: base.deck.filter((id) => id !== 'card-hero-1'),
-      board: { ...base.board, A1: 'card-hero-1' },
+      deck: base.deck.filter((id) => id !== ROMA && !hand.includes(id)),
+      board: { ...base.board, A1: ROMA },
+      hand,
       phase: 'main',
     });
   }
 
-  it('activates a self stat-buff and folds it into effective ACC', () => {
-    const store = withScoutOnBoard();
+  it('discards the picked Hand card and folds +30 ACC into effective ACC', () => {
+    const store = withRomaOnBoard();
     const before = effectiveStats(store.getState(), 'A1').acc.value;
-    store.getState().activateAbility('card-hero-1', 0);
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toMatchObject({ sourceCardId: ROMA, step: 'cost' });
+    store.getState().chooseAbilityCost(FODDER);
     const s = store.getState();
-    expect(s.activatedStatBuffs['card-hero-1']).toEqual({ acc: 20 });
-    expect(s.usedActivatedAbilities['card-hero-1']).toEqual(['Combat Focus']);
-    expect(effectiveStats(s, 'A1').acc.value).toBe(before + 20);
+    expect(s.abilityTargeting).toBeNull();
+    expect(s.hand).not.toContain(FODDER);
+    expect(s.graveyard).toContain(FODDER);
+    expect(s.turnStatBuffs[ROMA]).toEqual({ acc: 30 });
+    expect(s.activatedStatBuffs[ROMA]).toBeUndefined();
+    expect(s.usedActivatedAbilities[ROMA]).toEqual(['Wasteland Deadeye']);
+    expect(effectiveStats(s, 'A1').acc.value).toBe(before + 30);
   });
 
   it('is once-per-turn: a second activation the same turn is a no-op', () => {
-    const store = withScoutOnBoard();
-    store.getState().activateAbility('card-hero-1', 0);
-    store.getState().activateAbility('card-hero-1', 0);
-    expect(store.getState().activatedStatBuffs['card-hero-1']).toEqual({ acc: 20 });
+    const store = withRomaOnBoard([FODDER, 'card-hero-2']);
+    store.getState().activateAbility(ROMA, 0);
+    store.getState().chooseAbilityCost(FODDER);
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toBeNull();
+    expect(store.getState().turnStatBuffs[ROMA]).toEqual({ acc: 30 });
   });
 
-  it('does nothing outside the player Main phase', () => {
-    const store = withScoutOnBoard();
+  it('the +30 ACC expires when the player turn ends', () => {
+    vi.useFakeTimers();
+    try {
+      const store = withRomaOnBoard();
+      store.getState().activateAbility(ROMA, 0);
+      store.getState().chooseAbilityCost(FODDER);
+      expect(store.getState().turnStatBuffs[ROMA]).toEqual({ acc: 30 });
+      store.setState({ phase: 'end' });
+      store.getState().advancePhase(); // end -> opponent turn
+      expect(store.getState().activePlayer).toBe('opponent');
+      expect(store.getState().turnStatBuffs).toEqual({});
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not open with an empty Hand (cost unpayable)', () => {
+    const store = withRomaOnBoard([]);
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toBeNull();
+  });
+
+  it('does nothing outside the player Main phase or on the opponent turn', () => {
+    const store = withRomaOnBoard();
     store.setState({ phase: 'battle' });
-    store.getState().activateAbility('card-hero-1', 0);
-    expect(store.getState().activatedStatBuffs['card-hero-1']).toBeUndefined();
-  });
-
-  it('does nothing on the opponent turn', () => {
-    const store = withScoutOnBoard();
-    store.setState({ activePlayer: 'opponent' });
-    store.getState().activateAbility('card-hero-1', 0);
-    expect(store.getState().activatedStatBuffs['card-hero-1']).toBeUndefined();
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toBeNull();
+    store.setState({ phase: 'main', activePlayer: 'opponent' });
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toBeNull();
   });
 
   it('does nothing for a card that is not on the player board', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      hand: ['card-hero-1'],
-      deck: base.deck.filter((id) => id !== 'card-hero-1'),
+      hand: [ROMA, FODDER],
+      deck: base.deck.filter((id) => id !== ROMA && id !== FODDER),
       phase: 'main',
     });
-    store.getState().activateAbility('card-hero-1', 0);
-    expect(store.getState().activatedStatBuffs['card-hero-1']).toBeUndefined();
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toBeNull();
   });
 });
 
-describe.skip('P8 activated abilities (targeted cost — Quick Reload / Fire Support)', () => {
-  // Munitions Specialist (card-hero-4) carries "Fire Support: Once per turn, you
-  // can send 1 card from your Hand to Replen: select another Hero you control to
-  // gain +10DMG." Echo Reserve (card-hero-2) is the ally target.
-  function withDuo() {
+describe('P8 activated abilities (targeted cost: Quick Reload)', () => {
+  // Riko (card-hero-43) ability 1: "Quick Reload: Once per turn, you can send 1
+  // card from your Hand to Replen: select another Infantry Hero you control;
+  // that Hero gains +20 ACC." Tundra Rifleman (card-hero-1) is an Infantry ally.
+  const RIKO = 'card-hero-43';
+  const ALLY = 'card-hero-1';
+  const COST = 'card-hero-2';
+  function withDuo(hand: string[] = [COST], ally: string | null = ALLY) {
     const base = createInitialState();
     return createGameStore({
       ...base,
-      deck: base.deck.filter(
-        (id) => !['card-hero-2', 'card-hero-4', 'card-hero-5'].includes(id),
-      ),
-      board: { ...base.board, A1: 'card-hero-4', A2: 'card-hero-2' },
-      hand: ['card-hero-5'],
+      deck: base.deck.filter((id) => ![RIKO, ALLY, ...hand].includes(id)),
+      board: { ...base.board, A1: RIKO, A2: ally },
+      hand,
       phase: 'main',
     });
   }
 
   it('resolves the two-step flow: pay the cost, then buff the chosen target', () => {
     const store = withDuo();
-    const beforeDmg = effectiveStats(store.getState(), 'A2').dmg.value;
-
-    store.getState().activateAbility('card-hero-4', 0);
-    expect(store.getState().abilityTargeting).toMatchObject({
-      sourceCardId: 'card-hero-4',
-      step: 'cost',
-      costCardId: null,
-    });
-
-    store.getState().chooseAbilityCost('card-hero-5');
-    expect(store.getState().abilityTargeting).toMatchObject({ step: 'target', costCardId: 'card-hero-5' });
-
-    store.getState().chooseAbilityTarget('card-hero-2');
+    const beforeAcc = effectiveStats(store.getState(), 'A2').acc.value;
+    store.getState().activateAbility(RIKO, 1);
+    expect(store.getState().abilityTargeting).toMatchObject({ sourceCardId: RIKO, step: 'cost', costCardId: null });
+    store.getState().chooseAbilityCost(COST);
+    expect(store.getState().abilityTargeting).toMatchObject({ step: 'target', costCardId: COST });
+    store.getState().chooseAbilityTarget(ALLY);
     const s = store.getState();
     expect(s.abilityTargeting).toBeNull();
-    expect(s.hand).not.toContain('card-hero-5');
-    expect(s.replen).toContain('card-hero-5');
-    expect(s.activatedStatBuffs['card-hero-2']).toEqual({ dmg: 10 });
-    expect(s.usedActivatedAbilities['card-hero-4']).toEqual(['Fire Support']);
-    expect(effectiveStats(s, 'A2').dmg.value).toBe(beforeDmg + 10);
+    expect(s.hand).not.toContain(COST);
+    expect(s.replen).toContain(COST);
+    expect(s.activatedStatBuffs[ALLY]).toEqual({ acc: 20 });
+    expect(s.usedActivatedAbilities[RIKO]).toEqual(['Quick Reload']);
+    expect(effectiveStats(s, 'A2').acc.value).toBe(beforeAcc + 20);
+  });
+
+  it('rejects an illegal target (the source itself)', () => {
+    const store = withDuo();
+    store.getState().activateAbility(RIKO, 1);
+    store.getState().chooseAbilityCost(COST);
+    store.getState().chooseAbilityTarget(RIKO);
+    expect(store.getState().abilityTargeting).toMatchObject({ step: 'target' });
+    expect(store.getState().hand).toContain(COST);
   });
 
   it('cancelling at the target step spends nothing', () => {
     const store = withDuo();
-    store.getState().activateAbility('card-hero-4', 0);
-    store.getState().chooseAbilityCost('card-hero-5');
+    store.getState().activateAbility(RIKO, 1);
+    store.getState().chooseAbilityCost(COST);
     store.getState().cancelAbilityTargeting();
     const s = store.getState();
     expect(s.abilityTargeting).toBeNull();
-    expect(s.hand).toContain('card-hero-5');
-    expect(s.replen).not.toContain('card-hero-5');
-    expect(s.activatedStatBuffs['card-hero-2']).toBeUndefined();
-    expect(s.usedActivatedAbilities['card-hero-4']).toBeUndefined();
+    expect(s.hand).toContain(COST);
+    expect(s.replen).not.toContain(COST);
+    expect(s.activatedStatBuffs[ALLY]).toBeUndefined();
+    expect(s.usedActivatedAbilities[RIKO]).toBeUndefined();
   });
 
   it('does not open the flow when the Hand cannot pay the cost', () => {
-    const base = createInitialState();
-    const store = createGameStore({
-      ...base,
-      deck: base.deck.filter((id) => !['card-hero-2', 'card-hero-4'].includes(id)),
-      board: { ...base.board, A1: 'card-hero-4', A2: 'card-hero-2' },
-      hand: [],
-      phase: 'main',
-    });
-    store.getState().activateAbility('card-hero-4', 0);
+    const store = withDuo([]);
+    store.getState().activateAbility(RIKO, 1);
     expect(store.getState().abilityTargeting).toBeNull();
   });
 
   it('does not open the flow when there is no legal target', () => {
+    const store = withDuo([COST], null);
+    store.getState().activateAbility(RIKO, 1);
+    expect(store.getState().abilityTargeting).toBeNull();
+  });
+});
+
+describe('P8 activated abilities (heal + GY recovery)', () => {
+  // Frostline Medic (card-hero-39): "First Aid Kit: ... discard 1 card: select 1
+  // Hero you control; that Hero recovers 30 HP."
+  // Byrd (card-hero-51) ability 1: "Jackal Reinforcement: ... discard 1 card
+  // from your Hand: select 1 Hero in your GY and send that Hero to Replen."
+  const MEDIC = 'card-hero-39';
+  const BYRD = 'card-hero-51';
+  const ALLY = 'card-hero-1';
+  const COST = 'card-hero-2';
+  const DEAD = 'card-hero-3';
+
+  it('First Aid Kit heals the chosen Hero, capped at max HP', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      deck: base.deck.filter((id) => !['card-hero-4', 'card-hero-5'].includes(id)),
-      board: { ...base.board, A1: 'card-hero-4' },
-      hand: ['card-hero-5'],
+      deck: base.deck.filter((id) => ![MEDIC, ALLY, COST].includes(id)),
+      board: { ...base.board, A1: MEDIC, A2: ALLY },
+      hand: [COST],
+      currentHp: { [ALLY]: 50 },
       phase: 'main',
     });
-    store.getState().activateAbility('card-hero-4', 0);
-    expect(store.getState().abilityTargeting).toBeNull();
+    store.getState().activateAbility(MEDIC, 0);
+    store.getState().chooseAbilityCost(COST);
+    store.getState().chooseAbilityTarget(ALLY);
+    let s = store.getState();
+    expect(s.graveyard).toContain(COST);
+    expect(s.currentHp[ALLY]).toBe(80);
+
+    // Next turn: heal from 90/100 caps at 100.
+    store.setState({ usedActivatedAbilities: {}, hand: ['card-hero-4'], currentHp: { [ALLY]: 90 } });
+    store.getState().activateAbility(MEDIC, 0);
+    store.getState().chooseAbilityCost('card-hero-4');
+    store.getState().chooseAbilityTarget(ALLY);
+    s = store.getState();
+    expect(s.currentHp[ALLY]).toBe(effectiveStats(s, 'A2').hp.value);
   });
 
-  it('is once-per-turn: cannot re-open after resolving', () => {
-    const store = withDuo();
-    store.getState().activateAbility('card-hero-4', 0);
-    store.getState().chooseAbilityCost('card-hero-5');
-    store.getState().chooseAbilityTarget('card-hero-2');
-    store.getState().activateAbility('card-hero-4', 0);
+  it('Jackal Reinforcement moves a Hero from the GY to Replen', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      deck: base.deck.filter((id) => ![BYRD, COST, DEAD].includes(id)),
+      board: { ...base.board, A1: BYRD },
+      hand: [COST],
+      graveyard: [DEAD],
+      phase: 'main',
+    });
+    store.getState().activateAbility(BYRD, 1);
+    store.getState().chooseAbilityCost(COST);
+    store.getState().chooseAbilityTarget(DEAD);
+    const s = store.getState();
+    expect(s.graveyard).toEqual([COST]);
+    expect(s.replen).toContain(DEAD);
+    expect(s.usedActivatedAbilities[BYRD]).toEqual(['Jackal Reinforcement']);
+  });
+
+  it('Jackal Reinforcement does not open with an empty GY', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      deck: base.deck.filter((id) => ![BYRD, COST].includes(id)),
+      board: { ...base.board, A1: BYRD },
+      hand: [COST],
+      graveyard: [],
+      phase: 'main',
+    });
+    store.getState().activateAbility(BYRD, 1);
     expect(store.getState().abilityTargeting).toBeNull();
   });
 });

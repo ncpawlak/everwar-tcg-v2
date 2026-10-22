@@ -137,21 +137,23 @@ describe('P8 ability parser', () => {
     expect(parseSelector('the top card')).toBeNull();
   });
 
-  it('parses an activated self-buff (Combat Focus) into an activated, once-per-turn IR', () => {
-    const ir = parseAbility('Combat Focus: Once per turn, you can: this Hero gains +20 ACC.');
-    expect(ir.name).toBe('Combat Focus');
+  it('parses a self-buff with a discard cost and turn duration (Wasteland Deadeye)', () => {
+    const ir = parseAbility(
+      'Wasteland Deadeye: Once per turn, you can discard 1 card from your Hand: this Hero gains +30 ACC until the end of your turn.',
+    );
+    expect(ir.name).toBe('Wasteland Deadeye');
     expect(ir.trigger).toBe('activated');
     expect(ir.oncePerTurn).toBe(true);
-    expect(ir.effect).toEqual({ kind: 'selfStatBuff', stat: 'acc', amount: 20 });
+    expect(ir.cost).toEqual({ kind: 'discardHand', count: 1 });
+    expect(ir.duration).toBe('endOfTurn');
+    expect(ir.effect).toEqual({ kind: 'selfStatBuff', stat: 'acc', amount: 30 });
   });
 
   it('parses a targeted cost ability (Quick Reload) into an activated targetStatBuff with cost', () => {
     const ir = parseAbility(
-      'Quick Reload: Once per turn, you can send 1 card from your Hand to Replen: select another Infantry Hero you control to gain +20ACC.',
+      'Quick Reload: Once per turn, you can send 1 card from your Hand to Replen: select another Infantry Hero you control; that Hero gains +20 ACC.',
     );
-    expect(ir.name).toBe('Quick Reload');
     expect(ir.trigger).toBe('activated');
-    expect(ir.oncePerTurn).toBe(true);
     expect(ir.cost).toEqual({ kind: 'sendHandToReplen', count: 1 });
     expect(ir.effect).toEqual({
       kind: 'targetStatBuff',
@@ -161,16 +163,69 @@ describe('P8 ability parser', () => {
     });
   });
 
-  it('parses a targeted ability with no sub-type restriction (any Hero you control)', () => {
-    const ir = parseAbility(
-      'Fire Support: Once per turn, you can send 1 card from your Hand to Replen: select another Hero you control to gain +10DMG.',
+  it('parses heals with Replen, discard and no cost (Urgent Treatment / First Aid Kit / First Aid Patch)', () => {
+    const urgent = parseAbility(
+      'Urgent Treatment: Once per turn, you can send 1 card from your Replen to the GY: select 1 Hero you control; that Hero recovers 30 HP.',
     );
-    expect(ir.effect).toEqual({
-      kind: 'targetStatBuff',
-      stat: 'dmg',
-      amount: 10,
-      target: { side: 'ally', subType: undefined, excludeSelf: true },
-    });
+    expect(urgent.cost).toEqual({ kind: 'sendReplenToGraveyard', count: 1 });
+    expect(urgent.effect).toEqual({ kind: 'healTarget', amount: 30, target: { side: 'ally' } });
+    const kit = parseAbility(
+      'First Aid Kit: Once per turn, you can discard 1 card: select 1 Hero you control; that Hero recovers 30 HP.',
+    );
+    expect(kit.cost).toEqual({ kind: 'discardHand', count: 1 });
+    const patch = parseAbility('First Aid Patch: Once per turn, select 1 Hero you control; that Hero recovers 20 HP.');
+    expect(patch.trigger).toBe('activated');
+    expect(patch.cost).toBeUndefined();
+    expect(patch.effect).toEqual({ kind: 'healTarget', amount: 20, target: { side: 'ally' } });
+  });
+
+  it('parses Graveyard recovery for Heroes and Equipment', () => {
+    const jackal = parseAbility(
+      'Jackal Reinforcement: Once per turn, you can discard 1 card from your Hand: select 1 Hero in your GY and send that Hero to Replen.',
+    );
+    expect(jackal.effect).toEqual({ kind: 'recoverFromGraveyard', cardType: 'A' });
+    const retrieval = parseAbility(
+      'Equipment Retrieval: Once per turn, you can select 1 Equipment card in your GY and send it to Replen.',
+    );
+    expect(retrieval.trigger).toBe('activated');
+    expect(retrieval.cost).toBeUndefined();
+    expect(retrieval.effect).toEqual({ kind: 'recoverFromGraveyard', cardType: 'C' });
+  });
+
+  it("parses opponent-next-turn effects (Iron Wall, Armored Aggro, Shell Up, Heavy Suppression)", () => {
+    const iron = parseAbility(
+      "Iron Wall: Once per turn, you can discard the top card of your Deck: enemy Heroes can only target this Hero for attacks, if able, during your opponent's next turn.",
+    );
+    expect(iron.cost).toEqual({ kind: 'discardDeckTop', count: 1 });
+    expect(iron.effect).toEqual({ kind: 'forceTarget' });
+    expect(iron.duration).toBe('opponentNextTurn');
+    const aggro = parseAbility(
+      "Armored Aggro: Once per turn, you can destroy 1 other Hero you control: enemy Heroes can only target this Hero for attacks, if able, during your opponent's next turn.",
+    );
+    expect(aggro.cost).toEqual({ kind: 'destroyOtherAlly' });
+    const shell = parseAbility(
+      "Shell Up: Once per turn, you can discard 1 card from your Hand: this Hero's Armor Bars cannot be reduced during your opponent's next turn.",
+    );
+    expect(shell.effect).toEqual({ kind: 'armorBarsLock' });
+    const supp = parseAbility(
+      "Heavy Suppression: Once per turn, select up to 2 enemy Heroes; those Heroes have -20 ACC during your opponent's next turn.",
+    );
+    expect(supp.effect).toEqual({ kind: 'enemyStatDebuff', stat: 'acc', amount: -20, maxTargets: 2 });
+    expect(supp.duration).toBe('opponentNextTurn');
+  });
+
+  it('parses an enemy mark (Holo-Target)', () => {
+    const ir = parseAbility(
+      'Holo-Target: Once per turn, select 1 enemy Hero; Heroes you control gain +30 ACC when attacking that Hero.',
+    );
+    expect(ir.effect).toEqual({ kind: 'markEnemy', stat: 'acc', amount: 30 });
+  });
+
+  it('leaves triggered "Once per turn, when ..." lines to other rules', () => {
+    const ir = parseAbility(
+      "Make An Example: Once per turn, when this Hero inflicts damage on an enemy Hero, that Hero cannot attack during your opponent's next turn.",
+    );
+    expect(ir.trigger).toBe('unimplemented');
   });
 
   it('parses an on-sent pile trigger (Salvage Beacon) into an onSentToPile draw IR', () => {

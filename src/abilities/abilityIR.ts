@@ -70,23 +70,51 @@ export interface SelfStatBuffEffect {
   amount: number;
 }
 
-/** Which cards an activated ability may target when the player triggers it.
- *  `ally` = a Hero on the player's own A-board. `subType` (optional) restricts to
- *  a Hero sub-type (e.g. "Infantry"). `excludeSelf` drops the ability's owner
- *  ("another … Hero"). */
-export interface TargetSpec {
-  side: 'ally';
-  subType?: string;
-  excludeSelf: boolean;
-}
-
 /** An activated buff applied to a chosen target: "select another <sub> Hero you
- *  control to gain +N STAT". The buff persists while that Hero stays on the field. */
+ *  control; that Hero gains +N STAT". The buff persists while that Hero stays on
+ *  the field. */
 export interface TargetStatBuffEffect {
   kind: 'targetStatBuff';
   stat: AuraStat;
   amount: number;
-  target: TargetSpec;
+  target: HeroSelector;
+}
+
+/** "select 1 Hero you control; that Hero recovers N HP" — heal a chosen Hero,
+ *  capped at its effective max HP. */
+export interface HealTargetEffect {
+  kind: 'healTarget';
+  amount: number;
+  target: HeroSelector;
+}
+
+/** "select 1 <Hero|Equipment card> in your GY and send it to Replen". */
+export interface RecoverFromGraveyardEffect {
+  kind: 'recoverFromGraveyard';
+  /** Card type to pick: A = Hero, C = Equipment. */
+  cardType: 'A' | 'C';
+}
+
+/** "this Hero's Armor Bars cannot be reduced" (Shell Up). Parsed only. */
+export interface ArmorBarsLockEffect {
+  kind: 'armorBarsLock';
+}
+
+/** "select 1 enemy Hero; Heroes you control gain +N STAT when attacking that
+ *  Hero" (Holo-Target). Parsed only. */
+export interface MarkEnemyEffect {
+  kind: 'markEnemy';
+  stat: AuraStat;
+  amount: number;
+}
+
+/** "select up to N enemy Heroes; those Heroes have -M STAT" (Heavy
+ *  Suppression). Parsed only. */
+export interface EnemyStatDebuffEffect {
+  kind: 'enemyStatDebuff';
+  stat: AuraStat;
+  amount: number;
+  maxTargets: number;
 }
 
 /** Draw N cards from the top of the deck. Used by on-sent pile triggers
@@ -128,6 +156,11 @@ export type AbilityEffect =
   | OpponentRestrictionEffect
   | SelfStatBuffEffect
   | TargetStatBuffEffect
+  | HealTargetEffect
+  | RecoverFromGraveyardEffect
+  | ArmorBarsLockEffect
+  | MarkEnemyEffect
+  | EnemyStatDebuffEffect
   | DrawEffect
   | ReturnSelfToHandEffect
   | BreakAllArmorBarsEffect
@@ -137,14 +170,24 @@ export type AbilityEffect =
 /** A pile a card can be sent to / activate from. */
 export type PileKind = 'graveyard' | 'replen';
 
-/** A cost the player must pay to trigger an activated ability. Modeled kinds so
- *  far: send N cards from the Hand to the Replen pile. */
-export interface SendHandToReplenCost {
-  kind: 'sendHandToReplen';
-  count: number;
-}
+/** A cost the player must pay to trigger an activated ability (the clause before
+ *  the colon in "you can <cost>: <effect>"). */
+export type AbilityCost =
+  /** "send N card from your Hand to Replen" */
+  | { kind: 'sendHandToReplen'; count: number }
+  /** "discard N card [from your Hand]" — Hand → GY */
+  | { kind: 'discardHand'; count: number }
+  /** "send N card from your Replen to the GY" */
+  | { kind: 'sendReplenToGraveyard'; count: number }
+  /** "discard the top card of your Deck" — Deck → GY */
+  | { kind: 'discardDeckTop'; count: number }
+  /** "destroy 1 other Hero you control" */
+  | { kind: 'destroyOtherAlly' }
+  /** "destroy this Hero" */
+  | { kind: 'destroySelf' };
 
-export type AbilityCost = SendHandToReplenCost;
+/** How long a one-shot activated effect lasts. */
+export type AbilityDuration = 'endOfTurn' | 'opponentNextTurn';
 
 /** When an ability's effect is evaluated. `passive` (continuous) auras,
  *  `activated` (player-triggered, Main phase), `onSentToPile` (fires when the
@@ -216,6 +259,9 @@ export interface AbilityIR {
   oncePerTurn?: boolean;
   /** Cost the player must pay to trigger an activated ability, if any. */
   cost?: AbilityCost;
+  /** Limited lifetime of an activated effect ("until the end of your turn",
+   *  "during your opponent's next turn"). Undefined = persists while on field. */
+  duration?: AbilityDuration;
   /** For `onSentToPile` / `pileActivated` triggers: which pile the trigger
    *  concerns (Graveyard or Replen). Undefined for other triggers. */
   pile?: PileKind;

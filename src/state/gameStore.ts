@@ -14,7 +14,15 @@ import {
 import { resolveRoll } from './diceRules';
 import { applyArmorToHit } from './armorCombat';
 import { parseAbility } from '../abilities/parseAbility';
-import { abilityValidTargets } from '../abilities/activated';
+import {
+  abilityNeedsTarget,
+  abilityTargetOptions,
+  abilityZones,
+  activationFeasible,
+  costPickZone,
+  playerBoardHeroes,
+} from '../abilities/activated';
+import type { AbilityIR } from '../abilities/abilityIR';
 import { onSentAbilities, pileActivatedAbilityFor } from '../abilities/pile';
 import { combatHitAbilities, finisherEliminates } from '../abilities/combat';
 import { OPP_SLOT_IDS } from '../board/boardConfig';
@@ -958,6 +966,8 @@ export function createGameStore(
         set((s) => ({
           turn: s.turn + 1,
           activePlayer: 'opponent',
+          // "Until the end of your turn" buffs expire as the player's turn ends.
+          turnStatBuffs: {},
           phase: 'draw',
           phaseAnnounce: s.phaseAnnounce + 1,
         }));
@@ -989,6 +999,111 @@ export function createGameStore(
             : st,
         );
       }, ABILITY_SHOWCASE_MS);
+    };
+
+    /**
+     * Pay an activated ability's cost and apply its effect (Phase 8). Shared by
+     * the immediate path (no picks) and the selection modal. A moved card glides
+     * to its pile first; the source Hero's showcase follows.
+     */
+    const finishActivation = (
+      sourceId: CardId,
+      ir: AbilityIR,
+      costCardId: CardId | null,
+      targetId: CardId | null,
+    ) => {
+      const s = get();
+      let { hand, replen, graveyard, deck } = s;
+      let movedCard = false;
+      const cost = ir.cost;
+      if (cost) {
+        switch (cost.kind) {
+          case 'sendHandToReplen':
+          case 'discardHand':
+            if (!costCardId || !hand.includes(costCardId)) return;
+            hand = hand.filter((id) => id !== costCardId);
+            if (cost.kind === 'sendHandToReplen') replen = [...replen, costCardId];
+            else graveyard = [...graveyard, costCardId];
+            movedCard = true;
+            break;
+          case 'sendReplenToGraveyard':
+            if (!costCardId || !replen.includes(costCardId)) return;
+            replen = replen.filter((id) => id !== costCardId);
+            graveyard = [...graveyard, costCardId];
+            movedCard = true;
+            break;
+          case 'discardDeckTop': {
+            if (deck.length === 0) return;
+            const topId = deck[deck.length - 1];
+            deck = deck.slice(0, -1);
+            graveyard = [...graveyard, topId];
+            movedCard = true;
+            break;
+          }
+          default:
+            return;
+        }
+      }
+
+      let { activatedStatBuffs, turnStatBuffs, currentHp } = s;
+      const addBuff = (
+        map: GameState['activatedStatBuffs'],
+        id: CardId,
+        stat: 'hp' | 'dmg' | 'acc',
+        amount: number,
+      ) => {
+        const prev = map[id] ?? {};
+        return { ...map, [id]: { ...prev, [stat]: (prev[stat] ?? 0) + amount } };
+      };
+      const e = ir.effect;
+      switch (e.kind) {
+        case 'selfStatBuff':
+          if (e.stat === 'armor') break;
+          if (ir.duration === 'endOfTurn') turnStatBuffs = addBuff(turnStatBuffs, sourceId, e.stat, e.amount);
+          else activatedStatBuffs = addBuff(activatedStatBuffs, sourceId, e.stat, e.amount);
+          break;
+        case 'targetStatBuff':
+          if (!targetId || e.stat === 'armor') break;
+          activatedStatBuffs = addBuff(activatedStatBuffs, targetId, e.stat, e.amount);
+          break;
+        case 'healTarget': {
+          if (!targetId) break;
+          const slot = (Object.keys(s.board) as SlotId[]).find((k) => s.board[k] === targetId);
+          if (!slot) break;
+          const maxHp = effectiveStats(s, slot).hp.value;
+          const cur = currentHp[targetId] ?? maxHp;
+          currentHp = { ...currentHp, [targetId]: Math.min(maxHp, cur + e.amount) };
+          break;
+        }
+        case 'recoverFromGraveyard':
+          if (!targetId || !graveyard.includes(targetId)) break;
+          graveyard = graveyard.filter((id) => id !== targetId);
+          replen = [...replen, targetId];
+          movedCard = true;
+          break;
+        default:
+          break;
+      }
+
+      const usedNames = s.usedActivatedAbilities[sourceId] ?? [];
+      set({
+        hand,
+        replen,
+        graveyard,
+        deck,
+        activatedStatBuffs,
+        turnStatBuffs,
+        currentHp,
+        usedActivatedAbilities: { ...s.usedActivatedAbilities, [sourceId]: [...usedNames, ir.name] },
+        abilityTargeting: null,
+      });
+      const showcase = () => {
+        set((st) => ({ ...st, abilityShowcase: { cardId: sourceId, abilityName: ir.name } }));
+        scheduleShowcaseClear(sourceId);
+      };
+      // Let a moved card's glide read before the source Hero's showcase pops.
+      if (movedCard) setTimeout(showcase, ABILITY_COST_SEND_MS);
+      else showcase();
     };
 
     /** After a send-to-pile lands, open the on-sent yes/no prompt for the first
@@ -1195,8 +1310,7 @@ export function createGameStore(
       const s = get();
       // Gate: player's Main phase, card on the player's own A-board.
       if (s.activePlayer !== 'player' || s.phase !== 'main') return;
-      const onBoard = Object.values(s.board).includes(cardId);
-      if (!onBoard) return;
+      if (!playerBoardHeroes(s).some((c) => c.id === cardId)) return;
       const card = s.cardsById[cardId];
       if (!card || !card.abilities || abilityIndex < 0 || abilityIndex >= card.abilities.length) {
         return;
@@ -1206,59 +1320,42 @@ export function createGameStore(
       // Once-per-turn gate.
       const usedNames = s.usedActivatedAbilities[cardId] ?? [];
       if (ir.oncePerTurn && usedNames.includes(ir.name)) return;
+      // Never open a flow the player can't finish (or one the runtime can't apply).
+      if (!activationFeasible(ir, abilityZones(s), cardId)) return;
 
-      // Targeting abilities (with or without a cost) open a selection flow that
-      // resolves in chooseAbilityCost / chooseAbilityTarget. Verify feasibility
-      // first so we never open a flow the player can't finish.
-      if (ir.effect.kind === 'targetStatBuff') {
-        const allyBoard = Object.values(s.board)
-          .filter((id): id is CardId => id !== null)
-          .map((id) => s.cardsById[id])
-          .filter((c): c is NonNullable<typeof c> => Boolean(c));
-        const targets = abilityValidTargets(ir, allyBoard, cardId);
-        if (targets.length === 0) return;
-        if (ir.cost && s.hand.length < ir.cost.count) return;
+      // Abilities with a card-pick cost or a target open the selection modal;
+      // they resolve in chooseAbilityCost / chooseAbilityTarget.
+      const pickCost = costPickZone(ir) !== null;
+      if (pickCost || abilityNeedsTarget(ir)) {
         set({
           abilityTargeting: {
             sourceCardId: cardId,
             abilityIndex,
             abilityName: ir.name,
-            step: ir.cost ? 'cost' : 'target',
+            step: pickCost ? 'cost' : 'target',
             costCardId: null,
           },
         });
         return;
       }
-
-      // Self stat-buff resolves immediately.
-      let activatedStatBuffs = s.activatedStatBuffs;
-      if (ir.effect.kind === 'selfStatBuff' && ir.effect.stat !== 'armor') {
-        const prev = s.activatedStatBuffs[cardId] ?? {};
-        const stat = ir.effect.stat;
-        activatedStatBuffs = {
-          ...s.activatedStatBuffs,
-          [cardId]: { ...prev, [stat]: (prev[stat] ?? 0) + ir.effect.amount },
-        };
-      }
-
-      set({
-        activatedStatBuffs,
-        usedActivatedAbilities: {
-          ...s.usedActivatedAbilities,
-          [cardId]: [...usedNames, ir.name],
-        },
-        // Fire the centered amber-ripple showcase.
-        abilityShowcase: { cardId, abilityName: ir.name },
-      });
-      scheduleShowcaseClear(cardId);
+      finishActivation(cardId, ir, null, null);
     },
 
     chooseAbilityCost: (cardId) => {
       const s = get();
       const at = s.abilityTargeting;
       if (!at || at.step !== 'cost') return;
-      if (!s.hand.includes(cardId)) return;
-      set({ abilityTargeting: { ...at, step: 'target', costCardId: cardId } });
+      const source = s.cardsById[at.sourceCardId];
+      if (!source || !source.abilities) return;
+      const ir = parseAbility(source.abilities[at.abilityIndex]);
+      const zone = costPickZone(ir);
+      const pool = zone === 'hand' ? s.hand : zone === 'replen' ? s.replen : [];
+      if (!pool.includes(cardId)) return;
+      if (abilityNeedsTarget(ir)) {
+        set({ abilityTargeting: { ...at, step: 'target', costCardId: cardId } });
+        return;
+      }
+      finishActivation(at.sourceCardId, ir, cardId, null);
     },
 
     chooseAbilityTarget: (targetId) => {
@@ -1268,59 +1365,11 @@ export function createGameStore(
       const source = s.cardsById[at.sourceCardId];
       if (!source || !source.abilities) return;
       const ir = parseAbility(source.abilities[at.abilityIndex]);
-      if (ir.effect.kind !== 'targetStatBuff') return;
-
-      // Target must be a currently-legal choice.
-      const allyBoard = Object.values(s.board)
-        .filter((id): id is CardId => id !== null)
-        .map((id) => s.cardsById[id])
-        .filter((c): c is NonNullable<typeof c> => Boolean(c));
-      const legal = abilityValidTargets(ir, allyBoard, at.sourceCardId).some(
+      const legal = abilityTargetOptions(ir, abilityZones(s), at.sourceCardId).some(
         (c) => c.id === targetId,
       );
       if (!legal) return;
-
-      // Pay the staged cost (send the Hand card to Replen).
-      let hand = s.hand;
-      let replen = s.replen;
-      if (ir.cost?.kind === 'sendHandToReplen' && at.costCardId) {
-        if (!s.hand.includes(at.costCardId)) return;
-        hand = s.hand.filter((id) => id !== at.costCardId);
-        replen = [...s.replen, at.costCardId];
-      }
-
-      // Apply the buff to the chosen target (accumulates, persists while alive).
-      let activatedStatBuffs = s.activatedStatBuffs;
-      if (ir.effect.stat !== 'armor') {
-        const prev = s.activatedStatBuffs[targetId] ?? {};
-        const stat = ir.effect.stat;
-        activatedStatBuffs = {
-          ...s.activatedStatBuffs,
-          [targetId]: { ...prev, [stat]: (prev[stat] ?? 0) + ir.effect.amount },
-        };
-      }
-
-      const usedNames = s.usedActivatedAbilities[at.sourceCardId] ?? [];
-      const sourceId = at.sourceCardId;
-      // Commit the cost move + buff immediately so the cost card visibly glides
-      // from the Hand to the Replen pile and the modal closes.
-      set({
-        hand,
-        replen,
-        activatedStatBuffs,
-        usedActivatedAbilities: {
-          ...s.usedActivatedAbilities,
-          [sourceId]: [...usedNames, ir.name],
-        },
-        abilityTargeting: null,
-      });
-      // Then, after the send-to-Replen glide reads, pop the source Hero's
-      // activation showcase (matching the self-buff and summon showcases).
-      const name = ir.name;
-      setTimeout(() => {
-        set((st) => ({ ...st, abilityShowcase: { cardId: sourceId, abilityName: name } }));
-        scheduleShowcaseClear(sourceId);
-      }, ABILITY_COST_SEND_MS);
+      finishActivation(at.sourceCardId, ir, at.costCardId, targetId);
     },
 
     cancelAbilityTargeting: () => set(() => ({ abilityTargeting: null })),

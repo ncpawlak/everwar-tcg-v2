@@ -115,11 +115,12 @@ export function effectiveStats(state: GameState, aSlot: SlotId): EffectiveStats 
   const cId = state.board[linkedCSlot(aSlot)];
   const buff = cId ? state.cardsById[cId]?.buff : undefined;
   const selfBuff = aId ? state.activatedStatBuffs[aId] : undefined;
+  const turnBuff = aId ? state.turnStatBuffs?.[aId] : undefined;
 
   const line = (stat: StatKey): StatLine => {
     const cDelta = buff && buff.stat === stat ? buff.amount : 0;
     const aDelta = card ? playerAuraDelta(state, card, stat) : 0;
-    const sDelta = selfBuff?.[stat] ?? 0;
+    const sDelta = (selfBuff?.[stat] ?? 0) + (turnBuff?.[stat] ?? 0);
     const delta = cDelta + aDelta + sDelta;
     return { value: base[stat] + delta, delta };
   };

@@ -5,7 +5,7 @@ import { selectCardVisual } from '../animation/poseSelectors';
 import { MotionCard } from '../animation/MotionCard';
 import { CardView } from '../cards/CardView';
 import { projectingAuraCardIds } from '../abilities/auras';
-import { hasAvailableActivated } from '../abilities/activated';
+import { abilityZones, hasAvailableActivated } from '../abilities/activated';
 
 /**
  * Renders one card. Its target pose/face/feel come entirely from state via
@@ -37,8 +37,7 @@ export function CardEntity({ cardId }: { cardId: CardId }) {
       isPlayerMain: state.activePlayer === 'player' && state.phase === 'main',
       onPlayerBoard,
       usedNames: state.usedActivatedAbilities[cardId] ?? [],
-      handCount: state.hand.length,
-      allyBoard: field.heroes,
+      ...abilityZones(state),
     });
 
   return (

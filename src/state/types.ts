@@ -425,6 +425,10 @@ export interface GameState {
    * keyed by card id then stat. Folded into `effectiveStats` on top of base /
    * C-buff / aura, and cleared when the card leaves the field. Player-only. */
   activatedStatBuffs: Record<CardId, Partial<Record<StatKey, number>>>;
+  /** Stat buffs from activated abilities that last "until the end of your
+   * turn" (e.g. Wasteland Deadeye). Folded into `effectiveStats` like
+   * `activatedStatBuffs`, and wiped when the player's turn ends. */
+  turnStatBuffs: Record<CardId, Partial<Record<StatKey, number>>>;
   /** Activated ability names each card has already used this turn (once-per-turn
    * gate), keyed by card id. Reset at the start of the player's turn. */
   usedActivatedAbilities: Record<CardId, string[]>;

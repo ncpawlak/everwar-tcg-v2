@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import type { Card } from '../state/types';
 import { abilityLabel } from '../state/abilities';
-import { activatedAbilityViews } from '../abilities/activated';
+import { abilityZones, activatedAbilityViews } from '../abilities/activated';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 
 /**
@@ -39,21 +39,19 @@ export function InspectionPanel() {
     s.selectedCardId ? s.usedActivatedAbilities[s.selectedCardId] : undefined,
   );
   const activateAbility = useGameStore((s) => s.activateAbility);
-  const handCount = useGameStore((s) => s.hand.length);
+  const hand = useGameStore((s) => s.hand);
+  const replen = useGameStore((s) => s.replen);
+  const deck = useGameStore((s) => s.deck);
+  const graveyard = useGameStore((s) => s.graveyard);
   const board = useGameStore((s) => s.board);
   const cardsById = useGameStore((s) => s.cardsById);
-  const allyBoard = Object.values(board)
-    .filter((id): id is NonNullable<typeof id> => id !== null)
-    .map((id) => cardsById[id])
-    .filter((c): c is Card => Boolean(c));
   const abilityViews =
     shown && shown.type === 'A'
       ? activatedAbilityViews(shown, {
           isPlayerMain,
           onPlayerBoard,
           usedNames: usedNames ?? [],
-          handCount,
-          allyBoard,
+          ...abilityZones({ board, cardsById, hand, replen, deck, graveyard }),
         })
       : [];
 

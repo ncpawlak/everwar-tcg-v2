@@ -11,6 +11,8 @@
 import type {
   AbilityCondition,
   AbilityConstraint,
+  AbilityCost,
+  AbilityDuration,
   AbilityEffect,
   AbilityIR,
   AbilityRider,
@@ -197,51 +199,115 @@ const PASSIVE_WHILE_RULE: ParseRule = {
   },
 };
 
-/**
- * "Once per turn, you can: this Hero gains +<n><STAT>."  (e.g. Combat Focus →
- * activated, once-per-turn, +20 ACC to itself). The player triggers it from the
- * ability popup; the buff persists while the Hero stays on the field.
- */
-const SELF_STAT_BUFF_RULE = regexRule(
-  /^Once per turn, you can:\s*this Hero gains\s+\+(\d+)\s*(ACC|DMG|HP)\.$/i,
-  (m, name, raw) => ({
-    name,
-    raw,
-    trigger: 'activated',
-    oncePerTurn: true,
-    effect: {
-      kind: 'selfStatBuff',
-      stat: STAT_WORD[m[2].toUpperCase()],
-      amount: Number(m[1]),
-    },
-    constraints: [],
-  }),
-);
+const DURATION_SUFFIXES: [RegExp, AbilityDuration][] = [
+  [/,?\s+until the end of your turn$/i, 'endOfTurn'],
+  [/,?\s+during your opponent's next turn$/i, 'opponentNextTurn'],
+];
+
+/** Parse the cost clause of "you can <cost>: <effect>". */
+export function parseCost(text: string): AbilityCost | null {
+  const t = text.trim();
+  let m = t.match(/^send (\d+) cards? from your Hand to Replen$/i);
+  if (m) return { kind: 'sendHandToReplen', count: Number(m[1]) };
+  m = t.match(/^send (\d+) cards? from your Replen to the GY$/i);
+  if (m) return { kind: 'sendReplenToGraveyard', count: Number(m[1]) };
+  m = t.match(/^discard (\d+) cards?(?: from your Hand)?$/i);
+  if (m) return { kind: 'discardHand', count: Number(m[1]) };
+  if (/^discard the top card of your Deck$/i.test(t)) return { kind: 'discardDeckTop', count: 1 };
+  if (/^destroy 1 other Hero you control$/i.test(t)) return { kind: 'destroyOtherAlly' };
+  if (/^destroy this Hero$/i.test(t)) return { kind: 'destroySelf' };
+  return null;
+}
+
+/** Parse "select <quantity> <selector>" into a selector + max picks. */
+function parseSelect(text: string): { target: HeroSelector; max: number } | null {
+  const m = text.match(/^select (?:(1|up to (\d+)) )?(.+)$/i);
+  if (!m) return null;
+  const target = parseSelector(m[3]);
+  if (!target) return null;
+  return { target, max: m[2] ? Number(m[2]) : 1 };
+}
+
+/** Parse the one-shot effect of an activated ability (no trailing period,
+ *  duration suffix already stripped). */
+export function parseActivatedEffect(text: string): AbilityEffect | null {
+  const t = text.trim();
+
+  const self = t.match(/^this Hero gains \+(\d+) (ACC|DMG|HP)$/i);
+  if (self) return { kind: 'selfStatBuff', stat: STAT_WORD[self[2].toUpperCase()], amount: Number(self[1]) };
+
+  const gy = t.match(/^(?:you can )?select 1 (Hero|Equipment card) in your GY and send (?:that Hero|it) to Replen$/i);
+  if (gy) return { kind: 'recoverFromGraveyard', cardType: /^hero$/i.test(gy[1]) ? 'A' : 'C' };
+
+  if (/^this Hero's Armor Bars cannot be reduced$/i.test(t)) return { kind: 'armorBarsLock' };
+
+  const [selectText, rest] = t.split(/;\s*/, 2);
+  if (rest !== undefined) {
+    const sel = parseSelect(selectText);
+    if (!sel) return null;
+    const heal = rest.match(/^that Hero recovers (\d+) HP$/i);
+    if (heal && sel.target.side === 'ally') {
+      return { kind: 'healTarget', amount: Number(heal[1]), target: sel.target };
+    }
+    const buff = rest.match(/^that Hero gains \+(\d+) (ACC|DMG|HP)$/i);
+    if (buff && sel.target.side === 'ally') {
+      return { kind: 'targetStatBuff', stat: STAT_WORD[buff[2].toUpperCase()], amount: Number(buff[1]), target: sel.target };
+    }
+    const mark = rest.match(/^Heroes you control gain \+(\d+) (ACC|DMG) when attacking that Hero$/i);
+    if (mark && sel.target.side === 'enemy') {
+      return { kind: 'markEnemy', stat: STAT_WORD[mark[2].toUpperCase()], amount: Number(mark[1]) };
+    }
+    const debuff = rest.match(/^those Heroes have -(\d+) (ACC|DMG)$/i);
+    if (debuff && sel.target.side === 'enemy') {
+      return { kind: 'enemyStatDebuff', stat: STAT_WORD[debuff[2].toUpperCase()], amount: -Number(debuff[1]), maxTargets: sel.max };
+    }
+    return null;
+  }
+
+  const continuous = parseContinuousEffect(t);
+  return continuous && continuous.kind === 'forceTarget' ? continuous : null;
+}
 
 /**
- * "Once per turn, you can send N card from your Hand to Replen: select another
- *  [<SubType>] Hero you control to gain +M STAT."  (e.g. Quick Reload → send 1,
- *  target another Infantry Hero, +20 ACC). Activated, once-per-turn, with a
- *  hand→replen cost and an ally target. The optional sub-type word restricts the
- *  target family; without it, any other Hero you control is eligible.
+ * Activated "Once per turn, [you can] [<cost>:] <effect>[ <duration>]." The v3
+ * player-triggered shape (Quick Reload, Wasteland Deadeye, First Aid Kit,
+ * Urgent Treatment, Jackal Reinforcement, Equipment Retrieval, Shell Up, Iron
+ * Wall, Armored Aggro, Holo-Target, Heavy Suppression, ...). Triggered lines
+ * ("when this Hero ...") fall through because their effect does not parse.
  */
-const TARGET_STAT_BUFF_RULE = regexRule(
-  /^Once per turn, you can send (\d+) card from your Hand to Replen:\s*select another (?:(\w+) )?Hero you control to gain\s+\+(\d+)\s*(ACC|DMG|HP)\.$/i,
-  (m, name, raw) => ({
-    name,
-    raw,
-    trigger: 'activated',
-    oncePerTurn: true,
-    cost: { kind: 'sendHandToReplen', count: Number(m[1]) },
-    effect: {
-      kind: 'targetStatBuff',
-      stat: STAT_WORD[m[4].toUpperCase()],
-      amount: Number(m[3]),
-      target: { side: 'ally', subType: m[2], excludeSelf: true },
-    },
-    constraints: [],
-  }),
-);
+const ACTIVATED_RULE: ParseRule = {
+  parse: (body, name, raw) => {
+    const m = body.match(/^Once per turn, (you can )?(.+)\.$/i);
+    if (!m) return null;
+    let rest = m[2];
+    let cost: AbilityCost | undefined;
+    const colon = rest.indexOf(': ');
+    if (colon >= 0) {
+      if (!m[1]) return null;
+      const parsed = parseCost(rest.slice(0, colon));
+      if (!parsed) return null;
+      cost = parsed;
+      rest = rest.slice(colon + 2);
+    } else if (m[1]) {
+      // "you can <effect>" with no cost: only the GY-recovery shape uses it.
+      rest = `you can ${rest}`;
+    }
+    let duration: AbilityDuration | undefined;
+    for (const [re, d] of DURATION_SUFFIXES) {
+      if (re.test(rest)) {
+        duration = d;
+        rest = rest.replace(re, '');
+        break;
+      }
+    }
+    const effect = parseActivatedEffect(rest);
+    if (!effect) return null;
+    const ir: AbilityIR = { name, raw, trigger: 'activated', oncePerTurn: true, effect, constraints: [] };
+    if (cost) ir.cost = cost;
+    if (duration) ir.duration = duration;
+    return ir;
+  },
+};
 
 /**
  * "When this Hero is sent to the <Graveyard|Replen>: draw N card(s)."  (e.g.
@@ -317,7 +383,7 @@ const HIDDEN_FINISHER_RULE = regexRule(
   }),
 );
 
-const RULES: ParseRule[] = [PASSIVE_WHILE_RULE, SELF_STAT_BUFF_RULE, TARGET_STAT_BUFF_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE, BUNKER_BUSTING_RULE, HIDDEN_FINISHER_RULE];
+const RULES: ParseRule[] = [PASSIVE_WHILE_RULE, ACTIVATED_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE, BUNKER_BUSTING_RULE, HIDDEN_FINISHER_RULE];
 
 /** Split "<Name>: <body>" into its parts. No colon → empty name, whole text is body. */
 function splitNameBody(text: string): { name: string; body: string } {

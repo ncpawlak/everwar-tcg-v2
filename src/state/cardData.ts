@@ -470,6 +470,7 @@ export function createInitialState(rand: () => number = Math.random): GameState 
     currentHp: {},
     currentArmorBars: {},
     activatedStatBuffs: {},
+    turnStatBuffs: {},
     usedActivatedAbilities: {},
     destroying: [],
     oppAttackTargets: {},
