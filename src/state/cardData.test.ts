@@ -53,6 +53,15 @@ describe('P2-S01 initial state', () => {
     expect(counts).toEqual({ A: 27, B: 7, C: 6 });
   });
 
+  it('shuffles BOTH decks on startup (order depends on the rng)', () => {
+    const seq = (seed: number) => { let x = seed; return () => ((x = (x * 9301 + 49297) % 233280) / 233280); };
+    const a = createInitialState(seq(1));
+    const b = createInitialState(seq(2));
+    expect(a.deck).not.toEqual(b.deck);
+    expect([...a.opponentDeck, ...a.opponentHand]).not.toEqual([...b.opponentDeck, ...b.opponentHand]);
+    expect([...a.opponentDeck, ...a.opponentHand].sort()).toEqual([...b.opponentDeck, ...b.opponentHand].sort());
+  });
+
   it('P7-S1/S4: gives the opponent its own full-player state + opening hand', () => {
     const s = createInitialState();
     // Opponent draws its opening five off its own 22-card deck, so the draw
