@@ -103,6 +103,18 @@ describe('P8 aura runtime', () => {
     expect(auraStatDelta(collectAuras([t, echo]), t, 'acc')).toBe(20);
   });
 
+  it('Drone Ops rider needs BOTH the Drone Loadout and Drone Scout (+20 / +40)', () => {
+    const DRONE_OPS =
+      'Drone Ops: While this Hero is equipped with a "Drone" Loadout, this Hero gains +20 ACC; while you control "Drone Scout", this Hero gains an additional +20 ACC.';
+    const eng = hero('e1', 'Drone Engineer', [DRONE_OPS], { subType: 'Engineer' });
+    const scout = hero('s1', 'Drone Scout');
+    const drone = equipment('d1', 'Recon Drone', 'Loadout');
+    const withDrone = (id: string) => (id === 'e1' ? drone : undefined);
+    expect(auraStatDelta(collectAuras({ heroes: [eng, scout] }), eng, 'acc')).toBe(0);
+    expect(auraStatDelta(collectAuras({ heroes: [eng], equipmentOf: withDrone }), eng, 'acc')).toBe(20);
+    expect(auraStatDelta(collectAuras({ heroes: [eng, scout], equipmentOf: withDrone }), eng, 'acc')).toBe(40);
+  });
+
   it('applies Equipment-hosted buffs to the bearer when it matches (Medic HP)', () => {
     const vest = equipment('v1', 'Medi-Gel Vest', 'Armor', { abilities: [MEDIC_HP] });
     const medic = hero('m1', 'Field Medic', [], { subType: 'Medic' });
