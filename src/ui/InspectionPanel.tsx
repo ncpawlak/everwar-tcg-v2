@@ -1,0 +1,419 @@
+import { useEffect, useState } from 'react';
+import { useGameStore } from '../state/useGameStore';
+import type { Card } from '../state/types';
+import { abilityLabel } from '../state/abilities';
+import { activatedAbilityViews } from '../abilities/activated';
+import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
+
+/**
+ * Left-side card inspection panel (Slice 1). A DOM overlay — not rendered in the
+ * 3D canvas — so the effect text stays crisp and readable. It shows the card
+ * referenced by `selectedCardId`; selection is driven entirely by click input in
+ * PointerControls. The panel slides/fades in from the left and retains the last
+ * card while sliding out so the exit stays smooth.
+ */
+
+export function InspectionPanel() {
+  const selectedId = useGameStore((s) => s.selectedCardId);
+  const card = useGameStore((s) =>
+    s.selectedCardId ? s.cardsById[s.selectedCardId] ?? s.opponentCards[s.selectedCardId] ?? null : null,
+  );
+
+  // Keep showing the last card during the slide-out.
+  const [shown, setShown] = useState<Card | null>(null);
+  useEffect(() => {
+    if (card) setShown(card);
+  }, [card]);
+
+  const open = selectedId !== null;
+  const accent = shown ? TYPE_ACCENT[shown.type] : '#888';
+  const rarityColor = shown ? RARITY_COLOR[shown.rarity] : '#888';
+
+  // Activated-ability wiring: gate on the live store so the "Activate" affordance
+  // only appears on the player's own board Hero during its Main phase.
+  const isPlayerMain = useGameStore((s) => s.activePlayer === 'player' && s.phase === 'main');
+  const onPlayerBoard = useGameStore(
+    (s) => s.selectedCardId !== null && Object.values(s.board).includes(s.selectedCardId),
+  );
+  const usedNames = useGameStore((s) =>
+    s.selectedCardId ? s.usedActivatedAbilities[s.selectedCardId] : undefined,
+  );
+  const activateAbility = useGameStore((s) => s.activateAbility);
+  const handCount = useGameStore((s) => s.hand.length);
+  const board = useGameStore((s) => s.board);
+  const cardsById = useGameStore((s) => s.cardsById);
+  const allyBoard = Object.values(board)
+    .filter((id): id is NonNullable<typeof id> => id !== null)
+    .map((id) => cardsById[id])
+    .filter((c): c is Card => Boolean(c));
+  const abilityViews =
+    shown && shown.type === 'A'
+      ? activatedAbilityViews(shown, {
+          isPlayerMain,
+          onPlayerBoard,
+          usedNames: usedNames ?? [],
+          handCount,
+          allyBoard,
+        })
+      : [];
+
+  return (
+    <div
+      data-ui-overlay
+      data-testid="inspection-panel"
+      style={{
+        position: 'absolute',
+        top: '50%',
+        left: 24,
+        transform: `translateY(-50%) translateX(${open ? '0' : '-120%'})`,
+        opacity: open ? 1 : 0,
+        transition: 'transform 220ms cubic-bezier(0.22,1,0.36,1), opacity 200ms ease',
+        pointerEvents: open ? 'auto' : 'none',
+        zIndex: 30,
+        width: 300,
+        borderRadius: 14,
+        overflow: 'hidden',
+        background: 'linear-gradient(180deg, #1a2029 0%, #12161d 100%)',
+        border: `1px solid ${accent}`,
+        boxShadow: '0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03)',
+        color: '#e8eaed',
+        fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
+        userSelect: 'none',
+      }}
+    >
+      {shown && (
+        <>
+          {/* Card face */}
+          <div
+            style={{
+              position: 'relative',
+              height: 230,
+              background: `radial-gradient(120% 90% at 50% 0%, ${accent}33 0%, #0e1218 70%)`,
+              borderBottom: `2px solid ${accent}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <span
+              style={{
+                fontSize: 128,
+                fontWeight: 800,
+                color: accent,
+                textShadow: '0 4px 18px rgba(0,0,0,0.6)',
+                lineHeight: 1,
+              }}
+            >
+              {shown.type}
+            </span>
+            {/* Cost pip */}
+            <div
+              style={{
+                position: 'absolute',
+                top: 12,
+                left: 12,
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                background: '#0e1218',
+                border: `2px solid ${accent}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 20,
+                fontWeight: 700,
+              }}
+            >
+              {shown.cost}
+            </div>
+            {/* Rarity badge */}
+            <div
+              style={{
+                position: 'absolute',
+                top: 16,
+                right: 14,
+                fontSize: 11,
+                letterSpacing: 1.5,
+                textTransform: 'uppercase',
+                fontWeight: 700,
+                color: rarityColor,
+              }}
+            >
+              {shown.rarity}
+            </div>
+          </div>
+
+          {/* Detail block */}
+          <div style={{ padding: '14px 16px 16px' }}>
+            <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 2 }}>{shown.name}</div>
+            <div style={{ fontSize: 12, color: accent, fontWeight: 600, marginBottom: 12 }}>
+              {shown.type === 'A' && shown.subType
+                ? `${shown.allegiance ?? 'Hero'} · ${shown.subType}`
+                : `${TYPE_LABEL[shown.type]} · Type ${shown.type}`}
+            </div>
+
+            {/* Summon level + Commander tag (A cards) — mirrors the tribute rules. */}
+            {shown.type === 'A' && shown.level != null && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 800,
+                    letterSpacing: 0.5,
+                    color: '#e6c14a',
+                    background: 'rgba(230,193,74,0.14)',
+                    border: '1px solid rgba(230,193,74,0.55)',
+                    borderRadius: 999,
+                    padding: '3px 10px',
+                  }}
+                >
+                  ★ Level {shown.level}
+                </span>
+                {shown.commander && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 800,
+                      letterSpacing: 1.5,
+                      textTransform: 'uppercase',
+                      color: '#f0d27a',
+                      background: 'rgba(240,210,122,0.12)',
+                      border: '1px solid rgba(240,210,122,0.6)',
+                      borderRadius: 999,
+                      padding: '3px 10px',
+                    }}
+                  >
+                    Commander
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Type-specific highlight: A = combat stats, B = ability, C = boost. */}
+            {shown.type === 'A' ? (
+              <>
+                <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                  <Stat label="HP" value={shown.hp ?? 0} color="#2f9e46" />
+                  <Stat label="DMG" value={shown.dmg ?? 0} color="#e0663d" />
+                  <Stat label="ACC" value={shown.acc ?? 0} color="#3d9be0" />
+                </div>
+                {((shown.armor ?? 0) > 0 || (shown.armorBars ?? 0) > 0 || shown.unique) && (
+                  <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                    <Stat label="ARMOR" value={shown.armor ?? 0} color="#9b8ce0" />
+                    <Stat label="BARS" value={shown.armorBars ?? 0} color="#9b8ce0" />
+                    {shown.unique && (
+                      <div
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: 'rgba(240,210,122,0.12)',
+                          border: '1px solid rgba(240,210,122,0.5)',
+                          borderRadius: 8,
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: 1,
+                          color: '#f0d27a',
+                        }}
+                      >
+                        UNIQUE
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : shown.type === 'B' ? (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  background: 'rgba(122,92,198,0.14)',
+                  border: '1px solid rgba(122,92,198,0.5)',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: '#c9b8f0',
+                  textAlign: 'center',
+                }}
+              >
+                {shown.ability ? abilityLabel(shown.ability) : 'Ability'}
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  background: shown.buff
+                    ? shown.buff.amount >= 0
+                      ? 'rgba(47,158,70,0.14)'
+                      : 'rgba(178,58,31,0.14)'
+                    : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${
+                    shown.buff
+                      ? shown.buff.amount >= 0
+                        ? 'rgba(47,158,70,0.5)'
+                        : 'rgba(178,58,31,0.5)'
+                      : 'rgba(255,255,255,0.1)'
+                  }`,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: shown.buff ? (shown.buff.amount >= 0 ? '#5ed17a' : '#e08a72') : '#97a0ab',
+                  textAlign: 'center',
+                }}
+              >
+                {shown.buff
+                  ? `${shown.buff.amount >= 0 ? '▲' : '▼'} ${shown.buff.stat.toUpperCase()} ${
+                      shown.buff.amount >= 0 ? '+' : ''
+                    }${shown.buff.amount} to linked A card`
+                  : 'Boosts a random stat of its linked A card'}
+              </div>
+            )}
+
+            {/* Abilities (Hero cards) or effect text (B/C). Heroes list up to
+                three ability lines; other cards keep the single effect block. */}
+            {shown.type === 'A' && shown.abilities && shown.abilities.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                {shown.abilities.map((text, i) => {
+                  const colon = text.indexOf(':');
+                  const title = colon > 0 ? text.slice(0, colon) : `Ability ${i + 1}`;
+                  const body = colon > 0 ? text.slice(colon + 1).trim() : text;
+                  const view = abilityViews[i];
+                  const activatable = view?.activatable ?? false;
+                  const spent = view?.used ?? false;
+                  const amber = '#ffb020';
+                  // Any line the player can't trigger right now (passive auras,
+                  // unimplemented text, or an activated ability out of phase /
+                  // already used) reads muted & greyed so the clickable amber
+                  // ability stands out as the only interactive one.
+                  const muted = !activatable;
+                  const titleColor = activatable ? amber : '#7f868f';
+                  const bodyColor = activatable ? '#d4d8dd' : '#9aa0a8';
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        background: activatable ? 'rgba(255,176,32,0.09)' : 'rgba(255,255,255,0.025)',
+                        borderLeft: `3px solid ${activatable ? amber : 'rgba(255,255,255,0.12)'}`,
+                        borderRadius: 6,
+                        padding: '8px 10px',
+                        opacity: muted ? 0.72 : 1,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 8,
+                          marginBottom: 3,
+                        }}
+                      >
+                        <div style={{ fontSize: 12, fontWeight: 800, color: titleColor }}>
+                          {title}
+                        </div>
+                        {view?.isActivated ? (
+                          activatable ? (
+                            <button
+                              type="button"
+                              onClick={() => selectedId && activateAbility(selectedId, i)}
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 800,
+                                letterSpacing: 0.4,
+                                color: '#1a1200',
+                                background: amber,
+                                border: 'none',
+                                borderRadius: 5,
+                                padding: '3px 8px',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              ACTIVATE
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: 9, fontWeight: 700, color: '#6f7680', letterSpacing: 0.4 }}>
+                              {spent ? 'USED' : 'LOCKED'}
+                            </span>
+                          )
+                        ) : (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: '#6f7680', letterSpacing: 0.4 }}>
+                            {view?.ir.trigger === 'onSentToPile'
+                              ? 'TRIGGERED'
+                              : view?.ir.trigger === 'pileActivated'
+                                ? 'IN-PILE'
+                                : view?.ir.trigger === 'combatHit'
+                                  ? 'ON HIT'
+                                  : 'PASSIVE'}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, lineHeight: 1.45, color: bodyColor }}>{body}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : shown.type === 'A' ? (
+              <div
+                style={{
+                  fontSize: 12,
+                  fontStyle: 'italic',
+                  color: '#8a929c',
+                  background: 'rgba(255,255,255,0.03)',
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  marginBottom: 10,
+                  textAlign: 'center',
+                }}
+              >
+                No special ability
+              </div>
+            ) : (
+              <div
+                style={{
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                  background: 'rgba(255,255,255,0.04)',
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  marginBottom: 10,
+                }}
+              >
+                {shown.effect}
+              </div>
+            )}
+
+            {/* Flavor */}
+            {shown.flavor && (
+              <div style={{ fontSize: 12, fontStyle: 'italic', color: '#97a0ab' }}>
+                &ldquo;{shown.flavor}&rdquo;
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        background: 'rgba(255,255,255,0.04)',
+        borderRadius: 8,
+        padding: '8px 10px',
+        display: 'flex',
+        alignItems: 'baseline',
+        justifyContent: 'space-between',
+      }}
+    >
+      <span style={{ fontSize: 11, letterSpacing: 1, color: '#8a929c', fontWeight: 700 }}>
+        {label}
+      </span>
+      <span style={{ fontSize: 20, fontWeight: 800, color }}>{value}</span>
+    </div>
+  );
+}
