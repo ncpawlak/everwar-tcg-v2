@@ -137,11 +137,30 @@ export interface BreakAllArmorBarsEffect {
   kind: 'breakAllArmorBars';
 }
 
-/** Eliminate the target Hero instantly, ignoring its armor and Armor Bars. Used
- *  by Snow Viper's Hidden Finisher (`combatHit`, mandatory). The runtime gates it
- *  on the target being a Normal Hero (level ≤ 2) at less than half HP. */
+/** Conditions on a combat hit that must ALL hold for an `instantEliminate`. */
+export interface EliminateGate {
+  /** "against a Normal Hero" — target level ≤ 2. */
+  targetNormal?: boolean;
+  /** "with less than half HP" — checked before this hit's damage. */
+  targetBelowHalfHp?: boolean;
+  /** "rolls a Critical Hit". */
+  critOnly?: boolean;
+  /** "against a target with no Armor Bars" — checked before this hit. */
+  targetNoArmorBars?: boolean;
+}
+
+/** Eliminate the target Hero instantly, ignoring its armor and Armor Bars
+ *  (`combatHit`, mandatory). Hidden Finisher: Normal Hero under half HP;
+ *  Headhunter: Critical Hit against a target with no Armor Bars. */
 export interface InstantEliminateEffect {
   kind: 'instantEliminate';
+  gate: EliminateGate;
+}
+
+/** "This Hero's Hits ignore Armor Bars." (Anvil) — passive combat modifier: the
+ *  hit skips the target's Armor Bars (they are neither consumed nor absorb). */
+export interface IgnoreArmorBarsEffect {
+  kind: 'ignoreArmorBars';
 }
 
 /** Fallback for ability text no rule models yet. Inert at runtime. */
@@ -165,6 +184,7 @@ export type AbilityEffect =
   | ReturnSelfToHandEffect
   | BreakAllArmorBarsEffect
   | InstantEliminateEffect
+  | IgnoreArmorBarsEffect
   | UnimplementedEffect;
 
 /** A pile a card can be sent to / activate from. */

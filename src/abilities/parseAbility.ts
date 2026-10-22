@@ -16,6 +16,7 @@ import type {
   AbilityEffect,
   AbilityIR,
   AbilityRider,
+  EliminateGate,
   AuraStat,
   HeroSelector,
 } from './abilityIR';
@@ -346,14 +347,14 @@ const PILE_RETURN_SELF_RULE = regexRule(
 );
 
 /**
- * "Once per turn, if this Hero lands a Successful Hit: you can break all Armor
- *  Bars on the target Hero. If you do, no damage is inflicted."  (Snow Viper →
+ * "Once per turn, when this Hero lands a Successful Hit, you can break all Armor
+ *  Bars on the target Hero; if you do, no damage is inflicted."  (Snow Viper ->
  *  Bunker Busting Round). A `combatHit` trigger, once-per-turn, OPTIONAL ("you
- *  can" → the player is prompted yes/no mid-Resolution). On accept it wipes every
- *  Armor Bar on the struck Hero and inflicts no HP damage, overriding armor math.
+ *  can" -> the player is prompted yes/no mid-Resolution). On accept it wipes every
+ *  Armor Bar on the struck Hero and inflicts no HP damage.
  */
 const BUNKER_BUSTING_RULE = regexRule(
-  /^Once per turn, if this Hero lands a Successful Hit:\s*you can break all Armor Bars on the target Hero\.\s*If you do, no damage is inflicted\.$/i,
+  /^Once per turn, when this Hero lands a Successful Hit, you can break all Armor Bars on the target Hero; if you do, no damage is inflicted\.$/i,
   (_m, name, raw) => ({
     name,
     raw,
@@ -366,24 +367,37 @@ const BUNKER_BUSTING_RULE = regexRule(
 );
 
 /**
- * "If this Hero lands a Successful Hit against a Normal Hero with less than half
- *  HP: eliminate that Hero instantly."  (Snow Viper → Hidden Finisher). A
- *  `combatHit` trigger, MANDATORY (no "you can"), NOT once-per-turn. Fires on
- *  every qualifying hit: a Normal Hero (level ≤ 2) already under half HP is sent
- *  straight to the Graveyard, ignoring its armor and Armor Bars.
+ * Mandatory combat eliminations:
+ *  - "When this Hero lands a Successful Hit against a Normal Hero with less than
+ *    half HP, eliminate that Hero."  (Snow Viper -> Hidden Finisher)
+ *  - "When this Hero rolls a Critical Hit against a target with no Armor Bars,
+ *    eliminate that Hero."  (Headhunter Weapon)
  */
-const HIDDEN_FINISHER_RULE = regexRule(
-  /^If this Hero lands a Successful Hit against a Normal Hero with less than half HP:\s*eliminate that Hero instantly\.$/i,
-  (_m, name, raw) => ({
-    name,
-    raw,
-    trigger: 'combatHit',
-    effect: { kind: 'instantEliminate' },
-    constraints: [],
-  }),
+const INSTANT_ELIMINATE_RULE = regexRule(
+  /^When this Hero (lands a Successful Hit|rolls a Critical Hit) against (a Normal Hero with less than half HP|a target with no Armor Bars), eliminate that Hero\.$/i,
+  (m, name, raw) => {
+    const gate: EliminateGate = {};
+    if (/critical/i.test(m[1])) gate.critOnly = true;
+    if (/normal hero/i.test(m[2])) {
+      gate.targetNormal = true;
+      gate.targetBelowHalfHp = true;
+    } else {
+      gate.targetNoArmorBars = true;
+    }
+    return { name, raw, trigger: 'combatHit', effect: { kind: 'instantEliminate', gate }, constraints: [] };
+  },
 );
 
-const RULES: ParseRule[] = [PASSIVE_WHILE_RULE, ACTIVATED_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE, BUNKER_BUSTING_RULE, HIDDEN_FINISHER_RULE];
+/** "This Hero's Hits ignore Armor Bars." (Anvil Weapon) — passive combat modifier. */
+const IGNORE_ARMOR_BARS_RULE = regexRule(/^This Hero's Hits ignore Armor Bars\.$/i, (_m, name, raw) => ({
+  name,
+  raw,
+  trigger: 'passive',
+  effect: { kind: 'ignoreArmorBars' },
+  constraints: [],
+}));
+
+const RULES: ParseRule[] = [PASSIVE_WHILE_RULE, ACTIVATED_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE, BUNKER_BUSTING_RULE, INSTANT_ELIMINATE_RULE, IGNORE_ARMOR_BARS_RULE];
 
 /** Split "<Name>: <body>" into its parts. No colon → empty name, whole text is body. */
 function splitNameBody(text: string): { name: string; body: string } {

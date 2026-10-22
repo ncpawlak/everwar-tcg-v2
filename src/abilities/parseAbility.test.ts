@@ -246,7 +246,7 @@ describe('P8 ability parser', () => {
 
   it('parses Bunker Busting Round into an optional, once-per-turn combatHit breakAllArmorBars IR', () => {
     const ir = parseAbility(
-      'Bunker Busting Round: Once per turn, if this Hero lands a Successful Hit: you can break all Armor Bars on the target Hero. If you do, no damage is inflicted.',
+      'Bunker Busting Round: Once per turn, when this Hero lands a Successful Hit, you can break all Armor Bars on the target Hero; if you do, no damage is inflicted.',
     );
     expect(ir.name).toBe('Bunker Busting Round');
     expect(ir.trigger).toBe('combatHit');
@@ -257,13 +257,25 @@ describe('P8 ability parser', () => {
 
   it('parses Hidden Finisher into a mandatory combatHit instantEliminate IR', () => {
     const ir = parseAbility(
-      'Hidden Finisher: If this Hero lands a Successful Hit against a Normal Hero with less than half HP: eliminate that Hero instantly.',
+      'Hidden Finisher: When this Hero lands a Successful Hit against a Normal Hero with less than half HP, eliminate that Hero.',
     );
     expect(ir.name).toBe('Hidden Finisher');
     expect(ir.trigger).toBe('combatHit');
     expect(ir.oncePerTurn).toBeUndefined();
     expect(ir.optional).toBeUndefined();
-    expect(ir.effect).toEqual({ kind: 'instantEliminate' });
+    expect(ir.effect).toEqual({ kind: 'instantEliminate', gate: { targetNormal: true, targetBelowHalfHp: true } });
+  });
+
+  it('parses Headhunter (equipment, no name) into a crit + no-Armor-Bars instantEliminate', () => {
+    const ir = parseAbility('When this Hero rolls a Critical Hit against a target with no Armor Bars, eliminate that Hero.');
+    expect(ir.trigger).toBe('combatHit');
+    expect(ir.effect).toEqual({ kind: 'instantEliminate', gate: { critOnly: true, targetNoArmorBars: true } });
+  });
+
+  it("parses Anvil's \"This Hero's Hits ignore Armor Bars.\" as a passive ignoreArmorBars", () => {
+    const ir = parseAbility("This Hero's Hits ignore Armor Bars.");
+    expect(ir.trigger).toBe('passive');
+    expect(ir.effect).toEqual({ kind: 'ignoreArmorBars' });
   });
 
   it('keeps the ability name but marks unrecognized text as unimplemented (inert, still displays)', () => {

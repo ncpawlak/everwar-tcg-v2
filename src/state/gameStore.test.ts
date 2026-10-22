@@ -1766,17 +1766,13 @@ describe.skip('P8-S05 pile abilities', () => {
   });
 });
 
-// TODO(ability-engine phase): Snow Viper's combat-trigger abilities exist in the
-// v3 catalog (card-hero-57), but these tests hard-code the old fixture index
-// (card-hero-14) and a level-1 fixture hero carrying Bunker Busting that no
-// longer exists. Re-point + re-verify the parser against the v3 ability text
-// when we build out combat-trigger parsing. Quarantined after the catalog swap.
-describe.skip('P8 Snow Viper combat triggers (S6)', () => {
+describe('P8 combat triggers (S6, v3 wording)', () => {
   // Time to advance from entering Resolution to the point the hit lands / the
   // Bunker Busting prompt is raised.
   const TO_HIT = RESOLUTION_ROLL_DELAY_MS + DICE_ROLL_MS + DICE_HOLD_MS;
-  // card-hero-14 = Snow Viper (dmg 90, acc 140); card-hero-3 = Bobcat Convoy
-  // Escort — the level-1 test hero that also carries both combat abilities.
+  // card-hero-57 = Snow Viper (dmg 90, acc 140); card-hero-6 = Back Alley
+  // Patrolman (dmg 60, acc 70, no abilities); card-equipment-11 = Headhunter;
+  // card-equipment-16 = Anvil.
 
   it('Hidden Finisher instantly eliminates a low-HP Normal Hero, ignoring armor bars', () => {
     vi.useFakeTimers();
@@ -1786,7 +1782,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' },
+        board: { ...base.board, A1: 'card-hero-57' },
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 2, hp: 100, armor: 0, armorBars: 2 }),
         currentHp: { 'opp-O1': 40 }, // under half of 100
@@ -1812,7 +1808,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' }, // dmg 90
+        board: { ...base.board, A1: 'card-hero-57' }, // dmg 90
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 0 }),
         currentHp: { 'opp-O1': 100 }, // under half but level 3 -> not eligible
@@ -1837,7 +1833,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' },
+        board: { ...base.board, A1: 'card-hero-57' },
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 2 }),
       });
@@ -1848,7 +1844,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       expect(s.combatPrompt).toMatchObject({
         sourceSlot: 'A1',
         targetSlot: 'O1',
-        sourceCardId: 'card-hero-14',
+        sourceCardId: 'card-hero-57',
         targetCardId: 'opp-O1',
         abilityName: 'Bunker Busting Round',
       });
@@ -1869,7 +1865,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' },
+        board: { ...base.board, A1: 'card-hero-57' },
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 2 }),
       });
@@ -1880,7 +1876,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       expect(s.combatPrompt).toBeNull();
       expect(s.currentArmorBars['opp-O1']).toBe(0); // both bars wiped
       expect(s.currentHp['opp-O1']).toBeUndefined(); // no HP damage
-      expect(s.usedActivatedAbilities['card-hero-14']).toContain('Bunker Busting Round');
+      expect(s.usedActivatedAbilities['card-hero-57']).toContain('Bunker Busting Round');
       // Resolution resumes and settles to End.
       vi.advanceTimersByTime(OUTCOME_POPUP_MS + 40);
       expect(store.getState().phase).toBe('end');
@@ -1898,7 +1894,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' },
+        board: { ...base.board, A1: 'card-hero-57' },
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 2 }),
       });
@@ -1908,7 +1904,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const s = store.getState();
       expect(s.currentArmorBars['opp-O1']).toBe(1); // one bar absorbed the hit
       expect(s.currentHp['opp-O1']).toBeUndefined(); // bar ate it, no HP loss
-      expect(s.usedActivatedAbilities['card-hero-14']).toBeUndefined();
+      expect(s.usedActivatedAbilities['card-hero-57']).toBeUndefined();
     } finally {
       rnd.mockRestore();
       vi.useRealTimers();
@@ -1923,10 +1919,10 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' },
+        board: { ...base.board, A1: 'card-hero-57' },
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 2 }),
-        usedActivatedAbilities: { 'card-hero-14': ['Bunker Busting Round'] },
+        usedActivatedAbilities: { 'card-hero-57': ['Bunker Busting Round'] },
       });
       store.getState().advancePhase();
       vi.advanceTimersByTime(TO_HIT);
@@ -1939,24 +1935,72 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
     }
   });
 
-  it('the level-1 test hero (Bobcat Convoy Escort) also triggers Bunker Busting', () => {
+  it('Headhunter (equipped) eliminates on a crit against a target with no Armor Bars', () => {
     vi.useFakeTimers();
-    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.2); // roll 5, acc 70 -> normal hit
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.99); // roll 20 -> crit
     try {
       const base = createInitialState();
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-3' },
+        board: { ...base.board, A1: 'card-hero-6', C1: 'card-equipment-11' },
         attackTargets: { A1: 'O1' },
-        ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 1 }),
+        ...withOpponent(base, 'O1', { level: 5, hp: 500, armor: 0, armorBars: 0 }),
       });
       store.getState().advancePhase();
       vi.advanceTimersByTime(TO_HIT);
-      expect(store.getState().combatPrompt).toMatchObject({
-        sourceCardId: 'card-hero-3',
-        abilityName: 'Bunker Busting Round',
+      const s = store.getState();
+      expect(s.currentHp['opp-O1']).toBe(0);
+      expect(s.destroying).toContain('O1');
+    } finally {
+      rnd.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('Headhunter does not fire when the target still has an Armor Bar', () => {
+    vi.useFakeTimers();
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.99); // crit
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        board: { ...base.board, A1: 'card-hero-6', C1: 'card-equipment-11' },
+        attackTargets: { A1: 'O1' },
+        ...withOpponent(base, 'O1', { level: 5, hp: 500, armor: 0, armorBars: 2 }),
       });
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(TO_HIT);
+      const s = store.getState();
+      expect(s.currentArmorBars['opp-O1']).toBe(0); // crit broke 2 bars
+      expect(s.currentHp['opp-O1']).toBeUndefined();
+      expect(s.destroying).not.toContain('O1');
+    } finally {
+      rnd.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('Anvil (equipped) hits ignore Armor Bars: full damage, bars untouched', () => {
+    vi.useFakeTimers();
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.2); // normal hit
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        board: { ...base.board, A1: 'card-hero-6', C1: 'card-equipment-16' },
+        attackTargets: { A1: 'O1' },
+        ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 2 }),
+      });
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(TO_HIT);
+      const s = store.getState();
+      const dmg = store.getState().resolutionResults.A1?.damage ?? 0;
+      expect(dmg).toBeGreaterThan(0);
+      expect(s.currentHp['opp-O1']).toBe(300 - dmg);
+      expect(s.currentArmorBars['opp-O1'] ?? 2).toBe(2);
     } finally {
       rnd.mockRestore();
       vi.useRealTimers();
@@ -1973,8 +2017,8 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        // A1 Snow Viper -> O1 (prompt); A2 card-hero-6 (dmg 70) -> O2 (normal).
-        board: { ...base.board, A1: 'card-hero-14', A2: 'card-hero-6' },
+        // A1 Snow Viper -> O1 (prompt); A2 card-hero-6 (dmg 60) -> O2 (normal).
+        board: { ...base.board, A1: 'card-hero-57', A2: 'card-hero-6' },
         attackTargets: { A1: 'O1', A2: 'O2' },
         opponentBoard: { ...base.opponentBoard, O1: 'opp-O1', O2: 'opp-O2' },
         opponentCards: { ...oA.opponentCards, ...oB.opponentCards },
@@ -1987,7 +2031,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       store.getState().resolveCombatPrompt(true);
       const s = store.getState();
       expect(s.currentArmorBars['opp-O1']).toBe(0); // A1 bunker-busted
-      expect(s.currentHp['opp-O2']).toBe(230); // A2's 70 landed on resume
+      expect(s.currentHp['opp-O2']).toBe(240); // A2's 60 landed on resume
     } finally {
       rnd.mockRestore();
       vi.useRealTimers();

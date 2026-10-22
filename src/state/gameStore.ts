@@ -10,6 +10,7 @@ import {
   opponentEffectiveStats,
   playerAuraDelta,
   opponentAuraDelta,
+  linkedCSlot,
 } from './combatStats';
 import { resolveRoll } from './diceRules';
 import { applyArmorToHit } from './armorCombat';
@@ -396,7 +397,8 @@ export function createGameStore(
           const destroying = new Set<OppSlotId>(s.destroying);
           const srcId = s.board[src] ?? undefined;
           const srcCard = srcId ? s.cardsById[srcId] : undefined;
-          const combat = combatHitAbilities(srcCard);
+          const eqId = s.board[linkedCSlot(src)];
+          const combat = combatHitAbilities(srcCard, eqId ? s.cardsById[eqId] : undefined);
 
           // Bunker Busting Round (accepted): all bars break, no HP damage.
           if (bunkerBust && combat.breakAllArmorBars) {
@@ -411,10 +413,11 @@ export function createGameStore(
             return { currentArmorBars, usedActivatedAbilities };
           }
 
-          // Hidden Finisher (mandatory): low-HP Normal Hero → instant graveyard,
-          // ignoring armor + Armor Bars. Takes precedence over normal armor math.
+          // Instant eliminations (Hidden Finisher, Headhunter; mandatory): send the
+          // target straight to the graveyard, ignoring armor + Armor Bars.
           const cur = currentHp[oppId] ?? maxHp;
-          if (finisherEliminates(combat, defCard, cur)) {
+          const bars = currentArmorBars[oppId] ?? defCard?.armorBars ?? 0;
+          if (finisherEliminates(combat, defCard, { outcome: result.outcome, currentHp: cur, bars })) {
             currentHp[oppId] = 0;
             damagePopups[targetSlot] = (damagePopups[targetSlot] ?? 0) + cur;
             destroying.add(targetSlot);
@@ -424,10 +427,11 @@ export function createGameStore(
           // Normal armor math (armor auras from both sides fold into flat armor).
           const armor =
             (defCard?.armor ?? 0) + (defCard ? opponentAuraDelta(s, defCard, 'armor') : 0);
-          const bars = currentArmorBars[oppId] ?? defCard?.armorBars ?? 0;
           const baseDmg = effectiveStats(s, src).dmg.value;
-          const hit = applyArmorToHit({ bars, armor }, result.outcome, result.damage, baseDmg);
-          currentArmorBars[oppId] = hit.bars;
+          // "Hits ignore Armor Bars" (Anvil): resolve as if bar-less; bars stay intact.
+          const hitBars = combat.ignoreArmorBars ? 0 : bars;
+          const hit = applyArmorToHit({ bars: hitBars, armor }, result.outcome, result.damage, baseDmg);
+          if (!combat.ignoreArmorBars) currentArmorBars[oppId] = hit.bars;
           if (hit.hpDamage > 0) {
             const next = Math.max(0, cur - hit.hpDamage);
             currentHp[oppId] = next;
@@ -514,13 +518,14 @@ export function createGameStore(
           if (!oppId) continue;
           const srcId = s.board[src] ?? undefined;
           const srcCard = srcId ? s.cardsById[srcId] : undefined;
-          const combat = combatHitAbilities(srcCard);
+          const eqId = s.board[linkedCSlot(src)];
+          const combat = combatHitAbilities(srcCard, eqId ? s.cardsById[eqId] : undefined);
           const defCard = s.opponentCards[oppId];
           const cur = s.currentHp[oppId] ?? defCard?.hp ?? 0;
-          // Hidden Finisher takes precedence: if it eliminates, no bunker prompt.
-          const finisher = finisherEliminates(combat, defCard, cur);
+          const bars = s.currentArmorBars[oppId] ?? defCard?.armorBars ?? 0;
+          // An instant elimination takes precedence: if it fires, no bunker prompt.
+          const finisher = finisherEliminates(combat, defCard, { outcome: result.outcome, currentHp: cur, bars });
           if (!finisher && combat.breakAllArmorBars && srcId) {
-            const bars = s.currentArmorBars[oppId] ?? defCard?.armorBars ?? 0;
             const used = s.usedActivatedAbilities[srcId] ?? [];
             const already = used.includes(combat.breakAllArmorBars.name);
             if (bars >= 1 && !already) {
