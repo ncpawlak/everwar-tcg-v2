@@ -58,11 +58,7 @@ describe('combatStats', () => {
     expect(effectiveStats(withoutC, 'A1').acc.delta).toBe(0);
   });
 
-  // TODO(ability-engine phase): the v3 Echo Assist text ("While this Hero is on
-  // your field, all \"Echo\" Heroes you control gain +10 ACC. ...") is not matched
-  // by the current STAT_GAIN_AURA parser rule (which expects the body to start
-  // with "All"). Re-enable once the aura parser handles the v3 verbiage.
-  it.skip('P8: an Echo Assist source on the board raises ACC of every Echo Hero, itself included', () => {
+  it('P8: an Echo Assist source on the board raises ACC of every Echo Hero, itself included', () => {
     const base = createInitialState();
     // card-hero-3 = Echo Reserve (carries Echo Assist, base acc 60);
     // card-hero-26 = Echo Demolitions (Echo, base acc 80, no ability of its own).
@@ -77,9 +73,7 @@ describe('combatStats', () => {
     expect(effectiveStats(state, 'A1').dmg.delta).toBe(0);
   });
 
-  // TODO(ability-engine phase): see note above — v3 Echo Assist verbiage isn't
-  // parsed yet. Re-enable with the aura parser update.
-  it.skip('P8: Echo Assist ignores non-Echo Heroes and reverts when its source leaves the board', () => {
+  it('P8: Echo Assist ignores non-Echo Heroes and reverts when its source leaves the board', () => {
     const base = createInitialState();
     // card-hero-1 = Tundra Rifleman (not an Echo Hero).
     const scout = base.cardsById['card-hero-1'];

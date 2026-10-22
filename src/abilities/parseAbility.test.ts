@@ -1,35 +1,140 @@
 import { describe, it, expect } from 'vitest';
-import { parseAbility, parseAbilities } from './parseAbility';
+import { parseAbility, parseAbilities, parseSelector } from './parseAbility';
+
+// Exact v3 catalog strings.
+const ECHO_ASSIST =
+  'Echo Assist: While this Hero is on your field, all "Echo" Heroes you control gain +10 ACC. Only 1 "Echo Assist" Ability can be active on your field at once.';
+const DEVIL_DOG_FOCUS_FIRE =
+  'Devil Dog Focus Fire: While this Hero is on your field, all "Devil Dog" Heroes you control gain +10 Armor. Only 1 "Devil Dog Focus Fire" Ability can be active on your field at once.';
 
 describe('P8 ability parser', () => {
   it('parses an ACC stat-gain aura (Echo Assist) into a passive statAura IR', () => {
-    const ir = parseAbility(
-      'Echo Assist: All "Echo" Heroes you control gain +10ACC. Only 1 "Echo Assist" Ability can be active on your field at once.',
-    );
+    const ir = parseAbility(ECHO_ASSIST);
     expect(ir.name).toBe('Echo Assist');
     expect(ir.trigger).toBe('passive');
-    expect(ir.effect).toEqual({
-      kind: 'statAura',
-      stat: 'acc',
-      amount: 10,
-      scope: { controller: 'self', family: 'Echo' },
-    });
+    expect(ir.effect).toEqual({ kind: 'statAura', stat: 'acc', amount: 10, target: { side: 'ally', family: 'Echo' } });
+    expect(ir.conditions).toBeUndefined();
     expect(ir.constraints).toEqual([{ kind: 'maxActiveByName', name: 'Echo Assist', max: 1 }]);
   });
 
-  it('parses an Armor aura (Roaming Armor) into an armor statAura IR', () => {
-    const ir = parseAbility(
-      'Roaming Armor: All "Bobcat" Heroes you control have +10 Armor. Only 1 "Roaming Armor" Ability can be active on your field at once.',
-    );
-    expect(ir.name).toBe('Roaming Armor');
+  it('parses an Armor aura (Devil Dog Focus Fire) into an armor statAura IR', () => {
+    const ir = parseAbility(DEVIL_DOG_FOCUS_FIRE);
     expect(ir.trigger).toBe('passive');
-    expect(ir.effect).toEqual({
-      kind: 'statAura',
-      stat: 'armor',
-      amount: 10,
-      scope: { controller: 'self', family: 'Bobcat' },
+    expect(ir.effect).toEqual({ kind: 'statAura', stat: 'armor', amount: 10, target: { side: 'ally', family: 'Devil Dog' } });
+    expect(ir.constraints).toEqual([{ kind: 'maxActiveByName', name: 'Devil Dog Focus Fire', max: 1 }]);
+  });
+
+  it('parses an uncapped aura (Zero Assault) with no constraints', () => {
+    const ir = parseAbility('Zero Assault: While this Hero is on your field, all "Zero" Heroes you control gain +20 DMG.');
+    expect(ir.effect).toEqual({ kind: 'statAura', stat: 'dmg', amount: 20, target: { side: 'ally', family: 'Zero' } });
+    expect(ir.constraints).toEqual([]);
+  });
+
+  it('parses an unquoted faction + sub-type scope (Range Finder)', () => {
+    const ir = parseAbility(
+      'Range Finder: While this Hero is on your field, all Coalition Recon Heroes you control gain +10 ACC. Only 1 "Range Finder" Ability can be active on your field at once.',
+    );
+    expect(ir.effect).toMatchObject({ target: { side: 'ally', allegiance: 'Coalition', subType: 'Recon' } });
+  });
+
+  it('parses an enemy debuff gated on controlling another Hero (Sandstorm Inbound)', () => {
+    const ir = parseAbility(
+      'Sandstorm Inbound: While you control another "Devil Dog" Hero, enemy Heroes have -10 ACC. Only 1 "Sandstorm Inbound" Ability can be active on your field at once.',
+    );
+    expect(ir.effect).toEqual({ kind: 'statAura', stat: 'acc', amount: -10, target: { side: 'enemy' } });
+    expect(ir.conditions).toEqual([
+      { kind: 'controls', selector: { side: 'ally', excludeSelf: true, family: 'Devil Dog' } },
+    ]);
+  });
+
+  it('parses a conditional self-buff (Proto-Sights)', () => {
+    const ir = parseAbility('Proto-Sights: While you control a Dictate Engineer Hero, this Hero gains +20 ACC.');
+    expect(ir.effect).toEqual({ kind: 'statAura', stat: 'acc', amount: 20, target: { side: 'ally', self: true } });
+    expect(ir.conditions).toEqual([
+      { kind: 'controls', selector: { side: 'ally', allegiance: 'Dictate', subType: 'Engineer' } },
+    ]);
+  });
+
+  it('parses an equipment-class condition with "or" (Oppressive Fire)', () => {
+    const ir = parseAbility(
+      'Oppressive Fire: While this Hero is equipped with a Suppressive or Assault Weapon, this Hero gains +10 DMG.',
+    );
+    expect(ir.conditions).toEqual([{ kind: 'equipped', subType: 'Weapon', weaponClasses: ['Suppressive', 'Assault'] }]);
+    expect(ir.effect).toMatchObject({ stat: 'dmg', amount: 10, target: { self: true } });
+  });
+
+  it('parses a "; while … also" rider that narrows the controls selector (Target Acquired)', () => {
+    const ir = parseAbility(
+      'Target Acquired: While you control another Coalition Hero, this Hero gains +10 ACC; while that Hero is also "Echo", this Hero gains an additional +10 ACC.',
+    );
+    expect(ir.riders).toEqual([
+      {
+        conditions: [
+          { kind: 'controls', selector: { side: 'ally', excludeSelf: true, allegiance: 'Coalition', family: 'Echo' } },
+        ],
+        effect: { kind: 'statAura', stat: 'acc', amount: 10, target: { side: 'ally', self: true } },
+      },
+    ]);
+  });
+
+  it('parses a named-Loadout condition plus a named-card rider (Drone Ops)', () => {
+    const ir = parseAbility(
+      'Drone Ops: While this Hero is equipped with a "Drone" Loadout, this Hero gains +20 ACC; while you control "Drone Scout", this Hero gains an additional +20 ACC.',
+    );
+    expect(ir.conditions).toEqual([{ kind: 'equipped', subType: 'Loadout', family: 'Drone' }]);
+    expect(ir.riders?.[0].conditions).toEqual([
+      { kind: 'controls', selector: { side: 'ally', family: 'Drone Scout' } },
+    ]);
+  });
+
+  it('parses an Equipment-hosted bearer buff (Medic HP)', () => {
+    const ir = parseAbility('While equipped to a Medic Hero, this Hero gains an additional 40 HP.');
+    expect(ir.trigger).toBe('passive');
+    expect(ir.fromEquipment).toBe(true);
+    expect(ir.conditions).toEqual([{ kind: 'equippedTo', selector: { side: 'ally', subType: 'Medic' } }]);
+    expect(ir.effect).toMatchObject({ stat: 'hp', amount: 40 });
+  });
+
+  it('parses non-stat continuous effects (targeting + opponent restrictions)', () => {
+    expect(
+      parseAbility(
+        'Ballistic Soak: While this Hero is on your field, other "Zero" Heroes you control cannot be targeted for attacks.',
+      ).effect,
+    ).toEqual({ kind: 'untargetable', target: { side: 'ally', excludeSelf: true, family: 'Zero' } });
+    expect(
+      parseAbility(
+        'Polar Presence: While you control another "Echo" Hero, enemy Heroes can only target this Hero for attacks, if able.',
+      ).effect,
+    ).toEqual({ kind: 'forceTarget' });
+    expect(
+      parseAbility('Comm Jam: While this Hero is on your field, your opponent cannot activate Continuous Ability Cards.')
+        .effect,
+    ).toEqual({ kind: 'opponentRestriction', restriction: 'noContinuousAbilityCards' });
+    expect(
+      parseAbility(
+        'Disconnected Comms: While this Hero is on your field, your opponent can only play 1 Ability Card per turn.',
+      ).effect,
+    ).toEqual({ kind: 'opponentRestriction', restriction: 'abilityCardsPerTurn', max: 1 });
+  });
+
+  it('leaves triggered "While …" lines unimplemented rather than mis-parsing them', () => {
+    const ir = parseAbility(
+      'Overpower: While this Hero is on your field, each time you activate an Ability Card, this Hero gains +30 ACC until the end of your turn.',
+    );
+    expect(ir.trigger).toBe('unimplemented');
+  });
+
+  it('parseSelector handles the v3 noun phrases', () => {
+    expect(parseSelector('this Hero')).toEqual({ side: 'ally', self: true });
+    expect(parseSelector('enemy Heroes')).toEqual({ side: 'enemy' });
+    expect(parseSelector('another "Dictate" Infantry Hero')).toEqual({
+      side: 'ally',
+      excludeSelf: true,
+      family: 'Dictate',
+      subType: 'Infantry',
     });
-    expect(ir.constraints).toEqual([{ kind: 'maxActiveByName', name: 'Roaming Armor', max: 1 }]);
+    expect(parseSelector('"Daybreak Marksman"')).toEqual({ side: 'ally', family: 'Daybreak Marksman' });
+    expect(parseSelector('the top card')).toBeNull();
   });
 
   it('parses an activated self-buff (Combat Focus) into an activated, once-per-turn IR', () => {
@@ -124,9 +229,7 @@ describe('P8 ability parser', () => {
 
   it('parseAbilities maps a list and tolerates undefined', () => {
     expect(parseAbilities(undefined)).toEqual([]);
-    const irs = parseAbilities([
-      'Echo Assist: All "Echo" Heroes you control gain +10ACC. Only 1 "Echo Assist" Ability can be active on your field at once.',
-    ]);
+    const irs = parseAbilities([ECHO_ASSIST]);
     expect(irs).toHaveLength(1);
     expect(irs[0].effect.kind).toBe('statAura');
   });

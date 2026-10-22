@@ -1,5 +1,6 @@
-import type { Card, CardId } from '../state/types';
+import type { CardId } from '../state/types';
 import { useGameStore } from '../state/useGameStore';
+import { playerField } from '../state/combatStats';
 import { selectCardVisual } from '../animation/poseSelectors';
 import { MotionCard } from '../animation/MotionCard';
 import { CardView } from '../cards/CardView';
@@ -18,12 +19,8 @@ export function CardEntity({ cardId }: { cardId: CardId }) {
   const card = state.cardsById[cardId];
 
   // A board Hero glows while it is projecting an active passive aura.
-  const boardHeroes: Card[] = [];
-  for (const id of Object.values(state.board)) {
-    const c = id ? state.cardsById[id] : undefined;
-    if (c && c.type === 'A') boardHeroes.push(c);
-  }
-  const auraActive = projectingAuraCardIds(boardHeroes).has(cardId);
+  const field = playerField(state);
+  const auraActive = projectingAuraCardIds(field).has(cardId);
 
   // The Hero glows amber while it holds an activated ability the player can
   // trigger this moment (its own Main phase, on the player's board, unused).
@@ -41,7 +38,7 @@ export function CardEntity({ cardId }: { cardId: CardId }) {
       onPlayerBoard,
       usedNames: state.usedActivatedAbilities[cardId] ?? [],
       handCount: state.hand.length,
-      allyBoard: boardHeroes,
+      allyBoard: field.heroes,
     });
 
   return (

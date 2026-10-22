@@ -11,19 +11,55 @@
  *  be modeled ahead of the armor-combat slice that will consume them. */
 export type AuraStat = 'hp' | 'dmg' | 'acc' | 'armor';
 
-/** Who an aura targets. `self` = the ability owner's own cards ("you control");
- *  `family` is an archetype name matched against a Hero's card name (e.g. "Echo"). */
-export interface AuraScope {
-  controller: 'self';
-  family: string;
+/**
+ * Which Heroes a clause refers to, relative to the ability's controller. Built
+ * from v3 noun phrases, e.g.:
+ *  - `all "Echo" Heroes you control`        → { side: 'ally', family: 'Echo' }
+ *  - `all Coalition Recon Heroes you control` → { side: 'ally', allegiance, subType }
+ *  - `other "Zero" Heroes you control`      → { side: 'ally', family, excludeSelf }
+ *  - `enemy Heroes`                         → { side: 'enemy' }
+ *  - `this Hero`                            → { side: 'ally', self: true }
+ * Quoted words (`family`) match as a substring of the card name, so both
+ * archetypes ("Echo") and exact cards ("Drone Scout") use the same field.
+ */
+export interface HeroSelector {
+  side: 'ally' | 'enemy';
+  /** "this Hero" — only the ability's own card (or, for Equipment, its bearer). */
+  self?: boolean;
+  /** "other" / "another" — every match except the ability's own card. */
+  excludeSelf?: boolean;
+  family?: string;
+  allegiance?: string;
+  subType?: string;
 }
 
-/** A continuous stat aura: "+N STAT to all <family> Heroes you control". */
+/** A continuous stat modifier: "<selector> gain(s) +N STAT" (or "have -N STAT"
+ *  for enemy debuffs). `amount` is signed. */
 export interface StatAuraEffect {
   kind: 'statAura';
   stat: AuraStat;
   amount: number;
-  scope: AuraScope;
+  target: HeroSelector;
+}
+
+/** "<selector> cannot be targeted for attacks." Parsed; not yet enforced. */
+export interface UntargetableEffect {
+  kind: 'untargetable';
+  target: HeroSelector;
+}
+
+/** "enemy Heroes can only target this Hero for attacks, if able." Parsed; not
+ *  yet enforced. */
+export interface ForceTargetEffect {
+  kind: 'forceTarget';
+}
+
+/** A rule restricting the opponent's Ability Card play. Parsed; not yet
+ *  enforced. */
+export interface OpponentRestrictionEffect {
+  kind: 'opponentRestriction';
+  restriction: 'noContinuousAbilityCards' | 'abilityCardsPerTurn';
+  max?: number;
 }
 
 /** An activated self-buff: "this Hero gains +N STAT" applied to the ability's
@@ -87,6 +123,9 @@ export interface UnimplementedEffect {
 
 export type AbilityEffect =
   | StatAuraEffect
+  | UntargetableEffect
+  | ForceTargetEffect
+  | OpponentRestrictionEffect
   | SelfStatBuffEffect
   | TargetStatBuffEffect
   | DrawEffect
@@ -128,6 +167,42 @@ export interface MaxActiveConstraint {
 
 export type AbilityConstraint = MaxActiveConstraint;
 
+/** "While you control <selector>" — at least one Hero on the controller's field
+ *  matches the selector. */
+export interface ControlsCondition {
+  kind: 'controls';
+  selector: HeroSelector;
+}
+
+/** "While this Hero is equipped with a [<"Family">] <Class> [or <Class>] <SubType>"
+ *  — checks the Equipment in this Hero's linked C slot. */
+export interface EquippedCondition {
+  kind: 'equipped';
+  /** Equipment sub-type: Weapon / Armor / Loadout. */
+  subType: string;
+  /** Allowed weapon classes (any-of), e.g. ["Suppressive", "Assault"]. */
+  weaponClasses?: string[];
+  /** Quoted name fragment, e.g. "Drone". */
+  family?: string;
+}
+
+/** "While equipped to a <selector>" — on an Equipment card: its bearer must
+ *  match the selector. */
+export interface EquippedToCondition {
+  kind: 'equippedTo';
+  selector: HeroSelector;
+}
+
+export type AbilityCondition = ControlsCondition | EquippedCondition | EquippedToCondition;
+
+/** An extra clause joined with "; while …" that adds to the main effect (e.g.
+ *  "this Hero gains an additional +10 ACC"). It applies only when BOTH the main
+ *  ability's conditions and the rider's own conditions hold. */
+export interface AbilityRider {
+  conditions: AbilityCondition[];
+  effect: AbilityEffect;
+}
+
 /** Parsed, structured form of one ability rules-text line. */
 export interface AbilityIR {
   /** Ability name — the text before the first colon, e.g. "Echo Assist". */
@@ -148,4 +223,11 @@ export interface AbilityIR {
    *  when it triggers (e.g. Bunker Busting Round's "you can"). Mandatory combat
    *  triggers (e.g. Hidden Finisher) leave this undefined. */
   optional?: boolean;
+  /** Conditions that must ALL hold for a passive effect to apply ("While …"). */
+  conditions?: AbilityCondition[];
+  /** Additional "; while …" clauses layered on the main effect. */
+  riders?: AbilityRider[];
+  /** True when the line lives on an Equipment card: "this Hero" then means the
+   *  Hero the Equipment is attached to. */
+  fromEquipment?: boolean;
 }

@@ -1,5 +1,6 @@
 import type { Card, GameState, OppCSlotId, OppSlotId, SlotId, StatBuff, StatKey } from './types';
-import { collectAuras, auraStatDelta } from '../abilities/auras';
+import { collectAuras, auraStatDelta, type SideField } from '../abilities/auras';
+import type { AuraStat } from '../abilities/abilityIR';
 
 /**
  * Pure combat-stat math (Phase 3). An A card's shown stats are its base values
@@ -52,6 +53,49 @@ export function boardHeroes(board: Record<string, string | null>, lookup: Record
   return out;
 }
 
+/** The player's field for the aura runtime: A-board Heroes + the Equipment in
+ *  each Hero's linked C slot (A2 → C2). */
+export function playerField(state: GameState): SideField {
+  return {
+    heroes: boardHeroes(state.board, state.cardsById),
+    equipmentOf: (heroId) => {
+      const slot = (Object.keys(state.board) as SlotId[]).find((k) => k[0] === 'A' && state.board[k] === heroId);
+      const cId = slot ? state.board[linkedCSlot(slot)] : null;
+      return cId ? state.cardsById[cId] : undefined;
+    },
+  };
+}
+
+/** The opponent's field for the aura runtime: O-board Heroes + the Equipment in
+ *  each Hero's linked OC slot (O2 → OC2). */
+export function opponentField(state: GameState): SideField {
+  return {
+    heroes: boardHeroes(state.opponentBoard, state.opponentCards),
+    equipmentOf: (heroId) => {
+      const slot = (Object.keys(state.opponentBoard) as OppSlotId[]).find((k) => state.opponentBoard[k] === heroId);
+      const cId = slot ? state.opponentCBoard[`OC${slot[1]}` as OppCSlotId] : null;
+      return cId ? state.opponentCards[cId] : undefined;
+    },
+  };
+}
+
+/** Total passive-aura delta on one of the PLAYER's Heroes: the player's own
+ *  ally auras plus the opponent's enemy-targeting auras. */
+export function playerAuraDelta(state: GameState, card: Card, stat: AuraStat): number {
+  return (
+    auraStatDelta(collectAuras(playerField(state)), card, stat, 'ally') +
+    auraStatDelta(collectAuras(opponentField(state)), card, stat, 'enemy')
+  );
+}
+
+/** Total passive-aura delta on one of the OPPONENT's Heroes (mirror). */
+export function opponentAuraDelta(state: GameState, card: Card, stat: AuraStat): number {
+  return (
+    auraStatDelta(collectAuras(opponentField(state)), card, stat, 'ally') +
+    auraStatDelta(collectAuras(playerField(state)), card, stat, 'enemy')
+  );
+}
+
 /**
  * Effective stats for the A card in `aSlot`: its base hp/dmg/acc plus the boost
  * from the linked C card, if that C slot holds a card carrying a buff, plus any
@@ -70,12 +114,11 @@ export function effectiveStats(state: GameState, aSlot: SlotId): EffectiveStats 
 
   const cId = state.board[linkedCSlot(aSlot)];
   const buff = cId ? state.cardsById[cId]?.buff : undefined;
-  const auras = collectAuras(boardHeroes(state.board, state.cardsById));
   const selfBuff = aId ? state.activatedStatBuffs[aId] : undefined;
 
   const line = (stat: StatKey): StatLine => {
     const cDelta = buff && buff.stat === stat ? buff.amount : 0;
-    const aDelta = card ? auraStatDelta(auras, card, stat) : 0;
+    const aDelta = card ? playerAuraDelta(state, card, stat) : 0;
     const sDelta = selfBuff?.[stat] ?? 0;
     const delta = cDelta + aDelta + sDelta;
     return { value: base[stat] + delta, delta };
@@ -101,11 +144,10 @@ export function opponentEffectiveStats(state: GameState, oppSlot: OppSlotId): Ef
 
   const cId = state.opponentCBoard[`OC${oppSlot[1]}` as OppCSlotId];
   const buff = cId ? state.opponentCards[cId]?.buff : undefined;
-  const auras = collectAuras(boardHeroes(state.opponentBoard, state.opponentCards));
 
   const line = (stat: StatKey): StatLine => {
     const cDelta = buff && buff.stat === stat ? buff.amount : 0;
-    const aDelta = card ? auraStatDelta(auras, card, stat) : 0;
+    const aDelta = card ? opponentAuraDelta(state, card, stat) : 0;
     const delta = cDelta + aDelta;
     return { value: base[stat] + delta, delta };
   };

@@ -10,7 +10,7 @@ import { MotionCard } from '../animation/MotionCard';
 import { selectOpponentCardVisual } from '../animation/poseSelectors';
 import { CardView } from '../cards/CardView';
 import { opponentSummonFromPose } from '../board/layout';
-import { opponentEffectiveStats } from '../state/combatStats';
+import { opponentEffectiveStats, opponentField } from '../state/combatStats';
 import { projectingAuraCardIds } from '../abilities/auras';
 import {
   HpOverlay,
@@ -47,10 +47,7 @@ export function OpponentBoard() {
   const selectable = targeting !== null;
 
   // Opponent Heroes projecting an active passive aura glow, same as the player.
-  const oppBoardHeroes = Object.values(opponentBoard)
-    .map((id) => (id ? opponentCards[id] : undefined))
-    .filter((c): c is NonNullable<typeof c> => !!c && c.type === 'A');
-  const oppAuraIds = projectingAuraCardIds(oppBoardHeroes);
+  const oppAuraIds = projectingAuraCardIds(opponentField(state));
 
   return (
     <>

@@ -4,7 +4,7 @@ import { activatedAbilityViews, hasAvailableActivated, type ActivationContext } 
 
 const COMBAT_FOCUS = 'Combat Focus: Once per turn, you can: this Hero gains +20 ACC.';
 const ECHO_ASSIST =
-  'Echo Assist: All "Echo" Heroes you control gain +10ACC. Only 1 "Echo Assist" Ability can be active on your field at once.';
+  'Echo Assist: While this Hero is on your field, all "Echo" Heroes you control gain +10 ACC. Only 1 "Echo Assist" Ability can be active on your field at once.';
 
 /** Minimal Hero card factory. */
 function hero(abilities: string[]): Card {

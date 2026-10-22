@@ -4,10 +4,15 @@ import { ABILITY_REGISTRY, runEffect } from './abilities';
 import { createInitialState } from './cardData';
 import { canDropCard, requiresTribute, canAffordTribute, validTargetSlots } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
-import { rollCBuff, effectiveStats, opponentEffectiveStats, boardHeroes } from './combatStats';
+import {
+  rollCBuff,
+  effectiveStats,
+  opponentEffectiveStats,
+  playerAuraDelta,
+  opponentAuraDelta,
+} from './combatStats';
 import { resolveRoll } from './diceRules';
 import { applyArmorToHit } from './armorCombat';
-import { collectAuras, auraStatDelta } from '../abilities/auras';
 import { parseAbility } from '../abilities/parseAbility';
 import { abilityValidTargets } from '../abilities/activated';
 import { onSentAbilities, pileActivatedAbilityFor } from '../abilities/pile';
@@ -408,10 +413,9 @@ export function createGameStore(
             return { currentHp, damagePopups, destroying: [...destroying] };
           }
 
-          // Normal armor math (opponent armor auras fold into flat armor).
-          const oppAuras = collectAuras(boardHeroes(s.opponentBoard, s.opponentCards));
+          // Normal armor math (armor auras from both sides fold into flat armor).
           const armor =
-            (defCard?.armor ?? 0) + (defCard ? auraStatDelta(oppAuras, defCard, 'armor') : 0);
+            (defCard?.armor ?? 0) + (defCard ? opponentAuraDelta(s, defCard, 'armor') : 0);
           const bars = currentArmorBars[oppId] ?? defCard?.armorBars ?? 0;
           const baseDmg = effectiveStats(s, src).dmg.value;
           const hit = applyArmorToHit({ bars, armor }, result.outcome, result.damage, baseDmg);
@@ -711,8 +715,6 @@ export function createGameStore(
               const currentArmorBars = { ...s.currentArmorBars };
               const oppDamagePopups: Partial<Record<SlotId, number>> = {};
               const destroyingSet = new Set<SlotId>();
-              // Player-side armor auras (e.g. Roaming Armor) fold into flat armor.
-              const playerAuras = collectAuras(boardHeroes(s.board, s.cardsById));
               // Resolve each opponent attacker's hit IN ORDER so Armor Bars deplete
               // per hit (a bar absorbs one hit then breaks).
               for (const src of Object.keys(s.oppAttackTargets) as OppSlotId[]) {
@@ -726,7 +728,7 @@ export function createGameStore(
                 const maxHp = effectiveStats(s, target).hp.value;
                 const armor =
                   (defCard?.armor ?? 0) +
-                  (defCard ? auraStatDelta(playerAuras, defCard, 'armor') : 0);
+                  (defCard ? playerAuraDelta(s, defCard, 'armor') : 0);
                 const bars = currentArmorBars[pid] ?? defCard?.armorBars ?? 0;
                 const baseDmg = opponentEffectiveStats(s, src).dmg.value;
                 const hit = applyArmorToHit(
