@@ -26,6 +26,8 @@ import {
 import type { AbilityIR } from '../abilities/abilityIR';
 import { onSentAbilities, pileActivatedAbilityFor } from '../abilities/pile';
 import { combatHitAbilities, finisherEliminates } from '../abilities/combat';
+import { onSetAbilities, onSetNeedsChoice, onSetChoiceOptions, dominationVictims } from '../abilities/onSet';
+import type { SetKind } from '../abilities/abilityIR';
 import { OPP_SLOT_IDS } from '../board/boardConfig';
 import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 
@@ -177,6 +179,9 @@ export interface GameActions {
    *  (applies its effect + fires the showcase), `false` declines. No-op unless a
    *  prompt is pending. */
   resolveAbilityPrompt: (accept: boolean) => void;
+  /** Resolve an open On-Set choice: a card id applies the effect to it; null
+   *  skips the (optional) ability. No-op unless a choice is open. */
+  resolveOnSetChoice: (cardId: CardId | null) => void;
   /** Trigger a Hero's in-pile activated ability from the pile it sits in (e.g.
    *  return it to the Hand). No-op unless it is the player's Main phase, the card
    *  is in a player pile, and it has a matching pile-activated ability. */
@@ -325,7 +330,12 @@ export function createGameStore(
        * ability once the showcase clears. Assumes `slotId` is already known-legal
        * for the card. Shared by the drag-drop and double-click quick-set paths.
        */
-      const commitPlacement = (cardId: CardId, cardType: CardType, slotId: SlotId) => {
+      const commitPlacement = (
+        cardId: CardId,
+        cardType: CardType,
+        slotId: SlotId,
+        setInfo: { kind: SetKind; materials: number } = { kind: 'normal', materials: 0 },
+      ) => {
         const s = get();
         // A C card rolls a random stat boost for its linked A card when set.
         const cardsById =
@@ -348,6 +358,7 @@ export function createGameStore(
             st.summon && st.summon.cardId === cardId ? { ...st, summon: null } : st,
           );
           if (ability) enactOnSetAbility(ability);
+          if (cardType === 'A') runOnSetTriggers(cardId, slotId, setInfo);
         }, SUMMON_SHOWCASE_MS);
       };
 
@@ -1111,6 +1122,102 @@ export function createGameStore(
       else showcase();
     };
 
+    /** Fire a showcase for an On-Set ability that just resolved. */
+    const showOnSet = (cardId: CardId, abilityName: string) => {
+      set({ abilityShowcase: { cardId, abilityName } });
+      scheduleShowcaseClear(cardId);
+    };
+
+    /**
+     * Resolve a just-Set Hero's On-Set abilities for how it was Set (Normal /
+     * Replen / Commit). Automatic effects apply immediately; the first effect
+     * that needs a pick opens `onSetChoice` (optional — the player may skip).
+     * Player turn only. Forward Intel (deck reorder) is parsed but inert.
+     */
+    const runOnSetTriggers = (cardId: CardId, slotId: SlotId, info: { kind: SetKind; materials: number }) => {
+      if (get().activePlayer !== 'player') return;
+      for (const { abilityIndex, ir } of onSetAbilities(get().cardsById[cardId], info.kind)) {
+        const s = get();
+        if (s.board[slotId] !== cardId) return;
+        const e = ir.effect;
+        if (onSetNeedsChoice(ir)) {
+          if (s.onSetChoice) continue;
+          const options = onSetChoiceOptions(ir, {
+            cardsById: s.cardsById,
+            graveyard: s.graveyard,
+            opponentCards: s.opponentCards,
+            opponentEquipment: Object.values(s.opponentCBoard).filter((id): id is CardId => Boolean(id)),
+          });
+          if (options.length) {
+            set({ onSetChoice: { sourceCardId: cardId, abilityIndex, abilityName: ir.name, options } });
+          }
+          continue;
+        }
+        if (e.kind === 'draw') {
+          if (s.deck.length === 0) continue;
+          drawStaggered(e.count);
+          showOnSet(cardId, ir.name);
+        } else if (e.kind === 'opponentHandToReplen') {
+          const hand = [...s.opponentHand];
+          const sent: CardId[] = [];
+          for (let i = 0; i < e.count && hand.length; i++) {
+            sent.push(hand.splice(Math.floor(Math.random() * hand.length), 1)[0]);
+          }
+          if (!sent.length) continue;
+          set({ opponentHand: hand, opponentReplen: [...s.opponentReplen, ...sent] });
+          showOnSet(cardId, ir.name);
+        } else if (e.kind === 'equipFromDeck') {
+          const cSlot = linkedCSlot(slotId);
+          if (s.board[cSlot]) continue;
+          let idx = -1;
+          for (let i = s.deck.length - 1; i >= 0; i--) {
+            const c = s.cardsById[s.deck[i]];
+            if (c?.type === 'C' && c.subType === e.subType) {
+              idx = i;
+              break;
+            }
+          }
+          if (idx < 0) continue;
+          const eqId = s.deck[idx];
+          set({
+            deck: s.deck.filter((_, i) => i !== idx),
+            board: { ...s.board, [cSlot]: eqId },
+            cardsById: { ...s.cardsById, [eqId]: { ...s.cardsById[eqId], buff: rollCBuff() } },
+          });
+          if (e.disturb) get().disturbDeck();
+          showOnSet(cardId, ir.name);
+        } else if (e.kind === 'destroyEnemyNormalHeroes') {
+          const enemies = OPP_SLOT_IDS.flatMap((slot) => {
+            const id = s.opponentBoard[slot];
+            const card = id ? s.opponentCards[id] : undefined;
+            return id && card ? [{ slot, card, hp: s.currentHp[id] ?? card.hp ?? 0 }] : [];
+          });
+          const victims = dominationVictims(enemies, info.materials);
+          if (!victims.length) continue;
+          const opponentBoard = { ...s.opponentBoard };
+          const opponentCBoard = { ...s.opponentCBoard };
+          const opponentGraveyard = [...s.opponentGraveyard];
+          const currentHp = { ...s.currentHp };
+          const currentArmorBars = { ...s.currentArmorBars };
+          for (const slot of victims) {
+            const id = opponentBoard[slot]!;
+            opponentBoard[slot] = null;
+            opponentGraveyard.push(id);
+            delete currentHp[id];
+            delete currentArmorBars[id];
+            const ocSlot = `OC${slot[1]}` as OppCSlotId;
+            const ocId = opponentCBoard[ocSlot];
+            if (ocId) {
+              opponentCBoard[ocSlot] = null;
+              opponentGraveyard.push(ocId);
+            }
+          }
+          set({ opponentBoard, opponentCBoard, opponentGraveyard, currentHp, currentArmorBars });
+          showOnSet(cardId, ir.name);
+        }
+      }
+    };
+
     /** After a send-to-pile lands, open the on-sent yes/no prompt for the first
      *  just-sent Hero whose ability triggers for that pile. Only prompts on the
      *  player's turn (a player choice) and never stacks over an open prompt or a
@@ -1268,7 +1375,13 @@ export function createGameStore(
           board[cSlot] = null;
         }
       }
-      set({ board, replen, graveyard, pendingTribute: null, pendingSummon: { cardId: pending.cardId } });
+      set({ board, replen, graveyard, pendingTribute: null,
+        pendingSummon: {
+          cardId: pending.cardId,
+          setKind: toGraveyard ? 'commit' : 'replen',
+          materials: materialSlots.length,
+        },
+      });
       scheduleOnSentPrompt(sent, toGraveyard ? 'graveyard' : 'replen');
     },
 
@@ -1282,7 +1395,10 @@ export function createGameStore(
       if (slotId[0] !== 'A' || s.board[slotId] !== null) return;
       set({ pendingSummon: null });
       // Run the normal placement + summon showcase for the held card.
-      commitPlacement(pending.cardId, 'A', slotId);
+      commitPlacement(pending.cardId, 'A', slotId, {
+        kind: pending.setKind ?? 'replen',
+        materials: pending.materials ?? 0,
+      });
     },
 
     returnToHand: (cardId) =>
@@ -1378,6 +1494,30 @@ export function createGameStore(
     },
 
     cancelAbilityTargeting: () => set(() => ({ abilityTargeting: null })),
+
+    resolveOnSetChoice: (pick) => {
+      const s = get();
+      const ch = s.onSetChoice;
+      if (!ch) return;
+      if (pick === null || !ch.options.includes(pick)) {
+        if (pick === null) set({ onSetChoice: null });
+        return;
+      }
+      const ir = parseAbility(s.cardsById[ch.sourceCardId]?.abilities?.[ch.abilityIndex] ?? '');
+      if (ir.effect.kind === 'opponentEquipmentToReplen') {
+        const opponentCBoard = { ...s.opponentCBoard };
+        for (const k of Object.keys(opponentCBoard) as OppCSlotId[]) {
+          if (opponentCBoard[k] === pick) opponentCBoard[k] = null;
+        }
+        set({ opponentCBoard, opponentReplen: [...s.opponentReplen, pick], onSetChoice: null });
+      } else if (ir.effect.kind === 'recoverFromGraveyard') {
+        set({ graveyard: s.graveyard.filter((id) => id !== pick), hand: [...s.hand, pick], onSetChoice: null });
+      } else {
+        set({ onSetChoice: null });
+        return;
+      }
+      showOnSet(ch.sourceCardId, ch.abilityName);
+    },
 
     resolveAbilityPrompt: (accept) => {
       const s = get();

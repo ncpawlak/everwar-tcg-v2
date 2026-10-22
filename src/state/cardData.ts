@@ -442,6 +442,7 @@ export function createInitialState(rand: () => number = Math.random): GameState 
     summon: null,
     abilityShowcase: null,
     abilityTargeting: null,
+    onSetChoice: null,
     abilityPrompt: null,
     combatPrompt: null,
     pendingCombatQueue: null,

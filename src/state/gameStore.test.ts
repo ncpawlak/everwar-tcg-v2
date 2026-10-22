@@ -210,7 +210,7 @@ describe('P2-S02/S08 game store actions', () => {
     expect(s.board.C1).toBeNull(); // linked C tributed too
     expect(s.replen).toEqual(expect.arrayContaining(['card-hero-1', 'card-hero-17', 'card-equipment-1']));
     expect(s.pendingTribute).toBeNull();
-    expect(s.pendingSummon).toEqual({ cardId: 'card-hero-40' });
+    expect(s.pendingSummon).toEqual({ cardId: 'card-hero-40', setKind: 'replen', materials: 2 });
     expect(s.hand).toContain('card-hero-40'); // not placed until a slot is picked
 
     // Pick an open slot — now the card is summoned there.
@@ -315,7 +315,7 @@ describe('P2-S02/S08 game store actions', () => {
     expect(store.getState().pendingTribute).toEqual({ cardId: 'card-hero-40' });
 
     store.getState().confirmTributeSummon(['A1', 'A2']); // frees A1 and A2
-    expect(store.getState().pendingSummon).toEqual({ cardId: 'card-hero-40' });
+    expect(store.getState().pendingSummon).toEqual({ cardId: 'card-hero-40', setKind: 'replen', materials: 2 });
 
     // A freed slot is now a legal target.
     store.getState().placePendingSummon('A1');
@@ -2034,6 +2034,166 @@ describe('P8 combat triggers (S6, v3 wording)', () => {
       expect(s.currentHp['opp-O2']).toBe(240); // A2's 60 landed on resume
     } finally {
       rnd.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('P8 On-Set triggers (v3 wording)', () => {
+  /** Place `cardId` via the tribute hand-off (materials already paid). */
+  function storeForSet(cardId: string, setKind: 'replen' | 'commit', materials: number, extra: Partial<GameState> = {}) {
+    const base = createInitialState();
+    return createGameStore({
+      ...base,
+      phase: 'main',
+      hand: [cardId],
+      deck: base.deck.filter((id) => id !== cardId),
+      pendingSummon: { cardId, setKind, materials },
+      ...extra,
+    });
+  }
+
+  it('Supply Disruption (Normal Set) sends 1 random opponent Hand card to their Replen', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'main',
+        hand: ['card-hero-16'],
+        deck: base.deck.filter((id) => id !== 'card-hero-16'),
+        opponentHand: ['o-1', 'o-2', 'o-3'],
+        opponentReplen: [],
+      });
+      store.getState().autoPlaceCard('card-hero-16');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      const s = store.getState();
+      expect(s.opponentHand).toHaveLength(2);
+      expect(s.opponentReplen).toHaveLength(1);
+      expect(['o-1', 'o-2', 'o-3']).toContain(s.opponentReplen[0]);
+      expect(s.abilityShowcase).toMatchObject({ cardId: 'card-hero-16', abilityName: 'Supply Disruption' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Extra Baggage draws 1 on a Replen Set but not on a Commit Set', () => {
+    vi.useFakeTimers();
+    try {
+      const store = storeForSet('card-hero-51', 'replen', 1);
+      store.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + MULTI_DRAW_STAGGER_MS * 2);
+      expect(store.getState().hand).toHaveLength(1);
+      const commit = storeForSet('card-hero-51', 'commit', 1);
+      commit.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + MULTI_DRAW_STAGGER_MS * 2);
+      expect(commit.getState().hand).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Stay Armed equips the top Weapon from the Deck, then Disturbs the Deck', () => {
+    vi.useFakeTimers();
+    try {
+      const deck = ['card-hero-6', 'card-equipment-11', 'card-hero-7', 'card-equipment-7'];
+      const store = storeForSet('card-hero-52', 'replen', 1, { deck });
+      store.getState().placePendingSummon('A2');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      const s = store.getState();
+      // Topmost Weapon is Headhunter (card-equipment-7 Tankwalker is not a Weapon).
+      expect(s.board.C2).toBe('card-equipment-11');
+      expect(s.cardsById['card-equipment-11'].buff).toBeDefined();
+      // Disturb: top card (Tankwalker) → Replen.
+      expect(s.replen).toEqual(['card-equipment-7']);
+      expect(s.deck).toEqual(['card-hero-6', 'card-hero-7']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Stay Armed does nothing when the Hero is already equipped', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const deck = ['card-equipment-11'];
+      const store = storeForSet('card-hero-52', 'replen', 1, { deck, board: { ...base.board, C2: 'card-equipment-16' } });
+      store.getState().placePendingSummon('A2');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      expect(store.getState().board.C2).toBe('card-equipment-16');
+      expect(store.getState().deck).toEqual(['card-equipment-11']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Domination destroys enemy Normal Heroes up to the material count (strongest first)', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const o1 = withOpponent(base, 'O1', { level: 1, hp: 50 });
+      const o2 = withOpponent(base, 'O2', { level: 2, hp: 80 });
+      const o3 = withOpponent(base, 'O3', { level: 3, hp: 120 });
+      const store = storeForSet('card-hero-56', 'commit', 1, {
+        opponentBoard: { ...base.opponentBoard, O1: 'opp-O1', O2: 'opp-O2', O3: 'opp-O3' },
+        opponentCards: { ...o1.opponentCards, ...o2.opponentCards, ...o3.opponentCards },
+      });
+      store.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      const s = store.getState();
+      expect(s.opponentBoard.O2).toBeNull(); // level 2 goes first
+      expect(s.opponentBoard.O1).toBe('opp-O1'); // cap of 1 material
+      expect(s.opponentBoard.O3).toBe('opp-O3'); // Special Hero immune
+      expect(s.opponentGraveyard).toContain('opp-O2');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Reclaim Ops opens a GY Ability Card choice; confirming adds it to the Hand', () => {
+    vi.useFakeTimers();
+    try {
+      const store = storeForSet('card-hero-58', 'commit', 2, { graveyard: ['card-hero-6', 'card-ability-1'] });
+      store.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      expect(store.getState().onSetChoice).toMatchObject({ sourceCardId: 'card-hero-58', options: ['card-ability-1'] });
+      store.getState().resolveOnSetChoice('card-ability-1');
+      const s = store.getState();
+      expect(s.onSetChoice).toBeNull();
+      expect(s.hand).toContain('card-ability-1');
+      expect(s.graveyard).toEqual(['card-hero-6']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Field Disruption lets the player send an enemy Equipment to their Replen, or skip', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const opp = withOpponent(base, 'O1', { level: 2 });
+      const eq = { id: 'opp-eq', type: 'C', name: 'Enemy Rifle', subType: 'Weapon', rarity: 'Common' } as Card;
+      const extra: Partial<GameState> = {
+        ...opp,
+        opponentCards: { ...opp.opponentCards, 'opp-eq': eq },
+        opponentCBoard: { ...base.opponentCBoard, OC1: 'opp-eq' },
+        opponentReplen: [],
+      };
+      const store = storeForSet('card-hero-46', 'replen', 1, extra);
+      store.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      expect(store.getState().onSetChoice?.options).toEqual(['opp-eq']);
+      store.getState().resolveOnSetChoice('opp-eq');
+      expect(store.getState().opponentCBoard.OC1).toBeNull();
+      expect(store.getState().opponentReplen).toEqual(['opp-eq']);
+
+      const skip = storeForSet('card-hero-46', 'replen', 1, extra);
+      skip.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      skip.getState().resolveOnSetChoice(null);
+      expect(skip.getState().onSetChoice).toBeNull();
+      expect(skip.getState().opponentCBoard.OC1).toBe('opp-eq');
+    } finally {
       vi.useRealTimers();
     }
   });

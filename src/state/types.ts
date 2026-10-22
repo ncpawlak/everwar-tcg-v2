@@ -272,6 +272,23 @@ export interface PendingTribute {
  */
 export interface PendingSummon {
   cardId: CardId;
+  /** Replen Set (materials → Replen) or Commit Set (materials → GY). */
+  setKind?: 'replen' | 'commit';
+  /** Number of materials used, for "up to the number of materials" effects. */
+  materials?: number;
+}
+
+/**
+ * An On-Set ability awaiting the player's pick (e.g. Field Disruption: select 1
+ * enemy Equipment; Reclaim Ops: select 1 Ability Card in the GY). The ability
+ * is optional, so the player may also skip. Null when no such choice is open.
+ */
+export interface OnSetChoice {
+  sourceCardId: CardId;
+  abilityIndex: number;
+  abilityName: string;
+  /** Legal picks (player or opponent card ids). */
+  options: CardId[];
 }
 
 /**
@@ -329,6 +346,8 @@ export interface GameState {
   /** A just-sent Hero's on-sent pile ability awaiting the player's yes/no
    *  decision, or null. */
   abilityPrompt: AbilityPrompt | null;
+  /** An On-Set ability awaiting the player's card pick (or skip), or null. */
+  onSetChoice: OnSetChoice | null;
   /** A paused Resolution awaiting the player's yes/no on Snow Viper's Bunker
    *  Busting Round, or null when combat is not paused for it. */
   combatPrompt: CombatPrompt | null;

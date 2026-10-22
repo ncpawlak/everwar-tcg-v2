@@ -94,41 +94,9 @@ export function AbilityTargetModal() {
         ) : (
           <div style={GRID_SCROLL_STYLE}>
             <div style={GRID_STYLE}>
-              {tiles.map((c) => {
-                const accent = TYPE_ACCENT[c.type];
-                const on = selected === c.id;
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setSelected(c.id)}
-                    style={{
-                      ...TILE_STYLE,
-                      border: `2px solid ${on ? '#ffcf3f' : RARITY_COLOR[c.rarity]}`,
-                      boxShadow: on ? '0 0 12px rgba(255,207,63,0.55)' : 'none',
-                    }}
-                    title={c.name}
-                  >
-                    <div
-                      style={{
-                        ...TILE_HEADER_STYLE,
-                        background: `linear-gradient(180deg, ${accent}cc, ${accent}77)`,
-                      }}
-                    >
-                      <span style={{ fontWeight: 800 }}>{c.type}</span>
-                      {c.level != null && <span style={TILE_LEVEL_STYLE}>Lv {c.level}</span>}
-                    </div>
-                    <div style={TILE_NAME_STYLE}>{c.name}</div>
-                    {c.type === 'A' && (
-                      <div style={TILE_FOOT_STYLE}>
-                        <span style={{ color: '#e07a5f' }}>{c.dmg}</span>
-                        <span style={{ color: '#6aa9e0' }}>{c.acc}</span>
-                      </div>
-                    )}
-                    {on && <div style={CHECK_STYLE}>✓</div>}
-                  </button>
-                );
-              })}
+              {tiles.map((c) => (
+                <CardTile key={c.id} card={c} on={selected === c.id} onPick={() => setSelected(c.id)} />
+              ))}
             </div>
           </div>
         )}
@@ -150,6 +118,107 @@ export function AbilityTargetModal() {
             }}
           >
             {copy.button}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** One selectable card tile. */
+function CardTile({ card: c, on, onPick }: { card: Card; on: boolean; onPick: () => void }) {
+  const accent = TYPE_ACCENT[c.type];
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      style={{
+        ...TILE_STYLE,
+        border: `2px solid ${on ? '#ffcf3f' : RARITY_COLOR[c.rarity]}`,
+        boxShadow: on ? '0 0 12px rgba(255,207,63,0.55)' : 'none',
+      }}
+      title={c.name}
+    >
+      <div style={{ ...TILE_HEADER_STYLE, background: `linear-gradient(180deg, ${accent}cc, ${accent}77)` }}>
+        <span style={{ fontWeight: 800 }}>{c.type}</span>
+        {c.level != null && <span style={TILE_LEVEL_STYLE}>Lv {c.level}</span>}
+      </div>
+      <div style={TILE_NAME_STYLE}>{c.name}</div>
+      {c.type === 'A' && (
+        <div style={TILE_FOOT_STYLE}>
+          <span style={{ color: '#e07a5f' }}>{c.dmg}</span>
+          <span style={{ color: '#6aa9e0' }}>{c.acc}</span>
+        </div>
+      )}
+      {on && <div style={CHECK_STYLE}>✓</div>}
+    </button>
+  );
+}
+
+/**
+ * Pick-one resolver for optional On-Set abilities (Field Disruption: an enemy
+ * Equipment; Reclaim Ops: an Ability Card in your GY). Opens when `onSetChoice`
+ * is set. Skip / backdrop / Escape declines the ability.
+ */
+export function OnSetChoiceModal() {
+  const ch = useGameStore((s) => s.onSetChoice);
+  const cardsById = useGameStore((s) => s.cardsById);
+  const opponentCards = useGameStore((s) => s.opponentCards);
+  const resolve = useGameStore((s) => s.resolveOnSetChoice);
+  const [selected, setSelected] = useState<CardId | null>(null);
+
+  useEffect(() => {
+    setSelected(null);
+  }, [ch?.sourceCardId, ch?.abilityIndex]);
+
+  useEffect(() => {
+    if (!ch) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') resolve(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ch, resolve]);
+
+  if (!ch) return null;
+  const source = cardsById[ch.sourceCardId];
+  const ir = parseAbility(source?.abilities?.[ch.abilityIndex] ?? '');
+  const enemy = ir.effect.kind === 'opponentEquipmentToReplen';
+  const lookup = (id: CardId) => cardsById[id] ?? opponentCards[id];
+  const tiles = ch.options.map(lookup).filter((c): c is Card => Boolean(c));
+  const selectedCard = selected ? lookup(selected) ?? null : null;
+  const verb = enemy ? "send it from your opponent's field to Replen" : 'add it to your Hand';
+  const button = enemy ? 'Send to Replen' : 'Add to Hand';
+
+  return (
+    <div data-ui-overlay style={BACKDROP_STYLE} onClick={() => resolve(null)}>
+      <div style={PANEL_STYLE} onClick={(e) => e.stopPropagation()}>
+        <div style={HEADER_STYLE}>
+          <span style={{ fontWeight: 700, letterSpacing: 0.4 }}>
+            <span style={{ color: '#ffb020' }}>{ch.abilityName}</span>
+            <span style={{ color: '#8b95a3', fontWeight: 500 }}> · On Set</span>
+          </span>
+        </div>
+        <div style={SUBTITLE_STYLE}>{`Click a card to inspect it, then Confirm to ${verb}.`}</div>
+        <div style={GRID_SCROLL_STYLE}>
+          <div style={GRID_STYLE}>
+            {tiles.map((c) => (
+              <CardTile key={c.id} card={c} on={selected === c.id} onPick={() => setSelected(c.id)} />
+            ))}
+          </div>
+        </div>
+        {selectedCard && <CardDetail card={selectedCard} />}
+        <div style={FOOTER_STYLE}>
+          <button type="button" onClick={() => resolve(null)} style={CANCEL_STYLE}>
+            Skip
+          </button>
+          <button
+            type="button"
+            disabled={!selected}
+            onClick={() => selected && resolve(selected)}
+            style={{ ...CONFIRM_STYLE, opacity: selected ? 1 : 0.4, cursor: selected ? 'pointer' : 'not-allowed' }}
+          >
+            {button}
           </button>
         </div>
       </div>

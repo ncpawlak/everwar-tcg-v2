@@ -301,3 +301,28 @@ describe('P8 ability parser', () => {
     expect(irs[0].effect.kind).toBe('statAura');
   });
 });
+
+describe('P8 parser: On-Set + used-as-material triggers (v3)', () => {
+  const cases: [string, object][] = [
+    ["Supply Disruption: When this Hero is Normal Set, randomly select 1 card from your opponent's Hand and send that card to Replen.",
+      { trigger: 'onSet', setKinds: ['normal'], effect: { kind: 'opponentHandToReplen', count: 1 } }],
+    ['Forward Intel: When this Hero is Normal Set, look at the top 3 cards of your Deck, then return them to the top of your Deck in any order.',
+      { trigger: 'onSet', setKinds: ['normal'], effect: { kind: 'peekDeckTop', count: 3 } }],
+    ["Field Disruption: When this Hero is Normal Set or Replen Set, you can select 1 Equipment on your opponent's field and send that Equipment to Replen.",
+      { trigger: 'onSet', setKinds: ['normal', 'replen'], optional: true, effect: { kind: 'opponentEquipmentToReplen' } }],
+    ['Extra Baggage: When this Hero is Replen Set, draw 1 card.',
+      { trigger: 'onSet', setKinds: ['replen'], effect: { kind: 'draw', count: 1 } }],
+    ['Stay Armed: When this Hero is Replen Set, if this Hero is unequipped, equip this Hero with the top Weapon card from your Deck, then Disturb your Deck.',
+      { trigger: 'onSet', setKinds: ['replen'], effect: { kind: 'equipFromDeck', subType: 'Weapon', disturb: true } }],
+    ["Domination: When this Hero is Commit Set, destroy Human Normal Heroes on your opponent's field, up to the number of materials used to Commit Set this Hero.",
+      { trigger: 'onSet', setKinds: ['commit'], effect: { kind: 'destroyEnemyNormalHeroes', upToMaterials: true } }],
+    ['Reclaim Ops: When this Hero is Commit Set, you can select 1 Ability Card in your GY and add that card to your Hand.',
+      { trigger: 'onSet', setKinds: ['commit'], optional: true, effect: { kind: 'recoverFromGraveyard', cardType: 'B', to: 'hand' } }],
+    ['Shadow Hack: When this Hero is used as material to Replen Set a "Jackal" Hero, you can send this Hero to the GY, then send the top card of your opponent\'s Deck to Replen.',
+      { trigger: 'usedAsMaterial', setKinds: ['replen'], materialFor: { side: 'ally', family: 'Jackal' }, optional: true, selfToGraveyard: true,
+        effect: { kind: 'opponentDeckTopToReplen', count: 1 } }],
+  ];
+  it.each(cases)('parses %s', (text, expected) => {
+    expect(parseAbility(text)).toMatchObject(expected);
+  });
+});

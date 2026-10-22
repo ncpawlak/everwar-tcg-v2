@@ -19,6 +19,7 @@ import type {
   EliminateGate,
   AuraStat,
   HeroSelector,
+  SetKind,
 } from './abilityIR';
 
 /** Rules-text stat words → IR stat keys. */
@@ -397,7 +398,82 @@ const IGNORE_ARMOR_BARS_RULE = regexRule(/^This Hero's Hits ignore Armor Bars\.$
   constraints: [],
 }));
 
-const RULES: ParseRule[] = [PASSIVE_WHILE_RULE, ACTIVATED_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE, BUNKER_BUSTING_RULE, INSTANT_ELIMINATE_RULE, IGNORE_ARMOR_BARS_RULE];
+/** "Normal Set" / "Replen Set" / "Commit Set" → SetKind. */
+function setKindOf(word: string): SetKind {
+  const w = word.toLowerCase();
+  return w.startsWith('replen') ? 'replen' : w.startsWith('commit') ? 'commit' : 'normal';
+}
+
+/** One On-Set effect clause → effect (+ "you can" optionality), or null. */
+function parseOnSetEffect(text: string): { effect: AbilityEffect; optional?: boolean } | null {
+  let t = text.trim();
+  let optional: boolean | undefined;
+  const can = t.match(/^you can (.+)$/i);
+  if (can) {
+    optional = true;
+    t = can[1];
+  }
+  let m: RegExpMatchArray | null;
+  if ((m = t.match(/^draw (\d+) cards?$/i))) return { effect: { kind: 'draw', count: +m[1] }, optional };
+  if ((m = t.match(/^randomly select (\d+) cards? from your opponent's Hand and send that card to Replen$/i)))
+    return { effect: { kind: 'opponentHandToReplen', count: +m[1] }, optional };
+  if ((m = t.match(/^look at the top (\d+) cards of your Deck, then return them to the top of your Deck in any order$/i)))
+    return { effect: { kind: 'peekDeckTop', count: +m[1] }, optional };
+  if (/^select 1 Equipment on your opponent's field and send that Equipment to Replen$/i.test(t))
+    return { effect: { kind: 'opponentEquipmentToReplen' }, optional };
+  if ((m = t.match(/^if this Hero is unequipped, equip this Hero with the top (Weapon|Armor|Loadout) card from your Deck(, then Disturb your Deck)?$/i)))
+    return { effect: { kind: 'equipFromDeck', subType: m[1], disturb: Boolean(m[2]) }, optional };
+  if (/^destroy Human Normal Heroes on your opponent's field, up to the number of materials used to Commit Set this Hero$/i.test(t))
+    return { effect: { kind: 'destroyEnemyNormalHeroes', upToMaterials: true }, optional };
+  if (/^select 1 Ability Card in your GY and add that card to your Hand$/i.test(t))
+    return { effect: { kind: 'recoverFromGraveyard', cardType: 'B', to: 'hand' }, optional };
+  return null;
+}
+
+const SET_WORD = '(Normal Set|Replen Set|Commit Set)';
+
+/**
+ * On-Set triggers: "When this Hero is <Kind> Set[ or <Kind> Set], <effect>."
+ * (Supply Disruption, Forward Intel, Field Disruption, Extra Baggage, Stay Armed,
+ * Domination, Reclaim Ops).
+ */
+const ON_SET_RULE: ParseRule = {
+  parse: (body, name, raw) => {
+    const m = body.match(new RegExp(`^When this Hero is ${SET_WORD}(?: or ${SET_WORD})?, (.+)\\.$`, 'i'));
+    if (!m) return null;
+    const parsed = parseOnSetEffect(m[3]);
+    if (!parsed) return null;
+    const setKinds = [m[1], m[2]].filter(Boolean).map(setKindOf);
+    const ir: AbilityIR = { name, raw, trigger: 'onSet', setKinds, effect: parsed.effect, constraints: [] };
+    if (parsed.optional) ir.optional = true;
+    return ir;
+  },
+};
+
+/**
+ * "When this Hero is used as material to Replen Set a "Jackal" Hero, you can send
+ *  this Hero to the GY, then send the top card of your opponent's Deck to
+ *  Replen." (Shadow Hack). Parsed only for now.
+ */
+const USED_AS_MATERIAL_RULE = regexRule(
+  new RegExp(
+    `^When this Hero is used as material to ${SET_WORD} an? "([^"]+)" Hero, you can send this Hero to the GY, then send the top (\\d+)? ?cards? of your opponent's Deck to Replen\\.$`,
+    'i',
+  ),
+  (m, name, raw) => ({
+    name,
+    raw,
+    trigger: 'usedAsMaterial',
+    setKinds: [setKindOf(m[1])],
+    materialFor: { side: 'ally', family: m[2] },
+    optional: true,
+    selfToGraveyard: true,
+    effect: { kind: 'opponentDeckTopToReplen', count: m[3] ? +m[3] : 1 },
+    constraints: [],
+  }),
+);
+
+const RULES: ParseRule[] = [PASSIVE_WHILE_RULE, ACTIVATED_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE, BUNKER_BUSTING_RULE, INSTANT_ELIMINATE_RULE, IGNORE_ARMOR_BARS_RULE, ON_SET_RULE, USED_AS_MATERIAL_RULE];
 
 /** Split "<Name>: <body>" into its parts. No colon → empty name, whole text is body. */
 function splitNameBody(text: string): { name: string; body: string } {
