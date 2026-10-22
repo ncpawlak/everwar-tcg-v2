@@ -209,6 +209,16 @@ export interface IgnoreArmorBarsEffect {
   kind: 'ignoreArmorBars';
 }
 
+/** "This Hero can be <Kind> Set[ with N <SubType> Hero(es)]." — an alternate
+ *  way to Set this Hero. Without `materials` it lifts the tribute requirement
+ *  (Rapid Deployment: Normal Set); with them, exactly `count` Heroes of
+ *  `subType` satisfy the tribute regardless of their levels (Troop Lead). */
+export interface SetPermissionEffect {
+  kind: 'setPermission';
+  setKind: SetKind;
+  materials?: { count: number; subType?: string };
+}
+
 /** Fallback for ability text no rule models yet. Inert at runtime. */
 export interface UnimplementedEffect {
   kind: 'unimplemented';
@@ -237,6 +247,7 @@ export type AbilityEffect =
   | EquipFromDeckEffect
   | DestroyEnemyNormalHeroesEffect
   | OpponentDeckTopToReplenEffect
+  | SetPermissionEffect
   | UnimplementedEffect;
 
 /** A pile a card can be sent to / activate from. */
@@ -277,6 +288,7 @@ export type AbilityTrigger =
   | 'combatHit'
   | 'onSet'
   | 'usedAsMaterial'
+  | 'setPermission'
   | 'unimplemented';
 
 /** "Only 1 <name> Ability can be active on your field at once." */

@@ -1,6 +1,8 @@
 import type { Card, CardType, GameState, SlotId, SlotIndex } from '../state/types';
 import { slotType } from '../state/types';
 import { SLOT_IDS } from '../state/cardData';
+import { parseAbilities } from '../abilities/parseAbility';
+import type { AbilityEffect, SetKind } from '../abilities/abilityIR';
 
 /**
  * Pure board rules for Phase 2/3. No React, no Three.js, no store internals —
@@ -135,10 +137,41 @@ export function canDrop(
 /** A-cards at or above this level require a tribute summon (levels 1–2 are free). */
 export const TRIBUTE_LEVEL = 3;
 
+type SetPermission = Extract<AbilityEffect, { kind: 'setPermission' }>;
+
+/** A Hero's "This Hero can be <Kind> Set[ with N <SubType> Hero(es)]." lines. */
+export function setPermissions(card: Card): SetPermission[] {
+  return parseAbilities(card.abilities).flatMap((ir) => (ir.effect.kind === 'setPermission' ? [ir.effect] : []));
+}
+
 /** Whether a card must be tribute-summoned — a level-3+ A card, or a Commander
- * (Commanders use the same level-3 tribute rules but tribute to the graveyard). */
+ * (Commanders use the same level-3 tribute rules but tribute to the graveyard).
+ * A plain "This Hero can be Normal Set." permission (Rapid Deployment) waives it. */
 export function requiresTribute(card: Card): boolean {
-  return card.type === 'A' && ((card.level ?? 1) >= TRIBUTE_LEVEL || card.commander === true);
+  if (card.type !== 'A') return false;
+  if (!((card.level ?? 1) >= TRIBUTE_LEVEL || card.commander === true)) return false;
+  return !setPermissions(card).some((p) => p.setKind === 'normal' && !p.materials);
+}
+
+const matchesSubType = (m: Card, subType?: string) =>
+  !subType || (m.subType ?? '').toLowerCase() === subType.toLowerCase();
+
+/**
+ * How `materials` would Set `card`, or null if they don't satisfy it. Default
+ * rule: levels sum EXACTLY to the card's level (Commanders → Commit Set, else
+ * Replen Set). A material permission (Troop Lead: "can be Replen Set with 1
+ * Infantry Hero") also accepts exactly N Heroes of that subtype at any level.
+ */
+export function tributeSetKind(card: Card, materials: Card[]): SetKind | null {
+  if (materials.length === 0) return null;
+  const sum = materials.reduce((acc, m) => acc + (m.level ?? 1), 0);
+  if (sum === (card.level ?? 0)) return card.commander ? 'commit' : 'replen';
+  for (const p of setPermissions(card)) {
+    if (!p.materials || p.setKind === 'normal') continue;
+    const { count, subType } = p.materials;
+    if (materials.length === count && materials.every((m) => matchesSubType(m, subType))) return p.setKind;
+  }
+  return null;
 }
 
 /** Summon levels of the A-cards currently on the player's board — the pool of
@@ -178,8 +211,13 @@ export function canAffordTribute(
   card: Card,
 ): boolean {
   const target = card.level ?? 0;
-  const levels = boardMaterials(board, cardsById).map((m) => m.level);
-  return hasSubsetSum(levels, target);
+  const pool = boardMaterials(board, cardsById);
+  if (hasSubsetSum(pool.map((m) => m.level), target)) return true;
+  return setPermissions(card).some((p) => {
+    if (!p.materials || p.setKind === 'normal') return false;
+    const { count, subType } = p.materials;
+    return pool.filter((m) => matchesSubType(cardsById[m.cardId], subType)).length >= count;
+  });
 }
 
 /**

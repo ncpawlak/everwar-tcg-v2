@@ -473,7 +473,20 @@ const USED_AS_MATERIAL_RULE = regexRule(
   }),
 );
 
-const RULES: ParseRule[] = [PASSIVE_WHILE_RULE, ACTIVATED_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE, BUNKER_BUSTING_RULE, INSTANT_ELIMINATE_RULE, IGNORE_ARMOR_BARS_RULE, ON_SET_RULE, USED_AS_MATERIAL_RULE];
+/**
+ * Set permissions: "This Hero can be Normal Set." (Rapid Deployment) and
+ * "This Hero can be Replen Set with 1 Infantry Hero." (Troop Lead).
+ */
+const SET_PERMISSION_RULE = regexRule(
+  new RegExp(`^This Hero can be ${SET_WORD}(?: with (\\d+) (?:(\\w+) )?Heroe?s?)?\\.$`, 'i'),
+  (m, name, raw) => {
+    const effect: Extract<AbilityEffect, { kind: 'setPermission' }> = { kind: 'setPermission', setKind: setKindOf(m[1]) };
+    if (m[2]) effect.materials = m[3] ? { count: +m[2], subType: m[3] } : { count: +m[2] };
+    return { name, raw, trigger: 'setPermission', effect, constraints: [] };
+  },
+);
+
+const RULES: ParseRule[] = [PASSIVE_WHILE_RULE, ACTIVATED_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE, BUNKER_BUSTING_RULE, INSTANT_ELIMINATE_RULE, IGNORE_ARMOR_BARS_RULE, ON_SET_RULE, USED_AS_MATERIAL_RULE, SET_PERMISSION_RULE];
 
 /** Split "<Name>: <body>" into its parts. No colon → empty name, whole text is body. */
 function splitNameBody(text: string): { name: string; body: string } {

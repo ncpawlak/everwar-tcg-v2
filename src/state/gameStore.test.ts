@@ -2192,3 +2192,37 @@ describe('P8 On-Set triggers (v3 wording)', () => {
     }
   });
 });
+describe('set permissions in the store', () => {
+  it('Troop Lead: Sandman Replen Sets with a single Infantry Hero', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-52'],
+      deck: base.deck.filter((id) => !['card-hero-52', 'card-hero-1'].includes(id)),
+      board: { ...base.board, A1: 'card-hero-1' },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-hero-52');
+    store.getState().dropCard('card-hero-52', 'A2');
+    expect(store.getState().pendingTribute).toEqual({ cardId: 'card-hero-52' });
+    store.getState().confirmTributeSummon(['A1']);
+    const s = store.getState();
+    expect(s.board.A1).toBeNull();
+    expect(s.replen).toContain('card-hero-1');
+    expect(s.pendingSummon).toEqual({ cardId: 'card-hero-52', setKind: 'replen', materials: 1 });
+  });
+
+  it('Rapid Deployment: Riko is Normal Set straight into a slot', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-43'],
+      deck: base.deck.filter((id) => id !== 'card-hero-43'),
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-hero-43');
+    store.getState().dropCard('card-hero-43', 'A1');
+    expect(store.getState().board.A1).toBe('card-hero-43');
+    expect(store.getState().pendingTribute).toBeNull();
+  });
+});

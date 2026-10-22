@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useGameStore } from '../state/useGameStore';
-import { boardMaterials } from '../board/slotRules';
+import { boardMaterials, setPermissions, tributeSetKind } from '../board/slotRules';
 import { RARITY_COLOR, TYPE_ACCENT } from '../cards/cardTheme';
 import type { SlotId } from '../state/types';
 
@@ -59,7 +59,15 @@ export function TributeModal() {
     const id = board[slot];
     return acc + (id ? (cardsById[id]?.level ?? 1) : 0);
   }, 0);
-  const ready = sum === need && selected.length > 0;
+  const selectedCards = selected.flatMap((slot) => {
+    const id = board[slot];
+    const c = id ? cardsById[id] : undefined;
+    return c ? [c] : [];
+  });
+  const ready = tributeSetKind(card, selectedCards) !== null;
+  const altRules = setPermissions(card)
+    .filter((p) => p.materials && p.setKind !== 'normal')
+    .map((p) => `${p.materials!.count} ${p.materials!.subType ?? ''} Hero${p.materials!.count > 1 ? 'es' : ''}`.replace(/\s+/g, ' '));
 
   const toggle = (slot: SlotId) =>
     setSelected((prev) =>
@@ -81,7 +89,8 @@ export function TributeModal() {
         </div>
 
         <div style={SUBTITLE_STYLE}>
-          Select Hero materials whose levels sum to exactly {need}. They are sent to
+          Select Hero materials whose levels sum to exactly {need}
+          {altRules.length > 0 ? `, or exactly ${altRules.join(' / ')}` : ''}. They are sent to
           the {destination}.
         </div>
 

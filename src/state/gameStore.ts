@@ -1,8 +1,8 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { CardId, CardType, DiceState, GameState, OppBSlotId, OppCSlotId, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
+import type { Card, CardId, CardType, DiceState, GameState, OppBSlotId, OppCSlotId, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
 import { ABILITY_REGISTRY, runEffect } from './abilities';
 import { createInitialState } from './cardData';
-import { canDropCard, requiresTribute, canAffordTribute, validTargetSlots } from '../board/slotRules';
+import { canDropCard, requiresTribute, canAffordTribute, validTargetSlots, tributeSetKind } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
 import {
   effectiveStats,
@@ -1333,20 +1333,21 @@ export function createGameStore(
       if (!pending) return;
       const card = s.cardsById[pending.cardId];
       if (!card) return;
-      const need = card.level ?? 0;
-      // Validate the selection: every slot is an occupied A slot and the levels
-      // sum EXACTLY to the pending card's level.
-      let sum = 0;
+      // Validate the selection: every slot is an occupied A slot and the
+      // materials satisfy the level sum or one of the card's set permissions.
+      const mats: Card[] = [];
       for (const aSlot of materialSlots) {
         if (aSlot[0] !== 'A') return;
         const mid = s.board[aSlot];
-        if (!mid) return;
-        sum += s.cardsById[mid]?.level ?? 1;
+        const mc = mid ? s.cardsById[mid] : undefined;
+        if (!mc) return;
+        mats.push(mc);
       }
-      if (sum !== need || materialSlots.length === 0) return;
-      // Send each material A-card (and its linked C-card) away. Commanders send
-      // their materials to the GRAVEYARD; ordinary level-3 summons to the replen.
-      const toGraveyard = card.commander === true;
+      const kind = tributeSetKind(card, mats);
+      if (!kind) return;
+      // Send each material A-card (and its linked C-card) away: Commit Set →
+      // GRAVEYARD, Replen Set → replen pile.
+      const toGraveyard = kind === 'commit';
       const board = { ...s.board };
       const replen = [...s.replen];
       const graveyard = [...s.graveyard];

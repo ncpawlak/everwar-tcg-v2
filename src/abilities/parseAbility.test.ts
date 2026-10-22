@@ -326,3 +326,14 @@ describe('P8 parser: On-Set + used-as-material triggers (v3)', () => {
     expect(parseAbility(text)).toMatchObject(expected);
   });
 });
+describe('P8 parser: set permissions', () => {
+  it('parses Rapid Deployment and Troop Lead', () => {
+    expect(parseAbility('Rapid Deployment: This Hero can be Normal Set.')).toMatchObject({
+      trigger: 'setPermission', effect: { kind: 'setPermission', setKind: 'normal' },
+    });
+    expect(parseAbility('Troop Lead: This Hero can be Replen Set with 1 Infantry Hero.')).toMatchObject({
+      trigger: 'setPermission',
+      effect: { kind: 'setPermission', setKind: 'replen', materials: { count: 1, subType: 'Infantry' } },
+    });
+  });
+});
