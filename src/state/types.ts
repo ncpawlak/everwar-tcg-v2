@@ -261,6 +261,9 @@ export interface PendingSummon {
   setKind?: 'replen' | 'commit';
   /** Number of materials used, for "up to the number of materials" effects. */
   materials?: number;
+  /** The materials satisfied a "can attack during the turn this Hero is Set"
+   *  ability (Shock Deployment). */
+  setTurnAttack?: boolean;
 }
 
 /**
@@ -359,6 +362,23 @@ export interface GameState {
   /** An On-Set ability awaiting the player's card pick (or skip), or null. */
   onSetChoice: OnSetChoice | null;
   spellCost: SpellCostChoice | null;
+  /** Turn number each on-field Hero (either side) was Set on. A Hero may only
+   *  attack on its Set turn if a Weapon is equipped to it (or `setTurnAttack`). */
+  heroSetTurn: Record<CardId, number>;
+  /** Heroes whose Set satisfied an "attack during the turn this Hero is Set"
+   *  ability (Goliath's Shock Deployment). */
+  setTurnAttack: Record<CardId, true>;
+  /** Counters on field cards (either side). Removed when the card leaves. */
+  counters: Record<CardId, number>;
+  /** An optional counter-threshold ability awaiting the player's yes/no
+   *  (Devil Dog Reinforcement), or null. */
+  counterPrompt: { cardId: CardId; abilityName: string } | null;
+  /** Stat debuffs the player placed on enemy Heroes that last through the
+   *  opponent's next turn (Heavy Suppression). */
+  enemyStatDebuffs: Record<CardId, Partial<Record<StatKey, number>>>;
+  /** Player Hero enemy attacks must target during the opponent's next turn, if
+   *  able (Iron Wall), or null. */
+  forcedTarget: CardId | null;
   /** A B-card spell paused on a pick (reveal / equip target), or null. */
   spellChoice: SpellChoice | null;
   /** Player Heroes destroyed/eliminated on the field, with the turn it happened

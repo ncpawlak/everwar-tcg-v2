@@ -7,6 +7,7 @@ import { SummonRipple } from './SummonRipple';
 import { ResolutionDice } from './ResolutionDice';
 import { OutcomePopups } from './OutcomePopups';
 import { DamagePopups } from './DamagePopups';
+import { CounterBadges } from './CounterBadges';
 import { DestructionFx } from './DestructionFx';
 import { OpponentBoard } from './OpponentBoard';
 import { OpponentField } from './OpponentField';
@@ -56,6 +57,7 @@ export function GameScene() {
       <ResolutionDice />
       <OutcomePopups />
       <DamagePopups />
+      <CounterBadges />
       <DestructionFx />
       <OpeningDeal />
     </>

@@ -492,7 +492,43 @@ const SET_PERMISSION_RULE = regexRule(
   },
 );
 
-const RULES: ParseRule[] = [PASSIVE_WHILE_RULE, ACTIVATED_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE, BUNKER_BUSTING_RULE, INSTANT_ELIMINATE_RULE, IGNORE_ARMOR_BARS_RULE, ON_SET_RULE, USED_AS_MATERIAL_RULE, SET_PERMISSION_RULE];
+/** Shock Deployment: "If only Coalition Heavy Heroes were used to Commit Set
+ *  this Hero, this Hero can attack during the turn this Hero is Commit Set." */
+const SET_TURN_ATTACK_RULE = regexRule(
+  new RegExp(
+    `^If only (?:(Coalition|Dictate) )?(\\w+) Heroes were used to ${SET_WORD} this Hero, this Hero can attack during the turn this Hero is ${SET_WORD}\\.$`,
+    'i',
+  ),
+  (m, name, raw) => {
+    const materials: { allegiance?: string; subType?: string } = { subType: m[2] };
+    if (m[1]) materials.allegiance = m[1];
+    return { name, raw, trigger: 'setTurnAttack', effect: { kind: 'attackOnSetTurn', setKind: setKindOf(m[3]), materials }, constraints: [] };
+  },
+);
+
+/** Counter abilities (Devil Dog Reinforcement, Zero Guide). */
+const COUNTER_RULE = regexRule(
+  /^(At the end of your turn|Each time this Hero inflicts damage on an enemy Hero), place 1 counter on this Hero\. When this Hero reaches (\d+) counters, (you can )?send this Hero to (Replen|the GY)(?::|, then) Normal Set the top "([^"]+)" Special Hero from your Deck(?:, then|;) Disturb your Deck\.$/i,
+  (m, name, raw) => {
+    const ir: AbilityIR = {
+      name,
+      raw,
+      trigger: 'counter',
+      effect: {
+        kind: 'counter',
+        gain: /^At the end/i.test(m[1]) ? 'endOfTurn' : 'inflictDamage',
+        threshold: +m[2],
+        sendTo: /GY/i.test(m[4]) ? 'graveyard' : 'replen',
+        setFamily: m[5],
+      },
+      constraints: [],
+    };
+    if (m[3]) ir.optional = true;
+    return ir;
+  },
+);
+
+const RULES: ParseRule[] = [PASSIVE_WHILE_RULE, ACTIVATED_RULE, ON_SENT_DRAW_RULE, PILE_RETURN_SELF_RULE, BUNKER_BUSTING_RULE, INSTANT_ELIMINATE_RULE, IGNORE_ARMOR_BARS_RULE, ON_SET_RULE, USED_AS_MATERIAL_RULE, SET_PERMISSION_RULE, SET_TURN_ATTACK_RULE, COUNTER_RULE];
 
 /** Split "<Name>: <body>" into its parts. No colon → empty name, whole text is body. */
 function splitNameBody(text: string): { name: string; body: string } {

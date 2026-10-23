@@ -11,6 +11,24 @@ import type { AuraStat } from '../abilities/abilityIR';
 
 export const STAT_KEYS: readonly StatKey[] = ['hp', 'dmg', 'acc'];
 
+/**
+ * Set-turn attack rule: a Hero can only attack during the turn it was Set if a
+ * Weapon is equipped to it (its linked C slot), or an ability lifts the rule
+ * (Shock Deployment). Heroes with no recorded Set turn are always ready.
+ */
+export function heroCanAttack(state: GameState, side: 'player' | 'opponent', slot: SlotId | OppSlotId): boolean {
+  const id = side === 'player' ? state.board[slot as SlotId] : state.opponentBoard[slot as OppSlotId];
+  if (!id) return false;
+  if (state.heroSetTurn?.[id] !== state.turn) return true;
+  if (state.setTurnAttack?.[id]) return true;
+  const cId =
+    side === 'player'
+      ? state.board[`C${slot[slot.length - 1]}` as SlotId]
+      : state.opponentCBoard[`OC${slot[slot.length - 1]}` as OppCSlotId];
+  const equip = cId ? (side === 'player' ? state.cardsById[cId] : state.opponentCards[cId]) : undefined;
+  return equip?.subType === 'Weapon';
+}
+
 /** The C slot linked to an A slot in the same column (A3 -> C3). */
 export function linkedCSlot(aSlot: SlotId): SlotId {
   return `C${aSlot[1]}` as SlotId;
@@ -125,8 +143,9 @@ export function opponentEffectiveStats(state: GameState, oppSlot: OppSlotId): Ef
   };
 
 
+  const debuff = aId ? state.enemyStatDebuffs?.[aId] : undefined;
   const line = (stat: StatKey): StatLine => {
-    const delta = card ? opponentAuraDelta(state, card, stat) : 0;
+    const delta = (card ? opponentAuraDelta(state, card, stat) : 0) + (debuff?.[stat] ?? 0);
     return { value: base[stat] + delta, delta };
   };
 

@@ -24,6 +24,8 @@ export interface AbilityZones {
   allyBoard: readonly Card[];
   /** Cards in the player's Graveyard. */
   graveyard: readonly Card[];
+  /** Heroes on the opponent's A-board. */
+  enemyBoard: readonly Card[];
 }
 
 /** Context the caller supplies about the current game moment. */
@@ -48,7 +50,7 @@ export function playerBoardHeroes(state: Pick<GameState, 'board' | 'cardsById'>)
 
 /** Build the zone snapshot from game state. */
 export function abilityZones(
-  state: Pick<GameState, 'board' | 'cardsById' | 'hand' | 'replen' | 'deck' | 'graveyard'>,
+  state: Pick<GameState, 'board' | 'cardsById' | 'hand' | 'replen' | 'deck' | 'graveyard' | 'opponentBoard' | 'opponentCards'>,
 ): AbilityZones {
   return {
     handCount: state.hand.length,
@@ -56,13 +58,22 @@ export function abilityZones(
     deckCount: state.deck.length,
     allyBoard: playerBoardHeroes(state),
     graveyard: state.graveyard.map((id) => state.cardsById[id]).filter((c): c is Card => Boolean(c)),
+    enemyBoard: Object.values(state.opponentBoard)
+      .map((id) => (id ? state.opponentCards[id] : undefined))
+      .filter((c): c is Card => Boolean(c)),
   };
 }
 
-/** Effects the runtime actually applies. Parsed-only effects (forceTarget,
- *  armorBarsLock, markEnemy, enemyStatDebuff) stay non-activatable so a cost is
- *  never paid for nothing. */
-const ENFORCED_EFFECTS = new Set(['selfStatBuff', 'targetStatBuff', 'healTarget', 'recoverFromGraveyard']);
+/** Effects the runtime actually applies. Parsed-only effects (armorBarsLock,
+ *  markEnemy) stay non-activatable so a cost is never paid for nothing. */
+const ENFORCED_EFFECTS = new Set([
+  'selfStatBuff',
+  'targetStatBuff',
+  'healTarget',
+  'recoverFromGraveyard',
+  'enemyStatDebuff',
+  'forceTarget',
+]);
 const ENFORCED_COSTS = new Set(['sendHandToReplen', 'discardHand', 'sendReplenToGraveyard', 'discardDeckTop']);
 
 /** True when the runtime can fully resolve this activated ability. */
@@ -110,13 +121,18 @@ export function costPayable(ir: AbilityIR, zones: Pick<AbilityZones, 'handCount'
 /** True when the ability requires the player to pick a target. */
 export function abilityNeedsTarget(ir: AbilityIR): boolean {
   const k = ir.effect.kind;
-  return k === 'targetStatBuff' || k === 'healTarget' || k === 'recoverFromGraveyard';
+  return k === 'targetStatBuff' || k === 'healTarget' || k === 'recoverFromGraveyard' || k === 'enemyStatDebuff';
+}
+
+/** How many targets the player may pick (Heavy Suppression: up to 2). */
+export function abilityMaxTargets(ir: AbilityIR): number {
+  return ir.effect.kind === 'enemyStatDebuff' ? ir.effect.maxTargets : 1;
 }
 
 /** Legal targets for a targeting ability. Empty for non-targeting abilities. */
 export function abilityTargetOptions(
   ir: AbilityIR,
-  zones: Pick<AbilityZones, 'allyBoard' | 'graveyard'>,
+  zones: Pick<AbilityZones, 'allyBoard' | 'graveyard' | 'enemyBoard'>,
   sourceId: CardId,
 ): Card[] {
   const e = ir.effect;
@@ -126,6 +142,7 @@ export function abilityTargetOptions(
   if (e.kind === 'recoverFromGraveyard') {
     return zones.graveyard.filter((c) => c.type === e.cardType);
   }
+  if (e.kind === 'enemyStatDebuff') return [...zones.enemyBoard];
   return [];
 }
 
@@ -161,6 +178,7 @@ export function activatedAbilityViews(card: Card, ctx: ActivationContext): Activ
     deckCount: ctx.deckCount ?? 0,
     allyBoard: ctx.allyBoard ?? [],
     graveyard: ctx.graveyard ?? [],
+    enemyBoard: ctx.enemyBoard ?? [],
   };
   return irs.map((ir, index) => {
     const isActivated = ir.trigger === 'activated';

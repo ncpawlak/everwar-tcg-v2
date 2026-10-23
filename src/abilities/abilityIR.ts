@@ -222,6 +222,26 @@ export interface SetPermissionEffect {
   materials?: { count: number; subType?: string };
 }
 
+/** "If only <Allegiance> <SubType> Heroes were used to <Kind> Set this Hero,
+ *  this Hero can attack during the turn this Hero is <Kind> Set." (Shock
+ *  Deployment) — lifts the Set-turn attack restriction. */
+export interface AttackOnSetTurnEffect {
+  kind: 'attackOnSetTurn';
+  setKind: SetKind;
+  materials: { allegiance?: string; subType?: string };
+}
+
+/** Counter abilities (Devil Dog Reinforcement, Zero Guide): gain 1 counter on
+ *  `gain`; on reaching `threshold`, (optionally) send this Hero to `sendTo` and
+ *  Normal Set the top `setFamily` Special Hero from the Deck, then Disturb. */
+export interface CounterEffect {
+  kind: 'counter';
+  gain: 'endOfTurn' | 'inflictDamage';
+  threshold: number;
+  sendTo: PileKind;
+  setFamily: string;
+}
+
 /** Fallback for ability text no rule models yet. Inert at runtime. */
 export interface UnimplementedEffect {
   kind: 'unimplemented';
@@ -251,6 +271,8 @@ export type AbilityEffect =
   | DestroyEnemyNormalHeroesEffect
   | OpponentDeckTopToReplenEffect
   | SetPermissionEffect
+  | AttackOnSetTurnEffect
+  | CounterEffect
   | UnimplementedEffect;
 
 /** A pile a card can be sent to / activate from. */
@@ -292,6 +314,8 @@ export type AbilityTrigger =
   | 'onSet'
   | 'usedAsMaterial'
   | 'setPermission'
+  | 'setTurnAttack'
+  | 'counter'
   | 'unimplemented';
 
 /** "Only 1 <name> Ability can be active on your field at once." */

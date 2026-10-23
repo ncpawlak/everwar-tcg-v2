@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import { parseAbility } from '../abilities/parseAbility';
-import { abilityNeedsTarget, abilityTargetOptions, abilityZones, costPickZone } from '../abilities/activated';
+import { abilityMaxTargets, abilityNeedsTarget, abilityTargetOptions, abilityZones, costPickZone } from '../abilities/activated';
 import type { AbilityIR } from '../abilities/abilityIR';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 import type { Card, CardId } from '../state/types';
@@ -28,16 +28,18 @@ export function AbilityTargetModal() {
   const replen = useGameStore((s) => s.replen);
   const deck = useGameStore((s) => s.deck);
   const graveyard = useGameStore((s) => s.graveyard);
+  const opponentBoard = useGameStore((s) => s.opponentBoard);
+  const opponentCards = useGameStore((s) => s.opponentCards);
   const chooseAbilityCost = useGameStore((s) => s.chooseAbilityCost);
-  const chooseAbilityTarget = useGameStore((s) => s.chooseAbilityTarget);
+  const chooseAbilityTargets = useGameStore((s) => s.chooseAbilityTargets);
   const cancel = useGameStore((s) => s.cancelAbilityTargeting);
 
-  const [selected, setSelected] = useState<CardId | null>(null);
+  const [picks, setPicks] = useState<CardId[]>([]);
 
   // Reset the pick whenever the step (or the whole flow) changes.
   const step = at?.step ?? null;
   useEffect(() => {
-    setSelected(null);
+    setPicks([]);
   }, [step, at?.sourceCardId]);
 
   useEffect(() => {
@@ -54,24 +56,37 @@ export function AbilityTargetModal() {
   if (!source || !source.abilities) return null;
   const ir = parseAbility(source.abilities[at.abilityIndex]);
 
-  const zones = abilityZones({ board, cardsById, hand, replen, deck, graveyard });
+  const zones = abilityZones({ board, cardsById, hand, replen, deck, graveyard, opponentBoard, opponentCards });
   const isCost = at.step === 'cost';
   const costZone = costPickZone(ir);
   const totalSteps = (costZone ? 1 : 0) + (abilityNeedsTarget(ir) ? 1 : 0);
   const stepNo = isCost || !costZone ? 1 : 2;
   const title = at.abilityName;
   const copy = isCost ? costCopy(ir) : targetCopy(ir);
-  const subtitle = `Click a card to inspect it, then Confirm to ${copy.verb}.`;
+  const maxPicks = isCost ? 1 : abilityMaxTargets(ir);
+  const subtitle =
+    maxPicks > 1
+      ? `Select up to ${maxPicks} cards, then Confirm to ${copy.verb}.`
+      : `Click a card to inspect it, then Confirm to ${copy.verb}.`;
 
   const tiles: Card[] = isCost
     ? (costZone === 'replen' ? replen : hand).map((id) => cardsById[id]).filter((c): c is Card => Boolean(c))
     : abilityTargetOptions(ir, zones, at.sourceCardId);
 
-  const selectedCard = selected ? cardsById[selected] ?? null : null;
+  const selected = picks[picks.length - 1] ?? null;
+  const selectedCard = selected ? cardsById[selected] ?? opponentCards[selected] ?? null : null;
+  const pick = (id: CardId) =>
+    setPicks((cur) =>
+      maxPicks <= 1
+        ? [id]
+        : cur.includes(id)
+          ? cur.filter((x) => x !== id)
+          : [...cur, id].slice(-maxPicks),
+    );
   const confirm = () => {
-    if (!selected) return;
-    if (isCost) chooseAbilityCost(selected);
-    else chooseAbilityTarget(selected);
+    if (!picks.length) return;
+    if (isCost) chooseAbilityCost(picks[0]);
+    else chooseAbilityTargets(picks);
   };
 
   return (
@@ -95,7 +110,7 @@ export function AbilityTargetModal() {
           <div style={GRID_SCROLL_STYLE}>
             <div style={GRID_STYLE}>
               {tiles.map((c) => (
-                <CardTile key={c.id} card={c} on={selected === c.id} onPick={() => setSelected(c.id)} />
+                <CardTile key={c.id} card={c} on={picks.includes(c.id)} onPick={() => pick(c.id)} />
               ))}
             </div>
           </div>
@@ -356,6 +371,11 @@ function targetCopy(ir: AbilityIR): { verb: string; button: string } {
       return { verb: `restore ${ir.effect.amount} HP to it`, button: 'Recover HP' };
     case 'recoverFromGraveyard':
       return { verb: 'send it from your GY to Replen', button: 'Send to Replen' };
+    case 'enemyStatDebuff':
+      return {
+        verb: `give them ${ir.effect.amount} ${ir.effect.stat.toUpperCase()} during your opponent's next turn`,
+        button: 'Apply Debuff',
+      };
     default:
       return { verb: 'apply the buff', button: 'Apply Buff' };
   }

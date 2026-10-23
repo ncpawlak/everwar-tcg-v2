@@ -6,6 +6,7 @@ import { PileSearchHost } from '../ui/PileSearchHost';
 import { TributeModal } from '../ui/TributeModal';
 import { AbilityTargetModal, OnSetChoiceModal, SpellChoiceModal, SpellCostModal } from '../ui/AbilityTargetModal';
 import { AbilityPromptModal } from '../ui/AbilityPromptModal';
+import { CounterPromptModal } from '../ui/CounterPromptModal';
 import { CombatPromptModal } from '../ui/CombatPromptModal';
 import { SummonSlotPrompt } from '../ui/SummonSlotPrompt';
 import { TurnHud } from '../ui/TurnHud';
@@ -43,6 +44,7 @@ export function App() {
       <SpellCostModal />
       <SpellChoiceModal />
       <AbilityPromptModal />
+      <CounterPromptModal />
       <CombatPromptModal />
       <SummonSlotPrompt />
     </div>

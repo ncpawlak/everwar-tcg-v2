@@ -10,10 +10,11 @@ import {
   playerAuraDelta,
   opponentAuraDelta,
   linkedCSlot,
+  heroCanAttack,
 } from './combatStats';
 import { resolveRoll, isSpecialHero } from './diceRules';
 import { applyArmorToHit } from './armorCombat';
-import { parseAbility } from '../abilities/parseAbility';
+import { parseAbilities, parseAbility } from '../abilities/parseAbility';
 import {
   abilityNeedsTarget,
   abilityTargetOptions,
@@ -21,7 +22,9 @@ import {
   activationFeasible,
   costPickZone,
   playerBoardHeroes,
+  abilityMaxTargets,
 } from '../abilities/activated';
+import { counterAbility, topSpecialOfFamily } from '../abilities/counters';
 import type { AbilityIR } from '../abilities/abilityIR';
 import { onSentAbilities, pileActivatedAbilityFor } from '../abilities/pile';
 import { combatHitAbilities, finisherEliminates, ignoresArmorBars } from '../abilities/combat';
@@ -186,6 +189,10 @@ export interface GameActions {
   resolveSpellCost: (cardId: CardId) => void;
   /** Resolve the open `spellChoice` with the picked card and resume the spell. */
   resolveSpellChoice: (cardId: CardId) => void;
+  /** Multi-target pick for an activated ability (Heavy Suppression: up to 2). */
+  chooseAbilityTargets: (cardIds: CardId[]) => void;
+  /** Answer the open optional counter-threshold prompt (Devil Dog Reinforcement). */
+  resolveCounterPrompt: (accept: boolean) => void;
   /** Trigger a Hero's in-pile activated ability from the pile it sits in (e.g.
    *  return it to the Hand). No-op unless it is the player's Main phase, the card
    *  is in a player pile, and it has a matching pile-activated ability. */
@@ -278,7 +285,7 @@ export type GameStore = GameState & GameActions;
 export function createGameStore(
   initial: GameState = createInitialState(),
 ): StoreApi<GameStore> {
-  return createStore<GameStore>((set, get) => {
+  const store = createStore<GameStore>((set, get) => {
     /**
      * Start an animated shuffle. `gather` optionally folds other cards (a pile
      * or the hand) into the deck first; the deck then spreads into two piles and
@@ -382,6 +389,102 @@ export function createGameStore(
           }
           return sent.length ? { ...s, board, graveyard: [...s.graveyard, ...sent] } : s;
         });
+        // "At the end of your turn, place 1 counter on this Hero."
+        const reached: CardId[] = [];
+        set((s) => {
+          const counters = { ...s.counters };
+          let any = false;
+          for (const slot of ['A1', 'A2', 'A3', 'A4'] as SlotId[]) {
+            const id = s.board[slot];
+            const ca = id ? counterAbility(s.cardsById[id]) : null;
+            if (!id || !ca || ca.effect.gain !== 'endOfTurn') continue;
+            counters[id] = (counters[id] ?? 0) + 1;
+            any = true;
+            if (counters[id] === ca.effect.threshold) reached.push(id);
+          }
+          return any ? { counters } : {};
+        });
+        counterQueue.push(...reached);
+        nextCounterThreshold();
+      };
+
+      /** Player Heroes whose counters just reached their threshold, resolved one
+       *  at a time (optional ones ask via `counterPrompt`). */
+      const counterQueue: CardId[] = [];
+      const nextCounterThreshold = () => {
+        while (counterQueue.length) {
+          const id = counterQueue.shift()!;
+          const s = get();
+          const ca = counterAbility(s.cardsById[id]);
+          if (!ca || !Object.values(s.board).includes(id)) continue;
+          if (ca.ir.optional) {
+            set({ counterPrompt: { cardId: id, abilityName: ca.ir.name } });
+            return;
+          }
+          counterTransform('player', id);
+        }
+      };
+
+      /**
+       * Counter threshold payoff: send the Hero (and its linked Equipment) to
+       * its pile, Normal Set the top matching Special Hero from the Deck into the
+       * vacated slot, then Disturb the Deck.
+       */
+      const counterTransform = (side: 'player' | 'opponent', cardId: CardId) => {
+        const s = get();
+        if (side === 'player') {
+          const slot = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).find((a) => s.board[a] === cardId);
+          const ca = counterAbility(s.cardsById[cardId]);
+          if (!slot || !ca) return;
+          const board = { ...s.board, [slot]: null };
+          const sent: CardId[] = [cardId];
+          const cSlot = linkedCSlot(slot);
+          if (board[cSlot]) {
+            sent.push(board[cSlot]!);
+            board[cSlot] = null;
+          }
+          const pile = ca.effect.sendTo;
+          set(pile === 'graveyard' ? { board, graveyard: [...s.graveyard, ...sent] } : { board, replen: [...s.replen, ...sent] });
+          scheduleOnSentPrompt(sent, pile);
+          const st = get();
+          const idx = topSpecialOfFamily(st.deck, st.cardsById, ca.effect.setFamily);
+          if (idx >= 0) {
+            const heroId = st.deck[idx];
+            set({ deck: st.deck.filter((_, i) => i !== idx) });
+            commitPlacement(heroId, 'A', slot);
+          }
+          get().disturbDeck();
+          return;
+        }
+        const slot = OPP_SLOT_IDS.find((o) => s.opponentBoard[o] === cardId);
+        const ca = counterAbility(s.opponentCards[cardId]);
+        if (!slot || !ca) return;
+        const opponentBoard = { ...s.opponentBoard, [slot]: null };
+        const opponentCBoard = { ...s.opponentCBoard };
+        const sent: CardId[] = [cardId];
+        const ocSlot = `OC${slot[1]}` as OppCSlotId;
+        if (opponentCBoard[ocSlot]) {
+          sent.push(opponentCBoard[ocSlot]!);
+          opponentCBoard[ocSlot] = null;
+        }
+        let opponentDeck = [...s.opponentDeck];
+        const idx = topSpecialOfFamily(opponentDeck, s.opponentCards, ca.effect.setFamily);
+        const heroId = idx >= 0 ? opponentDeck[idx] : null;
+        if (heroId) {
+          opponentDeck = opponentDeck.filter((_, i) => i !== idx);
+          opponentBoard[slot] = heroId;
+        }
+        const disturbed = opponentDeck.length ? [opponentDeck.pop()!] : [];
+        set({
+          opponentBoard,
+          opponentCBoard,
+          opponentDeck,
+          ...(ca.effect.sendTo === 'graveyard'
+            ? { opponentGraveyard: [...s.opponentGraveyard, ...sent], opponentReplen: [...s.opponentReplen, ...disturbed] }
+            : { opponentReplen: [...s.opponentReplen, ...sent, ...disturbed] }),
+          ...(heroId ? { oppSummon: { cardId: heroId, slotId: slot } } : {}),
+        });
+        if (heroId) revealOppCard(heroId);
       };
 
       /**
@@ -652,7 +755,7 @@ export function createGameStore(
           // other player. Only the player's End routes through here; the
           // opponent's End is handled inside runOpponentTurn.
           setTimeout(() => {
-            if (get().phase === 'end' && get().activePlayer === 'player') runOpponentTurn();
+            if (get().phase === 'end' && get().activePlayer === 'player' && !get().counterPrompt) runOpponentTurn();
           }, END_PHASE_DWELL_MS);
         }
       };
@@ -669,12 +772,16 @@ export function createGameStore(
           const occupied = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).filter((a) => s.board[a]);
           if (occupied.length === 0) return { oppAttackTargets: {} };
           const targets: Partial<Record<OppSlotId, SlotId>> = {};
+          // Iron Wall: enemy attacks must target the forced Hero while it stands.
+          const forced = occupied.find((a) => s.board[a] === s.forcedTarget);
           for (const o of OPP_SLOT_IDS) {
-            if (!s.opponentBoard[o]) continue;
+            if (!s.opponentBoard[o] || !heroCanAttack(s, 'opponent', o)) continue;
             const sameCol = `A${o[1]}` as SlotId;
-            targets[o] = s.board[sameCol]
-              ? sameCol
-              : occupied[Math.floor(Math.random() * occupied.length)];
+            targets[o] = forced
+              ? forced
+              : s.board[sameCol]
+                ? sameCol
+                : occupied[Math.floor(Math.random() * occupied.length)];
           }
           return { oppAttackTargets: targets };
         });
@@ -685,10 +792,25 @@ export function createGameStore(
       /** Show the opponent's End banner, then hand the turn back to the player. */
       const finishOpponentTurn = () => {
         if (!oppActive()) return;
+        // Opponent Heroes whose damage counters hit the threshold transform now.
+        const st = get();
+        for (const o of OPP_SLOT_IDS) {
+          const id = st.opponentBoard[o];
+          const ca = id ? counterAbility(st.opponentCards[id]) : null;
+          if (id && ca && (st.counters[id] ?? 0) >= ca.effect.threshold) counterTransform('opponent', id);
+        }
         set((s) => ({ phase: 'end', phaseAnnounce: s.phaseAnnounce + 1, oppAttackTargets: {} }));
         setTimeout(() => {
           if (!oppActive()) return;
-          set((s) => ({ turn: s.turn + 1, activePlayer: 'player', usedActivatedAbilities: {} }));
+          // "During your opponent's next turn" effects (Heavy Suppression, Iron
+          // Wall) expire as that turn ends.
+          set((s) => ({
+            turn: s.turn + 1,
+            activePlayer: 'player',
+            usedActivatedAbilities: {},
+            enemyStatDebuffs: {},
+            forcedTarget: null,
+          }));
           goToPhase('draw');
         }, END_PHASE_DWELL_MS);
       };
@@ -744,6 +866,7 @@ export function createGameStore(
               const currentArmorBars = { ...s.currentArmorBars };
               const oppDamagePopups: Partial<Record<SlotId, number>> = {};
               const destroyingSet = new Set<SlotId>();
+              const counters = { ...s.counters };
               // Resolve each opponent attacker's hit IN ORDER so Armor Bars deplete
               // per hit (a bar absorbs one hit then breaks).
               for (const src of Object.keys(s.oppAttackTargets) as OppSlotId[]) {
@@ -773,9 +896,14 @@ export function createGameStore(
                   currentHp[pid] = next;
                   oppDamagePopups[target] = (oppDamagePopups[target] ?? 0) + hit.hpDamage;
                   if (next <= 0) destroyingSet.add(target);
+                  // "Each time this Hero inflicts damage on an enemy Hero" counters.
+                  const attackerId = s.opponentBoard[src];
+                  const ca = attackerId ? counterAbility(s.opponentCards[attackerId]) : null;
+                  if (attackerId && ca?.effect.gain === 'inflictDamage') counters[attackerId] = (counters[attackerId] ?? 0) + 1;
                 }
               }
               return {
+                counters,
                 oppOutcomePopups: popups,
                 oppDamagePopups,
                 currentHp,
@@ -1030,9 +1158,10 @@ export function createGameStore(
       sourceId: CardId,
       ir: AbilityIR,
       costCardId: CardId | null,
-      targetId: CardId | null,
+      targetIds: CardId[],
     ) => {
       const s = get();
+      const targetId = targetIds[0] ?? null;
       let { hand, replen, graveyard, deck } = s;
       let movedCard = false;
       const cost = ir.cost;
@@ -1065,7 +1194,7 @@ export function createGameStore(
         }
       }
 
-      let { activatedStatBuffs, turnStatBuffs, currentHp } = s;
+      let { activatedStatBuffs, turnStatBuffs, currentHp, enemyStatDebuffs, forcedTarget } = s;
       const addBuff = (
         map: GameState['activatedStatBuffs'],
         id: CardId,
@@ -1101,6 +1230,13 @@ export function createGameStore(
           replen = [...replen, targetId];
           movedCard = true;
           break;
+        case 'enemyStatDebuff':
+          if (e.stat === 'armor') break;
+          for (const id of targetIds) enemyStatDebuffs = addBuff(enemyStatDebuffs, id, e.stat, e.amount);
+          break;
+        case 'forceTarget':
+          forcedTarget = sourceId;
+          break;
         default:
           break;
       }
@@ -1114,6 +1250,8 @@ export function createGameStore(
         activatedStatBuffs,
         turnStatBuffs,
         currentHp,
+        enemyStatDebuffs,
+        forcedTarget,
         usedActivatedAbilities: { ...s.usedActivatedAbilities, [sourceId]: [...usedNames, ir.name] },
         abilityTargeting: null,
       });
@@ -1444,11 +1582,21 @@ export function createGameStore(
           board[cSlot] = null;
         }
       }
+      const setTurnAttack = parseAbilities(card.abilities).some(
+        (ir) =>
+          ir.effect.kind === 'attackOnSetTurn' &&
+          ir.effect.setKind === kind &&
+          mats.every((m) => {
+            const req = (ir.effect as Extract<AbilityIR['effect'], { kind: 'attackOnSetTurn' }>).materials;
+            return (!req.subType || m.subType === req.subType) && (!req.allegiance || m.allegiance === req.allegiance);
+          }),
+      );
       set({ board, replen, graveyard, pendingTribute: null,
         pendingSummon: {
           cardId: pending.cardId,
           setKind: toGraveyard ? 'commit' : 'replen',
           materials: materialSlots.length,
+          ...(setTurnAttack ? { setTurnAttack: true } : {}),
         },
       });
       scheduleOnSentPrompt(sent, toGraveyard ? 'graveyard' : 'replen');
@@ -1468,6 +1616,7 @@ export function createGameStore(
         kind: pending.setKind ?? 'replen',
         materials: pending.materials ?? 0,
       });
+      if (pending.setTurnAttack) set((st) => ({ setTurnAttack: { ...st.setTurnAttack, [pending.cardId]: true } }));
     },
 
     returnToHand: (cardId) =>
@@ -1528,7 +1677,7 @@ export function createGameStore(
         });
         return;
       }
-      finishActivation(cardId, ir, null, null);
+      finishActivation(cardId, ir, null, []);
     },
 
     chooseAbilityCost: (cardId) => {
@@ -1545,21 +1694,38 @@ export function createGameStore(
         set({ abilityTargeting: { ...at, step: 'target', costCardId: cardId } });
         return;
       }
-      finishActivation(at.sourceCardId, ir, cardId, null);
+      finishActivation(at.sourceCardId, ir, cardId, []);
     },
 
-    chooseAbilityTarget: (targetId) => {
+    chooseAbilityTarget: (targetId) => get().chooseAbilityTargets([targetId]),
+
+    chooseAbilityTargets: (targetIds) => {
       const s = get();
       const at = s.abilityTargeting;
       if (!at || at.step !== 'target') return;
       const source = s.cardsById[at.sourceCardId];
       if (!source || !source.abilities) return;
       const ir = parseAbility(source.abilities[at.abilityIndex]);
-      const legal = abilityTargetOptions(ir, abilityZones(s), at.sourceCardId).some(
-        (c) => c.id === targetId,
-      );
-      if (!legal) return;
-      finishActivation(at.sourceCardId, ir, at.costCardId, targetId);
+      const ids = [...new Set(targetIds)];
+      if (ids.length === 0 || ids.length > abilityMaxTargets(ir)) return;
+      const legal = abilityTargetOptions(ir, abilityZones(s), at.sourceCardId).map((c) => c.id);
+      if (!ids.every((id) => legal.includes(id))) return;
+      finishActivation(at.sourceCardId, ir, at.costCardId, ids);
+    },
+
+    resolveCounterPrompt: (accept) => {
+      const p = get().counterPrompt;
+      if (!p) return;
+      set({ counterPrompt: null });
+      if (accept) counterTransform('player', p.cardId);
+      nextCounterThreshold();
+      // The End-phase hand-off waits on this prompt; resume it once answered.
+      if (!get().counterPrompt) {
+        setTimeout(() => {
+          const s = get();
+          if (s.phase === 'end' && s.activePlayer === 'player' && !s.counterPrompt) runOpponentTurn();
+        }, END_PHASE_DWELL_MS);
+      }
     },
 
     cancelAbilityTargeting: () => set(() => ({ abilityTargeting: null })),
@@ -1811,6 +1977,8 @@ export function createGameStore(
         if (s.activePlayer !== 'player') return s;
         if (s.phase !== 'battle') return s;
         if (slotId[0] !== 'A' || !s.board[slotId]) return s;
+        // A Hero Set this turn can't attack unless a Weapon was equipped to it.
+        if (!heroCanAttack(s, 'player', slotId)) return s;
         // Clicking the source that's already aiming cancels the aim.
         if (s.targeting === slotId) return { targeting: null, aimPoint: null };
         // Begin aiming this source; drop its previous target so the old arrow
@@ -1839,5 +2007,60 @@ export function createGameStore(
 
     reset: () => set(() => ({ ...get(), ...createInitialState() })),
     };
+  });
+  trackFieldEntries(store);
+  return store;
+}
+
+/**
+ * Field bookkeeping shared by every placement / removal path: stamp the turn a
+ * Hero arrives on either A-board (the Set-turn attack rule), and drop counters,
+ * Set-turn flags and per-card debuffs for cards that left the field.
+ */
+function trackFieldEntries(store: StoreApi<GameStore>) {
+  store.subscribe((s, prev) => {
+    if (
+      s.board === prev.board &&
+      s.opponentBoard === prev.opponentBoard &&
+      s.opponentCBoard === prev.opponentCBoard &&
+      s.opponentBBoard === prev.opponentBBoard
+    )
+      return;
+    const aIds = (b: Record<string, CardId | null>, prefix: string) =>
+      Object.entries(b).flatMap(([k, id]) => (id && k.startsWith(prefix) && /\d$/.test(k) ? [id] : []));
+    const heroes = [...aIds(s.board, 'A'), ...aIds(s.opponentBoard, 'O')];
+    const prevHeroes = new Set([...aIds(prev.board, 'A'), ...aIds(prev.opponentBoard, 'O')]);
+    const onField = new Set<CardId>(
+      [s.board, s.opponentBoard, s.opponentCBoard, s.opponentBBoard].flatMap((b) =>
+        Object.values(b).filter((id): id is CardId => Boolean(id)),
+      ),
+    );
+    let changed = false;
+    const heroSetTurn = { ...s.heroSetTurn };
+    for (const id of heroes) {
+      if (!prevHeroes.has(id)) {
+        heroSetTurn[id] = s.turn;
+        changed = true;
+      }
+    }
+    const prune = <T,>(m: Record<CardId, T>): Record<CardId, T> => {
+      const out = { ...m };
+      for (const k of Object.keys(out)) {
+        if (!onField.has(k)) {
+          delete out[k];
+          changed = true;
+        }
+      }
+      return out;
+    };
+    const next = {
+      heroSetTurn: prune(heroSetTurn),
+      setTurnAttack: prune(s.setTurnAttack),
+      counters: prune(s.counters),
+      enemyStatDebuffs: prune(s.enemyStatDebuffs),
+      forcedTarget: s.forcedTarget && onField.has(s.forcedTarget) ? s.forcedTarget : null,
+    };
+    if (next.forcedTarget !== s.forcedTarget) changed = true;
+    if (changed) store.setState(next);
   });
 }

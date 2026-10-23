@@ -4,6 +4,8 @@ import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState, Card, OppSlotId } from './types';
 import { effectiveStats } from './combatStats';
+import { heroCanAttack, opponentEffectiveStats } from './combatStats';
+import { counterAbility } from '../abilities/counters';
 
 /** Build a store with a deterministic hand (cards removed from the deck). */
 function storeWithHand(hand: GameState['cardsById'][string]['id'][]) {
@@ -2389,5 +2391,148 @@ describe('B-card spells', () => {
     expect(store.getState().spellChoice).toBeNull();
     expect(store.getState().replen).toHaveLength(0);
     vi.useRealTimers();
+  });
+});
+
+describe('Set-turn attack rule', () => {
+  const HERO = 'card-hero-1';
+  const WEAPON = 'card-equipment-13';
+  const fresh = (hand: string[]) => {
+    const base = createInitialState();
+    return createGameStore({ ...base, hand, deck: base.deck.filter((id) => !hand.includes(id)), phase: 'main' });
+  };
+
+  it('a Hero Set this turn cannot attack', () => {
+    vi.useFakeTimers();
+    const store = fresh([HERO]);
+    store.getState().beginDrag(HERO);
+    store.getState().dropCard(HERO, 'A1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + 2000);
+    expect(store.getState().board.A1).toBe(HERO);
+    expect(store.getState().heroSetTurn[HERO]).toBe(store.getState().turn);
+    store.setState({ phase: 'battle' });
+    store.getState().aimAttack('A1');
+    expect(store.getState().targeting).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('can attack the turn it is Set once a Weapon is equipped', () => {
+    vi.useFakeTimers();
+    const store = fresh([HERO, WEAPON]);
+    store.getState().beginDrag(HERO);
+    store.getState().dropCard(HERO, 'A1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + 2000);
+    store.getState().beginDrag(WEAPON);
+    store.getState().dropCard(WEAPON, 'C1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + 2000);
+    expect(store.getState().board.C1).toBe(WEAPON);
+    store.setState({ phase: 'battle' });
+    store.getState().aimAttack('A1');
+    expect(store.getState().targeting).toBe('A1');
+    vi.useRealTimers();
+  });
+
+  it('a Hero Set on an earlier turn can attack', () => {
+    const store = fresh([]);
+    store.setState({ board: { ...store.getState().board, A1: HERO } });
+    store.setState({ turn: store.getState().turn + 2, phase: 'battle' });
+    store.getState().aimAttack('A1');
+    expect(store.getState().targeting).toBe('A1');
+  });
+
+  it('an opponent Hero placed this turn cannot attack without a Weapon', () => {
+    const base = createInitialState();
+    const store = createGameStore({ ...base, activePlayer: 'opponent' });
+    const opp = 'opp-deck-hero-1';
+    store.setState({ opponentBoard: { ...store.getState().opponentBoard, O1: opp } });
+    expect(heroCanAttack(store.getState(), 'opponent', 'O1')).toBe(false);
+    store.setState({ opponentCBoard: { ...store.getState().opponentCBoard, OC1: 'opp-deck-equipment-13' } });
+    expect(heroCanAttack(store.getState(), 'opponent', 'O1')).toBe(true);
+  });
+
+  it('entries for cards leaving the field are pruned', () => {
+    const store = fresh([]);
+    store.setState({ board: { ...store.getState().board, A1: HERO }, counters: { [HERO]: 2 } });
+    store.setState({ board: { ...store.getState().board, A1: null } });
+    expect(store.getState().heroSetTurn[HERO]).toBeUndefined();
+    expect(store.getState().counters[HERO]).toBeUndefined();
+  });
+});
+
+describe('Goliath abilities', () => {
+  const GOLIATH = 'card-hero-59';
+  const withGoliath = () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      deck: base.deck.filter((id) => id !== GOLIATH),
+      phase: 'main',
+    });
+    store.setState({
+      board: { ...store.getState().board, A1: GOLIATH },
+      opponentBoard: { O1: 'opp-deck-hero-1', O2: 'opp-deck-hero-23', O3: 'opp-deck-hero-5', O4: null },
+    });
+    return store;
+  };
+
+  it('Heavy Suppression debuffs up to 2 enemy Heroes until the opponent turn ends', () => {
+    vi.useFakeTimers();
+    const store = withGoliath();
+    const before = opponentEffectiveStats(store.getState(), 'O1').acc.value;
+    store.getState().activateAbility(GOLIATH, 0);
+    expect(store.getState().abilityTargeting).toMatchObject({ step: 'target' });
+    store.getState().chooseAbilityTargets(['opp-deck-hero-1', 'opp-deck-hero-23', 'opp-deck-hero-5']);
+    expect(store.getState().abilityTargeting).not.toBeNull(); // 3 > max 2
+    store.getState().chooseAbilityTargets(['opp-deck-hero-1', 'opp-deck-hero-23']);
+    const s = store.getState();
+    expect(s.abilityTargeting).toBeNull();
+    expect(Object.keys(s.enemyStatDebuffs).sort()).toEqual(['opp-deck-hero-1', 'opp-deck-hero-23']);
+    expect(opponentEffectiveStats(s, 'O1').acc.value).toBeLessThan(before);
+    vi.useRealTimers();
+  });
+
+  it('Iron Wall forces enemy attacks onto Goliath', () => {
+    const store = withGoliath();
+    store.getState().activateAbility(GOLIATH, 2);
+    const at = store.getState().abilityTargeting;
+    if (at) store.getState().chooseAbilityCost(store.getState().hand[0]);
+    expect(store.getState().forcedTarget).toBe(GOLIATH);
+  });
+});
+
+describe('Counters', () => {
+  const RIFLEMAN = 'card-hero-19';
+
+  it('Devil Dog Rifleman gains a counter each End; at 3 it can transform into a Devil Dog Special', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const store = createGameStore({ ...base, deck: base.deck.filter((id) => id !== RIFLEMAN), phase: 'main' });
+    store.setState({ board: { ...store.getState().board, A1: RIFLEMAN }, counters: { [RIFLEMAN]: 2 } });
+    store.setState({ phase: 'battle' });
+    store.getState().advancePhase(); // battle -> resolution
+    vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400); // -> end
+    expect(store.getState().phase).toBe('end');
+    expect(store.getState().counters[RIFLEMAN]).toBe(3);
+    expect(store.getState().counterPrompt).toMatchObject({ cardId: RIFLEMAN });
+    vi.advanceTimersByTime(END_PHASE_DWELL_MS * 2);
+    expect(store.getState().activePlayer).toBe('player'); // hand-off waits on the prompt
+    const deckBefore = store.getState().deck;
+    store.getState().resolveCounterPrompt(true);
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+    const s = store.getState();
+    expect(s.replen).toContain(RIFLEMAN);
+    const special = s.cardsById[s.board.A1!];
+    expect(special.name).toContain('Devil Dog');
+    expect(special.level).toBeGreaterThanOrEqual(3);
+    expect(s.deck.length).toBe(deckBefore.length - 2); // Special pulled + Disturb
+    vi.advanceTimersByTime(END_PHASE_DWELL_MS + 10);
+    expect(store.getState().activePlayer).toBe('opponent');
+    vi.useRealTimers();
+  });
+
+  it('Zero Path Escort counts damage and hits its threshold (3) for the GY swap', () => {
+    const ca = counterAbility(createInitialState().opponentCards['opp-deck-hero-7']);
+    expect(ca?.effect).toMatchObject({ gain: 'inflictDamage', threshold: 3, sendTo: 'graveyard', setFamily: 'Zero' });
+    expect(ca?.ir.optional).toBeFalsy();
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseAbility, parseAbilities, parseSelector } from './parseAbility';
+import { createInitialState } from '../state/cardData';
 
 // Exact v3 catalog strings.
 const ECHO_ASSIST =
@@ -340,5 +341,15 @@ describe('P8 parser: set permissions', () => {
       trigger: 'setPermission',
       effect: { kind: 'setPermission', setKind: 'replen', materials: { count: 1, subType: 'Infantry' } },
     });
+  });
+});
+describe('Goliath / counter parsing', () => {
+  it('parses Shock Deployment and the counter abilities', () => {
+    const base = createInitialState();
+    const goliath = parseAbilities(base.cardsById['card-hero-59'].abilities);
+    expect(goliath.map((ir) => ir.effect.kind)).toEqual(['enemyStatDebuff', 'attackOnSetTurn', 'forceTarget']);
+    const rifle = parseAbilities(base.cardsById['card-hero-19'].abilities)[0];
+    expect(rifle.effect).toMatchObject({ kind: 'counter', gain: 'endOfTurn', threshold: 3, sendTo: 'replen', setFamily: 'Devil Dog' });
+    expect(rifle.optional).toBe(true);
   });
 });

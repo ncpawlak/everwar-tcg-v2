@@ -43,6 +43,8 @@ export function InspectionPanel() {
   const replen = useGameStore((s) => s.replen);
   const deck = useGameStore((s) => s.deck);
   const graveyard = useGameStore((s) => s.graveyard);
+  const opponentBoard = useGameStore((s) => s.opponentBoard);
+  const opponentCards = useGameStore((s) => s.opponentCards);
   const board = useGameStore((s) => s.board);
   const cardsById = useGameStore((s) => s.cardsById);
   const abilityViews =
@@ -51,7 +53,7 @@ export function InspectionPanel() {
           isPlayerMain,
           onPlayerBoard,
           usedNames: usedNames ?? [],
-          ...abilityZones({ board, cardsById, hand, replen, deck, graveyard }),
+          ...abilityZones({ board, cardsById, hand, replen, deck, graveyard, opponentBoard, opponentCards }),
         })
       : [];
 
