@@ -1,4 +1,4 @@
-import type { Card, CardId, CardType, GameState, Rarity, SlotId } from './types';
+import type { Card, CardId, CardType, EquipStats, GameState, Rarity, SlotId } from './types';
 import { shuffleArray } from './shuffle';
 
 /** The three typed families, in canonical order. A = Hero, B = Ability, C = Equipment. */
@@ -40,6 +40,8 @@ export interface EquipmentData {
   subType: string; // Weapon | Armor | Loadout
   weaponClass: string; // Assault | Precision | Suppressive | Breach | '' (non-Weapon)
   unique: boolean;
+  /** Bonuses granted to the equipped Hero (sheet columns HP/DMG/ACC/Armor/Bars). */
+  stats?: EquipStats;
   abilities: string[];
 }
 
@@ -119,26 +121,26 @@ export const HERO_LIBRARY: readonly HeroData[] = [
 ];
 
 export const EQUIPMENT_LIBRARY: readonly EquipmentData[] = [
-  { name: "CCR", subType: "Weapon", weaponClass: "Assault", unique: false, abilities: [] },
-  { name: "Kevlar Vest", subType: "Armor", weaponClass: "", unique: false, abilities: [] },
-  { name: "AX15", subType: "Weapon", weaponClass: "Assault", unique: false, abilities: [] },
-  { name: "Tactical Plate Carrier", subType: "Armor", weaponClass: "", unique: false, abilities: [] },
-  { name: "Wingman", subType: "Weapon", weaponClass: "Assault", unique: false, abilities: ["The first time this Weapon is sent to the GY, return it to your Hand instead."] },
-  { name: "Assault Suit", subType: "Armor", weaponClass: "", unique: false, abilities: [] },
-  { name: "Tankwalker", subType: "Armor", weaponClass: "", unique: false, abilities: ["Incoming damage from Heroes not equipped with a Weapon is reduced by 20."] },
-  { name: "Ballistic Armor Plate", subType: "Loadout", weaponClass: "", unique: false, abilities: ["Can only be equipped to Human Heroes. This Hero gains an additional Armor Bar. When that Armor Bar is destroyed, destroy this card."] },
-  { name: "PSR", subType: "Weapon", weaponClass: "Precision", unique: false, abilities: [] },
+  { name: "CCR", subType: "Weapon", weaponClass: "Assault", unique: false, stats: { dmg: 10, acc: 30 }, abilities: [] },
+  { name: "Kevlar Vest", subType: "Armor", weaponClass: "", unique: false, stats: { armor: 20 }, abilities: [] },
+  { name: "AX15", subType: "Weapon", weaponClass: "Assault", unique: false, stats: { dmg: 20, acc: 50 }, abilities: [] },
+  { name: "Tactical Plate Carrier", subType: "Armor", weaponClass: "", unique: false, stats: { hp: 30, armor: 40 }, abilities: [] },
+  { name: "Wingman", subType: "Weapon", weaponClass: "Assault", unique: false, stats: { dmg: 30, acc: 50 }, abilities: ["The first time this Weapon is sent to the GY, return it to your Hand instead."] },
+  { name: "Assault Suit", subType: "Armor", weaponClass: "", unique: false, stats: { armor: 50 }, abilities: [] },
+  { name: "Tankwalker", subType: "Armor", weaponClass: "", unique: false, stats: { hp: 30, armorBars: 1, armor: 50, unarmedReduction: 20 }, abilities: ["Incoming damage from Heroes not equipped with a Weapon is reduced by 20."] },
+  { name: "Ballistic Armor Plate", subType: "Loadout", weaponClass: "", unique: false, stats: { armorBars: 1, destroyOnBarLoss: true }, abilities: ["Can only be equipped to Human Heroes. This Hero gains an additional Armor Bar. When that Armor Bar is destroyed, destroy this card."] },
+  { name: "PSR", subType: "Weapon", weaponClass: "Precision", unique: false, stats: { dmg: 30, acc: 40 }, abilities: [] },
   { name: "Deployable Cover", subType: "Loadout", weaponClass: "", unique: false, abilities: ["When this Hero would take incoming damage, you can destroy this card, then reduce that incoming damage by 40."] },
-  { name: "Headhunter", subType: "Weapon", weaponClass: "Precision", unique: false, abilities: ["When this Hero rolls a Critical Hit against a target with no Armor Bars, eliminate that Hero."] },
+  { name: "Headhunter", subType: "Weapon", weaponClass: "Precision", unique: false, stats: { dmg: 20, acc: 60 }, abilities: ["When this Hero rolls a Critical Hit against a target with no Armor Bars, eliminate that Hero."] },
   { name: "Thermal Recon Drone", subType: "Loadout", weaponClass: "", unique: false, abilities: ["All Heroes on your field gain +10 ACC for each Hero on your opponent's field."] },
-  { name: "SAR", subType: "Weapon", weaponClass: "Suppressive", unique: false, abilities: [] },
-  { name: "BFR40", subType: "Weapon", weaponClass: "Suppressive", unique: false, abilities: [] },
+  { name: "SAR", subType: "Weapon", weaponClass: "Suppressive", unique: false, stats: { dmg: 30 }, abilities: [] },
+  { name: "BFR40", subType: "Weapon", weaponClass: "Suppressive", unique: false, stats: { dmg: 20, acc: 30 }, abilities: [] },
   { name: "High-Ground Deployment", subType: "Loadout", weaponClass: "", unique: false, abilities: ["Can only be equipped to Human Recon Heroes. This Hero cannot be targeted for attacks by Heroes that are not equipped with a Weapon."] },
-  { name: "Anvil", subType: "Weapon", weaponClass: "Suppressive", unique: true, abilities: ["This Hero's Normal Hits ignore Armor Bars.", "When this Hero eliminates an enemy Hero, your opponent discards 1 random card."] },
-  { name: "Whisper", subType: "Weapon", weaponClass: "Breach", unique: false, abilities: ["When this Hero lands a Successful Hit, this Hero cannot be targeted for attacks during your opponent's next turn."] },
+  { name: "Anvil", subType: "Weapon", weaponClass: "Suppressive", unique: true, stats: { dmg: 30, acc: 40 }, abilities: ["This Hero's Normal Hits ignore Armor Bars.", "When this Hero eliminates an enemy Hero, your opponent discards 1 random card."] },
+  { name: "Whisper", subType: "Weapon", weaponClass: "Breach", unique: false, stats: { dmg: 30, acc: 50 }, abilities: ["When this Hero lands a Successful Hit, this Hero cannot be targeted for attacks during your opponent's next turn."] },
   { name: "Mobile Ammo Carrier", subType: "Loadout", weaponClass: "", unique: false, abilities: ["During your Battle Phase, after a Hero you control rolls a Successful Hit and deals damage, you can destroy this card, then that Hero can make 1 additional attack this turn."] },
-  { name: "AX12", subType: "Weapon", weaponClass: "Breach", unique: false, abilities: [] },
-  { name: "Medi-Gel Vest", subType: "Armor", weaponClass: "", unique: false, abilities: ["While equipped to a Medic Hero, this Hero gains an additional 40 HP."] },
+  { name: "AX12", subType: "Weapon", weaponClass: "Breach", unique: false, stats: { dmg: 40, acc: 10 }, abilities: [] },
+  { name: "Medi-Gel Vest", subType: "Armor", weaponClass: "", unique: false, stats: { hp: 40, medicHp: 40 }, abilities: ["While equipped to a Medic Hero, this Hero gains an additional 40 HP."] },
 ];
 
 export const ABILITY_LIBRARY: readonly AbilityCardData[] = [
@@ -277,6 +279,7 @@ export function equipmentProfile(e: EquipmentData): Omit<Card, 'id' | 'type'> {
     subType: e.subType,
     ...(e.weaponClass ? { weaponClass: e.weaponClass } : {}),
     ...(e.unique ? { unique: true } : {}),
+    ...(e.stats ? { equipStats: e.stats } : {}),
     ...(e.abilities.length ? { abilities: e.abilities } : {}),
     rarity: e.unique ? 'Epic' : 'Rare',
     effect: e.abilities.length ? e.abilities.join('\n\n') : 'No special effect.',
@@ -452,6 +455,8 @@ export function createInitialState(rand: () => number = Math.random): GameState 
     enemyStatDebuffs: {},
     forcedTarget: null,
     playerHeroLosses: [],
+    points: { player: 0, opponent: 0 },
+    winner: null,
     abilityPrompt: null,
     combatPrompt: null,
     pendingCombatQueue: null,

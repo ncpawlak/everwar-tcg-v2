@@ -7,10 +7,14 @@ import { shuffleArray } from './shuffle';
 import {
   effectiveStats,
   opponentEffectiveStats,
-  playerAuraDelta,
-  opponentAuraDelta,
   linkedCSlot,
   heroCanAttack,
+  heroArmor,
+  heroBars,
+  heroMaxBars,
+  unarmedReduction,
+  linkedEquipment,
+  slotEquipBonus,
 } from './combatStats';
 import { resolveRoll, isSpecialHero } from './diceRules';
 import { applyArmorToHit } from './armorCombat';
@@ -113,6 +117,11 @@ export const OPP_MAIN_DURATION_MS = 3 * OPP_PLAY_STEP_MS;
  * turn flips. Applies to the player's End; the opponent's End is paced by
  * OPP_PHASE_STEP_MS inside its auto-turn (Phase 7). */
 export const END_PHASE_DWELL_MS = 1400;
+
+/** First side to this many points wins the match. */
+export const WIN_POINTS = 15;
+/** Points the other side scores when a side ends its turn with no Heroes. */
+export const EMPTY_FIELD_POINTS = 3;
 
 /**
  * Authoritative Phase 1 game store. State transitions are immediate and
@@ -375,7 +384,25 @@ export function createGameStore(
        * deck untouched — no needless shuffle), then send every non-continuous B
        * card on the field to the graveyard. Continuous B cards stay put.
        */
+      const awardPoints = (side: 'player' | 'opponent', amount: number) => {
+        if (amount <= 0 || get().winner) return;
+        set((s) => {
+          const points = { ...s.points, [side]: s.points[side] + amount };
+          return { points, winner: points[side] >= WIN_POINTS ? side : null };
+        });
+      };
+
+      /** Ending a turn (after turn 1) with no Heroes gives the other side points. */
+      const scoreEmptyField = (side: 'player' | 'opponent') => {
+        const s = get();
+        if (s.turn <= 1) return;
+        const board: Record<string, CardId | null> = side === 'player' ? s.board : s.opponentBoard;
+        const hasHero = Object.entries(board).some(([k, id]) => id && (side === 'opponent' || k[0] === 'A'));
+        if (!hasHero) awardPoints(side === 'player' ? 'opponent' : 'player', EMPTY_FIELD_POINTS);
+      };
+
       const runEndPhase = () => {
+        scoreEmptyField('player');
         if (get().replen.length > 0) get().replenIntoDeck();
         set((s) => {
           const board = { ...s.board };
@@ -504,7 +531,7 @@ export function createGameStore(
           const oppId = s.opponentBoard[targetSlot];
           if (!oppId) return {};
           const defCard = s.opponentCards[oppId];
-          const maxHp = defCard?.hp ?? 0;
+          const maxHp = opponentEffectiveStats(s, targetSlot).hp.value;
           const currentHp = { ...s.currentHp };
           const currentArmorBars = { ...s.currentArmorBars };
           const damagePopups = { ...s.damagePopups };
@@ -530,7 +557,7 @@ export function createGameStore(
           // Instant eliminations (Hidden Finisher, Headhunter; mandatory): send the
           // target straight to the graveyard, ignoring armor + Armor Bars.
           const cur = currentHp[oppId] ?? maxHp;
-          const bars = currentArmorBars[oppId] ?? defCard?.armorBars ?? 0;
+          const bars = currentArmorBars[oppId] ?? heroMaxBars(s, 'opponent', targetSlot);
           if (finisherEliminates(combat, defCard, { outcome: result.outcome, currentHp: cur, bars })) {
             currentHp[oppId] = 0;
             damagePopups[targetSlot] = (damagePopups[targetSlot] ?? 0) + cur;
@@ -538,19 +565,19 @@ export function createGameStore(
             return { currentHp, damagePopups, destroying: [...destroying] };
           }
 
-          // Normal armor math (armor auras from both sides fold into flat armor).
-          const armor =
-            (defCard?.armor ?? 0) + (defCard ? opponentAuraDelta(s, defCard, 'armor') : 0);
+          // Normal armor math (armor auras + Equipment fold into flat armor).
+          const armor = heroArmor(s, 'opponent', targetSlot);
           const baseDmg = effectiveStats(s, src).dmg.value;
           // "Normal Hits ignore Armor Bars" (Anvil): resolve as if bar-less; bars stay intact.
           const skipBars = ignoresArmorBars(combat, result.outcome);
           const hitBars = skipBars ? 0 : bars;
           const hit = applyArmorToHit({ bars: hitBars, armor }, result.outcome, result.damage, baseDmg);
           if (!skipBars) currentArmorBars[oppId] = hit.bars;
-          if (hit.hpDamage > 0) {
-            const next = Math.max(0, cur - hit.hpDamage);
+          const hpDamage = Math.max(0, hit.hpDamage - unarmedReduction(s, 'opponent', targetSlot, src));
+          if (hpDamage > 0) {
+            const next = Math.max(0, cur - hpDamage);
             currentHp[oppId] = next;
-            damagePopups[targetSlot] = (damagePopups[targetSlot] ?? 0) + hit.hpDamage;
+            damagePopups[targetSlot] = (damagePopups[targetSlot] ?? 0) + hpDamage;
             if (next <= 0) destroying.add(targetSlot);
           }
           return { currentHp, currentArmorBars, damagePopups, destroying: [...destroying] };
@@ -567,6 +594,7 @@ export function createGameStore(
         setTimeout(() => {
           if (get().phase !== 'resolution') return;
           let destroyedAny = false;
+          let gained = 0;
           set((s) => {
             const opponentBoard = { ...s.opponentBoard };
             const opponentCBoard = { ...s.opponentCBoard };
@@ -577,6 +605,7 @@ export function createGameStore(
               const oppId = opponentBoard[slot];
               if (!oppId || (currentHp[oppId] ?? Infinity) > 0) continue;
               destroyedAny = true;
+              gained += s.opponentCards[oppId]?.level ?? 0;
               opponentBoard[slot] = null;
               opponentGraveyard.push(oppId);
               delete currentHp[oppId];
@@ -601,6 +630,7 @@ export function createGameStore(
               currentArmorBars,
             };
           });
+          awardPoints('player', gained);
           if (destroyedAny) {
             setTimeout(() => {
               if (get().phase === 'resolution') goToPhase('end');
@@ -636,8 +666,8 @@ export function createGameStore(
           const eqId = s.board[linkedCSlot(src)];
           const combat = combatHitAbilities(srcCard, eqId ? s.cardsById[eqId] : undefined);
           const defCard = s.opponentCards[oppId];
-          const cur = s.currentHp[oppId] ?? defCard?.hp ?? 0;
-          const bars = s.currentArmorBars[oppId] ?? defCard?.armorBars ?? 0;
+          const cur = s.currentHp[oppId] ?? opponentEffectiveStats(s, targetSlot).hp.value;
+          const bars = heroBars(s, 'opponent', targetSlot);
           // An instant elimination takes precedence: if it fires, no bunker prompt.
           const finisher = finisherEliminates(combat, defCard, { outcome: result.outcome, currentHp: cur, bars });
           if (!finisher && combat.breakAllArmorBars && srcId) {
@@ -727,6 +757,7 @@ export function createGameStore(
        * and clears the attacker selection / spent dice.
        */
       const goToPhase = (next: Phase, incTurn = false) => {
+        if (get().winner) return;
         set((s) => ({
           phase: next,
           turn: incTurn ? s.turn + 1 : s.turn,
@@ -791,7 +822,7 @@ export function createGameStore(
 
       /** Show the opponent's End banner, then hand the turn back to the player. */
       const finishOpponentTurn = () => {
-        if (!oppActive()) return;
+        if (!oppActive() || get().winner) return;
         // Opponent Heroes whose damage counters hit the threshold transform now.
         const st = get();
         for (const o of OPP_SLOT_IDS) {
@@ -799,9 +830,27 @@ export function createGameStore(
           const ca = id ? counterAbility(st.opponentCards[id]) : null;
           if (id && ca && (st.counters[id] ?? 0) >= ca.effect.threshold) counterTransform('opponent', id);
         }
-        set((s) => ({ phase: 'end', phaseAnnounce: s.phaseAnnounce + 1, oppAttackTargets: {} }));
+        set((s) => {
+          // Mirror of the player's End cleanup: non-continuous Ability cards go to the GY.
+          const opponentBBoard = { ...s.opponentBBoard };
+          const sent: CardId[] = [];
+          for (const ob of Object.keys(opponentBBoard) as OppBSlotId[]) {
+            const id = opponentBBoard[ob];
+            if (id && !s.opponentCards[id]?.continuous) {
+              sent.push(id);
+              opponentBBoard[ob] = null;
+            }
+          }
+          return {
+            phase: 'end',
+            phaseAnnounce: s.phaseAnnounce + 1,
+            oppAttackTargets: {},
+            ...(sent.length ? { opponentBBoard, opponentGraveyard: [...s.opponentGraveyard, ...sent] } : {}),
+          };
+        });
+        scoreEmptyField('opponent');
         setTimeout(() => {
-          if (!oppActive()) return;
+          if (!oppActive() || get().winner) return;
           // "During your opponent's next turn" effects (Heavy Suppression, Iron
           // Wall) expire as that turn ends.
           set((s) => ({
@@ -876,12 +925,9 @@ export function createGameStore(
                 if (!target) continue;
                 const pid = s.board[target];
                 if (!pid) continue;
-                const defCard = s.cardsById[pid];
                 const maxHp = effectiveStats(s, target).hp.value;
-                const armor =
-                  (defCard?.armor ?? 0) +
-                  (defCard ? playerAuraDelta(s, defCard, 'armor') : 0);
-                const bars = currentArmorBars[pid] ?? defCard?.armorBars ?? 0;
+                const armor = heroArmor(s, 'player', target);
+                const bars = currentArmorBars[pid] ?? heroMaxBars(s, 'player', target);
                 const baseDmg = opponentEffectiveStats(s, src).dmg.value;
                 const hit = applyArmorToHit(
                   { bars, armor },
@@ -890,11 +936,12 @@ export function createGameStore(
                   baseDmg,
                 );
                 currentArmorBars[pid] = hit.bars;
-                if (hit.hpDamage > 0) {
+                const hpDamage = Math.max(0, hit.hpDamage - unarmedReduction(s, 'player', target, src));
+                if (hpDamage > 0) {
                   const cur = currentHp[pid] ?? maxHp;
-                  const next = Math.max(0, cur - hit.hpDamage);
+                  const next = Math.max(0, cur - hpDamage);
                   currentHp[pid] = next;
-                  oppDamagePopups[target] = (oppDamagePopups[target] ?? 0) + hit.hpDamage;
+                  oppDamagePopups[target] = (oppDamagePopups[target] ?? 0) + hpDamage;
                   if (next <= 0) destroyingSet.add(target);
                   // "Each time this Hero inflicts damage on an enemy Hero" counters.
                   const attackerId = s.opponentBoard[src];
@@ -916,6 +963,7 @@ export function createGameStore(
             setTimeout(() => {
               if (!oppActive()) return;
               let destroyedAny = false;
+              let gained = 0;
               set((s) => {
                 const board = { ...s.board };
                 const graveyard = [...s.graveyard];
@@ -928,6 +976,7 @@ export function createGameStore(
                   const pid = board[slot];
                   if (!pid || (currentHp[pid] ?? Infinity) > 0) continue;
                   destroyedAny = true;
+                  gained += s.cardsById[pid]?.level ?? 0;
                   board[slot] = null;
                   graveyard.push(pid);
                   playerHeroLosses.push({ cardId: pid, turn: s.turn });
@@ -958,6 +1007,7 @@ export function createGameStore(
                   playerHeroLosses,
                 };
               });
+              awardPoints('opponent', gained);
               if (destroyedAny) {
                 setTimeout(() => finishOpponentTurn(), GRAVEYARD_TRAVEL_MS);
               } else {
@@ -1111,6 +1161,7 @@ export function createGameStore(
        */
       const runOpponentTurn = () => {
         if (get().activePlayer !== 'player') return; // already running / idempotent
+        if (get().winner) return;
         set((s) => ({
           turn: s.turn + 1,
           activePlayer: 'opponent',
@@ -1966,7 +2017,8 @@ export function createGameStore(
     advancePhase: () => {
       if (get().activePlayer !== 'player') return; // opponent auto-plays its turn
       const phase = get().phase;
-      if (phase === 'main') goToPhase('battle');
+      // No attacks on the first turn of the game: Main goes straight to End.
+      if (phase === 'main') goToPhase(get().turn === 1 ? 'end' : 'battle');
       else if (phase === 'battle') goToPhase('resolution');
       else if (phase === 'end') runOpponentTurn();
       // Draw and Resolution advance themselves; ignore manual clicks then.
@@ -2009,6 +2061,7 @@ export function createGameStore(
     };
   });
   trackFieldEntries(store);
+  trackEquipment(store);
   return store;
 }
 
@@ -2062,5 +2115,85 @@ function trackFieldEntries(store: StoreApi<GameStore>) {
     };
     if (next.forcedTarget !== s.forcedTarget) changed = true;
     if (changed) store.setState(next);
+  });
+}
+
+/**
+ * Keep live HP / Armor Bars in step with Equipment. Gaining a bonus raises a
+ * damaged Hero's current value by the same amount; losing one clamps it to the
+ * new maximum. Ballistic Armor Plate is destroyed once its Hero loses a bar.
+ */
+function trackEquipment(store: StoreApi<GameStore>) {
+  const applied = new Map<CardId, { hp: number; bars: number }>();
+  // Bar count when a bar-loss Equipment attached; it breaks below this.
+  const attachBars = new Map<CardId, number>();
+  const sides = [
+    { side: 'player' as const, slots: ['A1', 'A2', 'A3', 'A4'] as SlotId[] },
+    { side: 'opponent' as const, slots: OPP_SLOT_IDS as readonly OppSlotId[] },
+  ];
+  store.subscribe((s, prev) => {
+    if (
+      s.board === prev.board &&
+      s.opponentBoard === prev.opponentBoard &&
+      s.opponentCBoard === prev.opponentCBoard &&
+      s.currentArmorBars === prev.currentArmorBars
+    )
+      return;
+    let currentHp = s.currentHp;
+    let currentArmorBars = s.currentArmorBars;
+    let board = s.board;
+    let opponentCBoard = s.opponentCBoard;
+    let graveyard = s.graveyard;
+    let opponentGraveyard = s.opponentGraveyard;
+    let changed = false;
+    const seen = new Set<CardId>();
+    for (const { side, slots } of sides) {
+      for (const slot of slots) {
+        const id = side === 'player' ? s.board[slot as SlotId] : s.opponentBoard[slot as OppSlotId];
+        if (!id) continue;
+        seen.add(id);
+        const bonus = slotEquipBonus(s, side, slot);
+        const old = applied.get(id) ?? { hp: 0, bars: 0 };
+        if (bonus.hp !== old.hp && currentHp[id] !== undefined) {
+          const max = (side === 'player' ? effectiveStats(s, slot as SlotId) : opponentEffectiveStats(s, slot as OppSlotId)).hp.value;
+          const cur = currentHp[id];
+          const next = bonus.hp > old.hp ? cur + (bonus.hp - old.hp) : Math.min(cur, max);
+          if (next !== cur) {
+            currentHp = { ...currentHp, [id]: next };
+            changed = true;
+          }
+        }
+        if (bonus.armorBars !== old.bars && currentArmorBars[id] !== undefined) {
+          const cur = currentArmorBars[id];
+          const next =
+            bonus.armorBars > old.bars ? cur + (bonus.armorBars - old.bars) : Math.min(cur, heroMaxBars(s, side, slot));
+          if (next !== cur) {
+            currentArmorBars = { ...currentArmorBars, [id]: next };
+            changed = true;
+          }
+        }
+        applied.set(id, { hp: bonus.hp, bars: bonus.armorBars });
+        const equip = linkedEquipment(s, side, slot);
+        if (!equip?.equipStats?.destroyOnBarLoss) continue;
+        const bars = currentArmorBars[id] ?? heroMaxBars(s, side, slot);
+        if (!attachBars.has(equip.id)) attachBars.set(equip.id, bars);
+        if (bars < attachBars.get(equip.id)!) {
+          attachBars.delete(equip.id);
+          const col = slot[slot.length - 1];
+          if (side === 'player') {
+            board = { ...board, [`C${col}`]: null };
+            graveyard = [...graveyard, equip.id];
+          } else {
+            opponentCBoard = { ...opponentCBoard, [`OC${col}`]: null };
+            opponentGraveyard = [...opponentGraveyard, equip.id];
+          }
+          changed = true;
+        }
+      }
+    }
+    for (const id of [...applied.keys()]) if (!seen.has(id)) applied.delete(id);
+    const linked = new Set([...Object.values(board), ...Object.values(opponentCBoard)]);
+    for (const id of [...attachBars.keys()]) if (!linked.has(id)) attachBars.delete(id);
+    if (changed) store.setState({ currentHp, currentArmorBars, board, opponentCBoard, graveyard, opponentGraveyard });
   });
 }

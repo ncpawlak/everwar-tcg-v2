@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import type { Card } from '../state/types';
-import { abilityLabel, equipmentLabel } from '../state/abilities';
+import { abilityLabel, equipmentLabel, equipmentStatLine } from '../state/abilities';
 import { abilityZones, activatedAbilityViews } from '../abilities/activated';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 
@@ -254,6 +254,9 @@ export function InspectionPanel() {
                 }}
               >
                 {equipmentLabel(shown)}
+                {equipmentStatLine(shown) && (
+                  <div style={{ marginTop: 6, fontSize: 13, color: '#7fd18f' }}>{equipmentStatLine(shown)}</div>
+                )}
               </div>
             )}
 

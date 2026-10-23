@@ -5,7 +5,7 @@ import type { Mesh, MeshStandardMaterial } from 'three';
 import { RoundedBoxGeometry } from 'three-stdlib';
 import { CARD_HEIGHT, CARD_THICKNESS, CARD_WIDTH } from '../board/boardConfig';
 import type { Card } from '../state/types';
-import { abilityLabel, equipmentLabel } from '../state/abilities';
+import { abilityLabel, equipmentLabel, equipmentStatLine } from '../state/abilities';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from './cardTheme';
 
 /**
@@ -335,7 +335,7 @@ export function CardView({
             anchorY="middle"
             textAlign="center"
           >
-            {equipmentLabel(card)}
+            {equipmentStatLine(card) ? `${equipmentLabel(card)}\n${equipmentStatLine(card)}` : equipmentLabel(card)}
           </Text>
       ) : card.type === 'B' ? (
         /* B cards are spells: instead of combat stats they show the on-play

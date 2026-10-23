@@ -75,6 +75,21 @@ export type OppCSlotId = 'OC1' | 'OC2' | 'OC3' | 'OC4';
  * A card's full combat profile (Phase 3). Every card carries display + combat
  * data even though the rules that consume ATK/DEF/effect land in later slices.
  */
+/** Bonuses an Equipment (C) card grants the Hero in its linked A slot. */
+export interface EquipStats {
+  hp?: number;
+  dmg?: number;
+  acc?: number;
+  armor?: number;
+  armorBars?: number;
+  /** Extra HP when the equipped Hero is a Medic (Medi-Gel Vest). */
+  medicHp?: number;
+  /** Incoming HP damage from Heroes WITHOUT a Weapon is reduced by this (Tankwalker). */
+  unarmedReduction?: number;
+  /** The Equipment is destroyed once the Hero loses a bar (Ballistic Armor Plate). */
+  destroyOnBarLoss?: boolean;
+}
+
 export interface Card {
   id: CardId;
   type: CardType;
@@ -99,6 +114,8 @@ export interface Card {
    * "Suppressive" / "Breach". Only Weapon-subtype Equipment carry one. Data only
    * for now; consumed by weapon-scoped abilities in a later slice. */
   weaponClass?: string;
+  /** Equipment (C) only: bonuses the equipped Hero gains while linked. */
+  equipStats?: EquipStats;
   /** Play-window of an Ability (B) card: "Main" / "Battle" / "Cont." — gates WHEN
    * the card may be activated. Data only for now. Only B cards carry one. */
   timing?: string;
@@ -384,6 +401,12 @@ export interface GameState {
   /** Player Heroes destroyed/eliminated on the field, with the turn it happened
    *  (Man Down! checks "last turn"). */
   playerHeroLosses: { cardId: CardId; turn: number }[];
+  /** Match score. A side scores an eliminated enemy Hero's level, and 3 when
+   *  the other side ends a turn (after turn 1) with no Heroes. First to
+   *  WIN_POINTS wins. */
+  points: { player: number; opponent: number };
+  /** Set once a side reaches WIN_POINTS; all turn flow stops. */
+  winner: 'player' | 'opponent' | null;
   /** A paused Resolution awaiting the player's yes/no on Snow Viper's Bunker
    *  Busting Round, or null when combat is not paused for it. */
   combatPrompt: CombatPrompt | null;

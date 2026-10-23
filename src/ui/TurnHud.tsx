@@ -33,10 +33,15 @@ export function TurnHud() {
         <span style={DIVIDER_STYLE} />
         {PHASE_ORDER.map((p, i) => {
           const active = p === phase;
+          // No attacks on turn 1: Battle and Resolution are skipped.
+          const skipped = turn === 1 && (p === 'battle' || p === 'resolution');
           return (
             <span key={p} style={{ display: 'flex', alignItems: 'center' }}>
               {i > 0 && <span style={ARROW_STYLE}>›</span>}
-              <span style={active ? PHASE_ACTIVE_STYLE : PHASE_DIM_STYLE}>
+              <span
+                style={active ? PHASE_ACTIVE_STYLE : skipped ? PHASE_SKIPPED_STYLE : PHASE_DIM_STYLE}
+                title={skipped ? 'No attacks on the first turn' : undefined}
+              >
                 {PHASE_LABEL[p]}
               </span>
             </span>
@@ -102,6 +107,12 @@ const PHASE_ACTIVE_STYLE: CSSProperties = {
 const PHASE_DIM_STYLE: CSSProperties = {
   color: 'rgba(180, 186, 196, 0.4)',
   fontWeight: 500,
+};
+
+const PHASE_SKIPPED_STYLE: CSSProperties = {
+  color: 'rgba(180, 186, 196, 0.2)',
+  fontWeight: 500,
+  textDecoration: 'line-through',
 };
 
 const ARROW_STYLE: CSSProperties = {

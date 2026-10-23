@@ -837,7 +837,7 @@ describe('P4 turn / phase mechanics', () => {
   it('phases auto-advance Main -> Battle -> Resolution -> End, and End auto-hands off to the opponent', () => {
     vi.useFakeTimers();
     try {
-      const store = createGameStore({ ...createInitialState(), phase: 'main' });
+      const store = createGameStore({ ...createInitialState(), phase: 'main', turn: 2 });
 
       store.getState().advancePhase();
       expect(store.getState().phase).toBe('battle');
@@ -2534,5 +2534,47 @@ describe('Counters', () => {
     const ca = counterAbility(createInitialState().opponentCards['opp-deck-hero-7']);
     expect(ca?.effect).toMatchObject({ gain: 'inflictDamage', threshold: 3, sendTo: 'graveyard', setFamily: 'Zero' });
     expect(ca?.ir.optional).toBeFalsy();
+  });
+});
+
+describe('turn-1 skip and points', () => {
+  it('turn 1 Main skips Battle and goes straight to End (no empty-field points on turn 1)', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createGameStore({ ...createInitialState(), phase: 'main', turn: 1 });
+      store.getState().advancePhase();
+      expect(store.getState().phase).toBe('end');
+      expect(store.getState().points).toEqual({ player: 0, opponent: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ending a later turn with no Heroes gives the opponent 3 points', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createGameStore({ ...createInitialState(), phase: 'main', turn: 2 });
+      store.getState().advancePhase(); // battle
+      store.getState().advancePhase(); // resolution
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
+      expect(store.getState().phase).toBe('end');
+      expect(store.getState().points.opponent).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reaching 15 points declares a winner', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createGameStore({ ...createInitialState(), phase: 'main', turn: 2, points: { player: 0, opponent: 13 } });
+      store.getState().advancePhase();
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
+      expect(store.getState().points.opponent).toBe(16);
+      expect(store.getState().winner).toBe('opponent');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

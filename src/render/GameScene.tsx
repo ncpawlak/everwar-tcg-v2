@@ -16,6 +16,7 @@ import { TargetingArrows } from './TargetingArrows';
 import { OpeningDeal } from './OpeningDeal';
 import { FieldTurnHighlight } from './FieldTurnHighlight';
 import { ThreeBridge } from './ThreeBridge';
+import { DeckCounts } from './DeckCounts';
 
 /**
  * Phase 1 scene composition. Lights + playmat + slots + one CardEntity per card
@@ -58,6 +59,7 @@ export function GameScene() {
       <OutcomePopups />
       <DamagePopups />
       <CounterBadges />
+      <DeckCounts />
       <DestructionFx />
       <OpeningDeal />
     </>

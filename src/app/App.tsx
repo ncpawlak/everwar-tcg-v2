@@ -11,6 +11,7 @@ import { CombatPromptModal } from '../ui/CombatPromptModal';
 import { SummonSlotPrompt } from '../ui/SummonSlotPrompt';
 import { TurnHud } from '../ui/TurnHud';
 import { PhaseBanner } from '../ui/PhaseBanner';
+import { ScoreHud } from '../ui/ScoreHud';
 import { CAMERA_FOV, CAMERA_POSITION, CAMERA_TARGET } from '../board/boardConfig';
 
 /**
@@ -38,6 +39,7 @@ export function App() {
       <PileSearchHost />
       <TurnHud />
       <PhaseBanner />
+      <ScoreHud />
       <TributeModal />
       <AbilityTargetModal />
       <OnSetChoiceModal />

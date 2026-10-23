@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { effectiveStats, linkedCSlot } from './combatStats';
+import { effectiveStats, linkedCSlot, heroArmor, heroMaxBars, heroBars, unarmedReduction } from './combatStats';
 import { createInitialState } from './cardData';
-import type { GameState } from './types';
+import type { GameState, Card } from './types';
 
 describe('combatStats', () => {
   it('linkedCSlot maps an A slot to its column C slot', () => {
@@ -19,11 +19,33 @@ describe('combatStats', () => {
     expect(eff.hp).toEqual({ value: card.hp, delta: 0 });
   });
 
-  it('a linked C card no longer grants a random stat boost', () => {
+  it('a linked C card adds its printed Equipment stats to the Hero', () => {
     const base = createInitialState();
+    const equip = base.cardsById['card-equipment-1'];
     const state: GameState = { ...base, board: { ...base.board, A1: 'card-hero-6', C1: 'card-equipment-1' } };
     const eff = effectiveStats(state, 'A1');
-    expect([eff.hp.delta, eff.dmg.delta, eff.acc.delta]).toEqual([0, 0, 0]);
+    const e = equip.equipStats ?? {};
+    expect([eff.hp.delta, eff.dmg.delta, eff.acc.delta]).toEqual([e.hp ?? 0, e.dmg ?? 0, e.acc ?? 0]);
+  });
+
+  it('Equipment armor / bars / Medic HP / Tankwalker reduction', () => {
+    const base = createInitialState();
+    const hero = { ...base.cardsById['card-hero-6'], armor: 10, armorBars: 1, subType: 'Medic' } as Card;
+    const vest = { ...base.cardsById['card-equipment-1'], subType: 'Armor', equipStats: { hp: 40, medicHp: 40, armor: 20, armorBars: 1, unarmedReduction: 20 } } as Card;
+    const state: GameState = {
+      ...base,
+      cardsById: { ...base.cardsById, [hero.id]: hero, [vest.id]: vest },
+      board: { ...base.board, A1: hero.id, C1: vest.id },
+    };
+    expect(effectiveStats(state, 'A1').hp.delta).toBe(80);
+    expect(heroArmor(state, 'player', 'A1')).toBe(30);
+    expect(heroMaxBars(state, 'player', 'A1')).toBe(2);
+    expect(heroBars(state, 'player', 'A1')).toBe(2);
+    expect(heroBars({ ...state, currentArmorBars: { [hero.id]: 1 } }, 'player', 'A1')).toBe(1);
+    // Attacker O1 has no Weapon -> reduced; non-Medic gets no medic bonus.
+    expect(unarmedReduction(state, 'player', 'A1', 'O1')).toBe(20);
+    const nonMedic = { ...state, cardsById: { ...state.cardsById, [hero.id]: { ...hero, subType: 'Assault' } as Card } };
+    expect(effectiveStats(nonMedic, 'A1').hp.delta).toBe(40);
   });
 
   it('P8: an Echo Assist source on the board raises ACC of every Echo Hero, itself included', () => {

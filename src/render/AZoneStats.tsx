@@ -1,6 +1,6 @@
 import { useColdGameState } from '../state/useGameStore';
 import { SLOT_POSITIONS } from '../board/boardConfig';
-import { effectiveStats } from '../state/combatStats';
+import { effectiveStats, heroBars, heroMaxBars } from '../state/combatStats';
 import type { SlotId, SlotIndex, Vec3 } from '../state/types';
 import {
   HpOverlay,
@@ -45,7 +45,13 @@ export function AZoneStats() {
         const daPos: Vec3 = [ax, ay + DA_Y_OFFSET, az + DA_Z_OFFSET];
         return (
           <group key={aSlot}>
-            <HpOverlay stats={stats} position={hpPos} currentHp={currentHp} />
+            <HpOverlay
+              stats={stats}
+              position={hpPos}
+              currentHp={currentHp}
+              bars={heroBars(state, 'player', aSlot)}
+              maxBars={heroMaxBars(state, 'player', aSlot)}
+            />
             <DmgAccOverlay stats={stats} position={daPos} />
           </group>
         );
