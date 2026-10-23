@@ -1,4 +1,4 @@
-import { useGameStore } from '../state/useGameStore';
+import { useColdGameState } from '../state/useGameStore';
 import { SLOT_POSITIONS } from '../board/boardConfig';
 import { effectiveStats } from '../state/combatStats';
 import type { SlotId, SlotIndex, Vec3 } from '../state/types';
@@ -25,7 +25,7 @@ import {
 const PAIR_INDICES: SlotIndex[] = [1, 2, 3, 4];
 
 export function AZoneStats() {
-  const state = useGameStore((s) => s);
+  const state = useColdGameState();
   const { board } = state;
 
   return (

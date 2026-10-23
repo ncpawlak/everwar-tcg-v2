@@ -1,4 +1,5 @@
-import { useGameStore } from '../state/useGameStore';
+import { buriedInPile } from './CardEntity';
+import { useColdGameState } from '../state/useGameStore';
 import {
   OPP_SLOT_IDS,
   OPP_SLOT_POSITIONS,
@@ -42,7 +43,7 @@ function oppOverlayPos(oppSlot: OppSlotId, yOff: number, zOff: number): Vec3 {
 }
 
 export function OpponentBoard() {
-  const state = useGameStore((s) => s);
+  const state = useColdGameState();
   const { opponentBoard, opponentCards, targeting } = state;
   const selectable = targeting !== null;
 
@@ -66,7 +67,13 @@ export function OpponentBoard() {
             scale={visual.scale}
             from={visual.zone === 'summon' ? opponentSummonFromPose() : undefined}
           >
-            <CardView card={card} pickable={false} auraActive={oppAuraIds.has(id)} armorBars={state.currentArmorBars[id]} />
+            <CardView
+              card={card}
+              pickable={false}
+              auraActive={oppAuraIds.has(id)}
+              armorBars={state.currentArmorBars[id]}
+              faceHidden={buriedInPile(state.opponentGraveyard, id) || buriedInPile(state.opponentReplen, id)}
+            />
           </MotionCard>
         );
       })}
