@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Billboard, Text } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { a, useSpring } from '@react-spring/three';
+import { Shape } from 'three';
 import type { Mesh, MeshBasicMaterial } from 'three';
 import type { Vec3 } from '../state/types';
 import type { EffectiveStats } from '../state/combatStats';
@@ -162,6 +163,48 @@ function ArmorGlow() {
   );
 }
 
+/** Heater-shield outline (unit size, centered) for the Armor badge. */
+function makeShield(w: number, h: number): Shape {
+  const s = new Shape();
+  s.moveTo(-w / 2, h / 2);
+  s.lineTo(w / 2, h / 2);
+  s.lineTo(w / 2, -h * 0.05);
+  s.quadraticCurveTo(w / 2, -h * 0.35, 0, -h / 2);
+  s.quadraticCurveTo(-w / 2, -h * 0.35, -w / 2, -h * 0.05);
+  s.closePath();
+  return s;
+}
+const SHIELD_OUTER = makeShield(0.16, 0.19);
+const SHIELD_INNER = makeShield(0.135, 0.165);
+const ARMOR_BADGE_X = -0.29;
+
+/** Flat Armor value on a small shield, left of the HP numbers. */
+function ArmorBadge({ armor }: { armor: number }) {
+  return (
+    <group position={[ARMOR_BADGE_X, HP_TEXT_Y, 0.003]}>
+      <mesh>
+        <shapeGeometry args={[SHIELD_OUTER]} />
+        <meshBasicMaterial color={ARMOR_GLOW} />
+      </mesh>
+      <mesh position={[0, 0, 0.001]}>
+        <shapeGeometry args={[SHIELD_INNER]} />
+        <meshBasicMaterial color="#14324f" />
+      </mesh>
+      <Text
+        position={[0, 0.012, 0.002]}
+        fontSize={0.075}
+        color="#e6f1ff"
+        anchorX="center"
+        anchorY="middle"
+        outlineWidth={0.004}
+        outlineColor="#05080b"
+      >
+        {`${armor}`}
+      </Text>
+    </group>
+  );
+}
+
 /** Remaining/Total HP number stacked over a draining health bar (top of link).
  *  With Armor Bars, a blue segmented layer (one segment per bar) covers the
  *  bar; each broken bar shatters and reveals the HP colour underneath. */
@@ -171,12 +214,15 @@ export function HpOverlay({
   currentHp,
   bars = 0,
   maxBars = 0,
+  armor = 0,
 }: {
   stats: EffectiveStats;
   position: Vec3;
   currentHp?: number;
   bars?: number;
   maxBars?: number;
+  /** Flat Armor (damage reduction); shown as a shield badge when > 0. */
+  armor?: number;
 }) {
   const segments = Math.max(maxBars, bars);
   const segW = segments > 0 ? HP_BAR_W / segments : 0;
@@ -213,8 +259,9 @@ export function HpOverlay({
           <meshBasicMaterial color="#0c1116" transparent opacity={0.85} />
         </mesh>
 
+        {armor > 0 && <ArmorBadge armor={armor} />}
         <Text
-          position={[0, HP_TEXT_Y, 0.003]}
+          position={[armor > 0 ? 0.07 : 0, HP_TEXT_Y, 0.003]}
           fontSize={0.12}
           color={statColor(stats.hp.delta)}
           anchorX="center"

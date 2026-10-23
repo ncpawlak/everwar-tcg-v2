@@ -11,7 +11,7 @@ import { MotionCard } from '../animation/MotionCard';
 import { selectOpponentCardVisual } from '../animation/poseSelectors';
 import { CardView } from '../cards/CardView';
 import { opponentSummonFromPose } from '../board/layout';
-import { heroBars, heroMaxBars, opponentEffectiveStats, opponentField } from '../state/combatStats';
+import { heroBars, heroMaxBars, heroArmor, opponentEffectiveStats, opponentField } from '../state/combatStats';
 import { projectingAuraCardIds } from '../abilities/auras';
 import {
   HpOverlay,
@@ -100,6 +100,7 @@ export function OpponentBoard() {
               currentHp={state.currentHp[id]}
               bars={heroBars(state, 'opponent', slot as OppSlotId)}
               maxBars={heroMaxBars(state, 'opponent', slot as OppSlotId)}
+              armor={heroArmor(state, 'opponent', slot as OppSlotId)}
             />
             <DmgAccOverlay
               stats={opponentEffectiveStats(state, slot as OppSlotId)}
