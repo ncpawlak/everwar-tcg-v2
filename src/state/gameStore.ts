@@ -107,6 +107,11 @@ export const OPP_PLAY_GAP_MS = 650;
  * pause after it. */
 export const OPP_PLAY_STEP_MS = OPP_PLAY_SHOWCASE_MS + OPP_PLAY_GAP_MS;
 
+/** Dwell (ms) after each visible step of a CPU Ability's effect (a draw, a
+ *  search, a disturb, a destroy) so its animation finishes before the next
+ *  step — or the CPU's next play — begins. */
+export const OPP_EFFECT_STEP_MS = 1000;
+
 /** Upper bound (ms) of the Easy CPU's Main phase: its maximum three paced plays
  * (A, C, B). Normal/Hard run longer; Battle always starts once plays finish — the last starts at 2×OPP_PLAY_STEP_MS
  * and clears one showcase later — with margin, so the whole row settles before
@@ -1185,20 +1190,23 @@ export function createGameStore(
         return { o, eqId };
       };
 
-      /** Run a parsed B-card spell for the CPU (cost already paid), with the CPU
+      /** One visible step of a CPU spell; returning false fizzles the rest. */
+      type OppFx = () => boolean | void;
+
+      /** A parsed B-card spell for the CPU as sequenced steps, with the CPU
        *  making every pick: the most valuable revealed card, its best ally. */
-      const runOppSpellSteps = (ir: SpellIR) => {
-        for (const step of ir.steps) {
-          if (!oppActive()) return;
-          if (step.kind === 'draw') for (let i = 0; i < step.count; i++) drawOpponentCard();
-          else if (step.kind === 'disturb') oppDisturb();
+      const oppSpellFx = (ir: SpellIR): OppFx[] =>
+        ir.steps.map((step): OppFx => () => {
+          if (step.kind === 'draw') {
+            for (let i = 0; i < step.count; i++) drawOpponentCard();
+          } else if (step.kind === 'disturb') oppDisturb();
           else if (step.kind === 'tutor') oppTutor(step.select, step.count);
           else if (step.kind === 'requireAllyLostLastTurn') {
-            if (!oppLostLastTurn(get(), step.select)) return;
+            return oppLostLastTurn(get(), step.select);
           } else if (step.kind === 'reveal') {
             const s = get();
             const n = Math.min(step.count, s.opponentDeck.length);
-            if (n === 0) continue;
+            if (n === 0) return;
             const revealed = s.opponentDeck.slice(s.opponentDeck.length - n);
             const matches = step.pick ? revealed.filter((id) => matchesDeckSelector(s.opponentCards[id], step.pick!)) : [];
             const keep = matches.length
@@ -1215,14 +1223,13 @@ export function createGameStore(
           } else if (step.kind === 'equipAlly') {
             const s = get();
             const t = oppEquipAllyTarget(s, step);
-            if (!t) return;
+            if (!t) return false;
             set({
               opponentDeck: s.opponentDeck.filter((id) => id !== t.eqId),
               opponentCBoard: { ...s.opponentCBoard, [`OC${t.o[1]}`]: t.eqId },
             });
           }
-        }
-      };
+        });
 
       /** Would this spell actually gain the CPU something right now? */
       const oppSpellUseful = (ir: SpellIR, s: GameState) => {
@@ -1245,7 +1252,7 @@ export function createGameStore(
        * understands resolve through it; the Dictate-only Battle/field spells have
        * their own handlers.
        */
-      const planOppSpell = (cardId: CardId, window: 'main' | 'battle'): (() => void) | null => {
+      const planOppSpell = (cardId: CardId, window: 'main' | 'battle'): OppFx[] | null => {
         const s = get();
         const card = s.opponentCards[cardId];
         if (!card || card.type !== 'B') return null;
@@ -1268,7 +1275,7 @@ export function createGameStore(
           });
           if (!weapons.length) return null;
           const w = pick(weapons, (x) => heroValue(heroAt(x.a)) + equipValue(s.cardsById[x.id]));
-          return () => {
+          return [() => {
             const st = get();
             if (st.board[w.c] !== w.id) return;
             set({
@@ -1276,7 +1283,7 @@ export function createGameStore(
               graveyard: [...st.graveyard, w.id],
               notice: makeNotice(`Disarm destroyed your ${st.cardsById[w.id]?.name ?? 'Weapon'}`),
             });
-          };
+          }];
         }
 
         if (card.name === 'Unfortunate Standoff') {
@@ -1293,7 +1300,7 @@ export function createGameStore(
           if (!pairs.length) return null;
           const best = pick(pairs, (x) => x.gain);
           if (d === 'hard' ? best.gain <= 0 : d === 'normal' ? best.gain < -5 : false) return null;
-          return () => {
+          return [() => {
             const st = get();
             const ownId = st.opponentBoard[best.o];
             const enemyId = st.board[best.a];
@@ -1305,13 +1312,13 @@ export function createGameStore(
                 `Unfortunate Standoff destroyed ${st.cardsById[enemyId]?.name} and ${st.opponentCards[ownId]?.name}`,
               ),
             });
-          };
+          }];
         }
 
         if (card.name === 'Ruined Patrol') {
           const jackal: DeckCardSelector = { cardType: 'A', family: 'Jackal' };
           if (d !== 'easy' && !tutorPicks(s.opponentDeck, s.opponentCards, jackal, 1).length) return null;
-          return () => {
+          return [() => {
             const st = get();
             const heroes: CardId[] = [];
             for (let i = st.opponentDeck.length - 1; i >= 0 && heroes.length < 3; i--) {
@@ -1327,9 +1334,9 @@ export function createGameStore(
               opponentGraveyard: [...st.opponentGraveyard, ...heroes.filter((id) => id !== keep)],
               opponentReplen: keep ? [...st.opponentReplen, keep] : st.opponentReplen,
             });
+          }, () => {
             oppTutor(jackal, 1);
-            oppDisturb();
-          };
+          }, oppDisturb];
         }
 
         if (card.name === 'Team Contingency') {
@@ -1337,12 +1344,12 @@ export function createGameStore(
           if (!fodder) return null;
           const sel: DeckCardSelector = { cardType: 'A', allegiance: s.opponentCards[fodder]?.allegiance };
           if (!tutorPicks(s.opponentDeck, s.opponentCards, sel, 1).length) return null;
-          return () => {
-            if (!get().opponentHand.includes(fodder)) return;
+          return [() => {
+            if (!get().opponentHand.includes(fodder)) return false;
             oppSendFromHand(fodder, 'graveyard');
+          }, () => {
             oppTutor(sel, 1);
-            oppDisturb();
-          };
+          }, oppDisturb];
         }
 
         if (card.name === 'Alliance of Zero') {
@@ -1357,14 +1364,14 @@ export function createGameStore(
           const back = pick(lastTurn, (id) => heroValue(s.opponentCards[id]));
           const send = zero.reduce((a, b) => (heroValue(s.opponentCards[b]) < heroValue(s.opponentCards[a]) ? b : a));
           if (d !== 'easy' && heroValue(s.opponentCards[back]) <= heroValue(s.opponentCards[send])) return null;
-          return () => {
+          return [() => {
             const st = get();
-            if (!st.opponentGraveyard.includes(back) || !st.opponentHand.includes(send)) return;
+            if (!st.opponentGraveyard.includes(back) || !st.opponentHand.includes(send)) return false;
             set({
               opponentGraveyard: [...st.opponentGraveyard.filter((id) => id !== back), send],
               opponentHand: [...st.opponentHand.filter((id) => id !== send), back],
             });
-          };
+          }];
         }
 
         const ir = parseSpell(card.effect);
@@ -1375,33 +1382,41 @@ export function createGameStore(
           if (!costPick) return null;
         }
         if (d !== 'easy' && !oppSpellUseful(ir, s)) return null;
-        return () => {
-          if (costPick) {
-            if (!get().opponentHand.includes(costPick)) return;
-            oppSendFromHand(costPick, ir.cost!.to);
-          }
-          runOppSpellSteps(ir);
-        };
+        const pay: OppFx[] = costPick
+          ? [() => {
+              if (!get().opponentHand.includes(costPick!)) return false;
+              oppSendFromHand(costPick!, ir.cost!.to);
+            }]
+          : [];
+        return [...pay, ...oppSpellFx(ir)];
       };
 
       /** Cast the first B-card the CPU wants this window into an open OB slot:
-       *  reveal it, then resolve its effect as the reveal lands. */
-      const castOppSpell = (window: 'main' | 'battle'): boolean => {
+       *  reveal it, then resolve its effect one step at a time as the reveal
+       *  lands, each step getting OPP_EFFECT_STEP_MS to animate. `done` fires
+       *  once the last step has settled, so the next play never overlaps it. */
+      const castOppSpell = (window: 'main' | 'battle', done: () => void): boolean => {
         const s = get();
         const obSlot = (['OB1', 'OB2', 'OB3', 'OB4'] as OppBSlotId[]).find((ob) => !s.opponentBBoard[ob]);
         if (!obSlot) return false;
         for (const cardId of s.opponentHand) {
-          const run = planOppSpell(cardId, window);
-          if (!run) continue;
+          const fx = planOppSpell(cardId, window);
+          if (!fx) continue;
           set((st) => ({
             opponentHand: st.opponentHand.filter((id) => id !== cardId),
             opponentBBoard: { ...st.opponentBBoard, [obSlot]: cardId },
             oppSummon: { cardId, slotId: obSlot },
           }));
           revealOppCard(cardId);
-          setTimeout(() => {
-            if (oppActive() && !get().winner) run();
-          }, OPP_PLAY_SHOWCASE_MS);
+          const runStep = (i: number) => {
+            if (!oppActive() || get().winner) return;
+            if (i >= fx.length || fx[i]() === false) {
+              setTimeout(done, OPP_PLAY_GAP_MS);
+              return;
+            }
+            setTimeout(() => runStep(i + 1), OPP_EFFECT_STEP_MS);
+          };
+          setTimeout(() => runStep(0), OPP_PLAY_SHOWCASE_MS);
           return true;
         }
         return false;
@@ -1454,19 +1469,21 @@ export function createGameStore(
        * the new cards can be Set this turn), then tribute Set, fill every open
        * column with their strongest Heroes, and equip until nothing is left.
        */
-      const opponentPlayStep = (played: Record<CardType, number>): CardType | null => {
+      const opponentPlayStep = (played: Record<CardType, number>, done: () => void): CardType | null => {
         if (!oppActive() || get().winner) return null;
         const s = get();
         const d = cpuDifficulty();
         const easy = d === 'easy';
         const can = (t: CardType) => !easy || played[t] === 0;
 
-        if (!easy && castOppSpell('main')) return 'B';
+        const settle = () => setTimeout(done, OPP_PLAY_STEP_MS);
+        if (!easy && castOppSpell('main', done)) return 'B';
 
         if (can('A')) {
           const plan = planTribute(s, d);
           if (plan) {
             oppTributeSet(plan);
+            settle();
             return 'A';
           }
           const slot = OPP_SLOT_IDS.find((o) => !s.opponentBoard[o]);
@@ -1478,6 +1495,7 @@ export function createGameStore(
               oppSummon: { cardId, slotId: slot },
             }));
             revealOppCard(cardId);
+            settle();
             return 'A';
           }
         }
@@ -1491,11 +1509,12 @@ export function createGameStore(
               oppSummon: { cardId: eq.cardId, slotId: eq.slot },
             }));
             revealOppCard(eq.cardId);
+            settle();
             return 'C';
           }
         }
 
-        if (easy && can('B') && castOppSpell('main')) return 'B';
+        if (easy && can('B') && castOppSpell('main', done)) return 'B';
         return null;
       };
 
@@ -1507,16 +1526,16 @@ export function createGameStore(
        */
       const opponentMainPhase = (played: Record<CardType, number>, onDone: (elapsedMs: number) => void) => {
         let count = 0;
+        const start = Date.now();
         const playNext = () => {
           if (!oppActive()) return;
-          const t = count < OPP_MAX_PLAYS ? opponentPlayStep(played) : null;
+          const t = count < OPP_MAX_PLAYS ? opponentPlayStep(played, playNext) : null;
           if (!t) {
-            onDone(count * OPP_PLAY_STEP_MS);
+            onDone(Date.now() - start);
             return;
           }
           played[t]++;
           count++;
-          setTimeout(playNext, OPP_PLAY_STEP_MS);
         };
         playNext();
       };
@@ -1529,9 +1548,8 @@ export function createGameStore(
         const easy = cpuDifficulty() === 'easy';
         const next = () => {
           if (!oppActive() || get().winner) return;
-          if ((!easy || played.B === 0) && castOppSpell('battle')) {
+          if ((!easy || played.B === 0) && castOppSpell('battle', next)) {
             played.B++;
-            setTimeout(next, OPP_PLAY_STEP_MS);
             return;
           }
           declareOpponentAttacks();

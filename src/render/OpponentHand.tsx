@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MotionCard } from '../animation/MotionCard';
-import { SPRING, OPENING_DEAL_STAGGER_MS } from '../animation/motionConfig';
+import { SPRING, OPENING_DEAL_STAGGER_MS, MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { opponentDeckPose, opponentHandPoses } from '../board/layout';
 import { useGameStore } from '../state/useGameStore';
 import type { Pose } from '../state/types';
@@ -50,6 +50,20 @@ export function OpponentHand() {
   // Draw fly-in starts from the current top of the (shrinking) opponent deck.
   const deckTop = opponentDeckPose(Math.max(0, deckCount - 1));
 
+  // Each back's fly-in delay is fixed the first time its id is seen. The
+  // opening deal staggers by hand position; later arrivals (draws, searches)
+  // stagger only among the cards that arrived together, so a card added to a
+  // full hand still leaves the deck right away instead of after a long wait.
+  const delays = useRef(new Map<string, number>());
+  const known = delays.current;
+  const opening = known.size === 0;
+  let fresh = 0;
+  for (const [i, id] of opponentHand.entries()) {
+    if (known.has(id)) continue;
+    known.set(id, opening ? 450 + i * OPENING_DEAL_STAGGER_MS : 60 + fresh++ * MULTI_DRAW_STAGGER_MS);
+  }
+  for (const id of [...known.keys()]) if (!opponentHand.includes(id)) known.delete(id);
+
   return (
     <>
       {opponentHand.map((id, i) => (
@@ -57,7 +71,7 @@ export function OpponentHand() {
           key={id}
           pose={handPoses[i]}
           deckTop={deckTop}
-          delay={450 + i * OPENING_DEAL_STAGGER_MS}
+          delay={known.get(id) ?? 0}
         />
       ))}
     </>

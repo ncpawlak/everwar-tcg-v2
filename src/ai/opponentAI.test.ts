@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { planAttacks, shouldMulligan } from './opponentAI';
-import { createGameStore, OPP_MAIN_DURATION_MS, OPP_PHASE_STEP_MS, OPP_PLAY_SHOWCASE_MS, OPP_PLAY_STEP_MS, SHUFFLE_SPREAD_MS } from '../state/gameStore';
+import { createGameStore, OPP_EFFECT_STEP_MS, OPP_MAIN_DURATION_MS, OPP_PHASE_STEP_MS, OPP_PLAY_GAP_MS, OPP_PLAY_SHOWCASE_MS, OPP_PLAY_STEP_MS, SHUFFLE_SPREAD_MS } from '../state/gameStore';
 import { createInitialState, OPENING_HAND_SIZE } from '../state/cardData';
 import { requiresTribute } from '../board/slotRules';
 import type { Card, GameState } from '../state/types';
@@ -155,6 +155,43 @@ describe('CPU turn by difficulty', () => {
     const s = store.getState();
     expect(Object.values(s.opponentBoard)).toContain(big.id);
     expect(s.opponentReplen).toEqual(expect.arrayContaining([l1.id, l2.id]));
+  });
+
+  it('a spell resolves step by step and the next play waits for it to settle', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const tc = oppFind(base, (c) => c.name === 'Team Contingency');
+    const [fodder] = freeHeroes(base, 1);
+    const allegiance = base.opponentCards[fodder].allegiance;
+    const found = oppFind(
+      base,
+      (c) => c.type === 'A' && !requiresTribute(c) && c.allegiance === allegiance && c.name !== base.opponentCards[fodder].name,
+    );
+    // Battle-timed Abilities (with no targets) pad the deck so the Draw phase
+    // can't pull the target and the search can't match them.
+    const fillers = Object.values(base.opponentCards)
+      .filter((c) => c.type === 'B' && (c.timing ?? '').toLowerCase() === 'battle')
+      .slice(0, 8)
+      .map((c) => c.id);
+    const store = startCpuTurn({ difficulty: 'normal', opponentHand: [tc.id, fodder], opponentDeck: [found.id, ...fillers] });
+
+    // Showcase lands: the cost is paid, nothing searched yet.
+    vi.advanceTimersByTime(OPP_PHASE_STEP_MS + OPP_PLAY_SHOWCASE_MS + 10);
+    const deck = store.getState().opponentDeck;
+    const filler = { id: deck[deck.length - 1] };
+    expect(store.getState().opponentGraveyard).toContain(fodder);
+    expect(store.getState().opponentHand).not.toContain(found.id);
+    // Next step: the search adds the Hero to hand, and the CPU hasn't jumped ahead.
+    vi.advanceTimersByTime(OPP_EFFECT_STEP_MS);
+    expect(store.getState().opponentHand).toContain(found.id);
+    expect(store.getState().opponentDeck).toContain(filler.id);
+    // Next step: disturb. Still nothing Set while the effect plays out.
+    vi.advanceTimersByTime(OPP_EFFECT_STEP_MS);
+    expect(store.getState().opponentReplen).toContain(filler.id);
+    expect(Object.values(store.getState().opponentBoard).filter(Boolean)).toEqual([]);
+    // Once the last step settles, the searched Hero is Set.
+    vi.advanceTimersByTime(OPP_EFFECT_STEP_MS + OPP_PLAY_GAP_MS + 10);
+    expect(Object.values(store.getState().opponentBoard)).toContain(found.id);
   });
 
   it('Disarm destroys a player Weapon during the CPU Battle phase', () => {

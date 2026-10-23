@@ -1250,6 +1250,7 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
         // summon step is a no-op — this test isolates the combat path.
         ...withOpponent(base, 'O1'),
         opponentHand: [],
+        opponentDeck: [],
       });
 
       // Player has no attackers: Battle -> Resolution flows straight to End...
@@ -1297,7 +1298,7 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
     const rand = vi.spyOn(Math, 'random').mockReturnValue(0);
     try {
       const base = createInitialState();
-      const store = createGameStore({ ...base, phase: 'battle', activePlayer: 'player' });
+      const store = createGameStore({ ...base, phase: 'battle', activePlayer: 'player', opponentHand: [], opponentDeck: [] });
       store.getState().advancePhase();
       vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
       vi.advanceTimersByTime(END_PHASE_DWELL_MS + 20);
