@@ -220,6 +220,48 @@ describe('P2-S02/S08 game store actions', () => {
     expect(s.pendingSummon).toBeNull();
   });
 
+  it('a tribute can keep 1 material Equipment, which moves onto the new Hero (a Weapon lets it attack)', () => {
+    const base = createInitialState();
+    const weapon = Object.values(base.cardsById).find((c) => c.type === 'C' && c.subType === 'Weapon')!.id;
+    const other = Object.values(base.cardsById).find((c) => c.type === 'C' && c.id !== weapon)!.id;
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-40'],
+      deck: base.deck.filter((id) => !['card-hero-40', 'card-hero-1', 'card-hero-17', weapon, other].includes(id)),
+      board: { ...base.board, A1: 'card-hero-1', A2: 'card-hero-17', C1: weapon, C2: other },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-hero-40');
+    store.getState().dropCard('card-hero-40', 'A3');
+    store.getState().confirmTributeSummon(['A1', 'A2'], 'C1');
+    let s = store.getState();
+    expect(s.replen).toEqual(expect.arrayContaining(['card-hero-1', 'card-hero-17', other]));
+    expect(s.replen).not.toContain(weapon);
+
+    store.getState().placePendingSummon('A3');
+    s = store.getState();
+    expect(s.board.A3).toBe('card-hero-40');
+    expect(s.board.C3).toBe(weapon);
+    expect(s.board.C1).toBeNull();
+    expect(heroCanAttack(s, 'player', 'A3')).toBe(true);
+  });
+
+  it('a keep slot outside the materials is ignored', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-40'],
+      deck: base.deck.filter((id) => !['card-hero-40', 'card-hero-1', 'card-hero-17', 'card-hero-4', 'card-equipment-1'].includes(id)),
+      board: { ...base.board, A1: 'card-hero-1', A2: 'card-hero-17', A4: 'card-hero-4', C4: 'card-equipment-1' },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-hero-40');
+    store.getState().dropCard('card-hero-40', 'A3');
+    store.getState().confirmTributeSummon(['A1', 'A2'], 'C4');
+    expect(store.getState().pendingSummon?.keptEquip).toBeUndefined();
+    expect(store.getState().board.C4).toBe('card-equipment-1');
+  });
+
   it('confirming a COMMANDER tribute sends materials (and linked C) to the graveyard', () => {
     const base = createInitialState();
     const store = createGameStore({

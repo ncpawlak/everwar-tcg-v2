@@ -12,7 +12,8 @@ import type { SlotId } from '../state/types';
  * counter. Confirm is enabled only when the selected materials' levels sum
  * EXACTLY to the pending Hero's level. Confirming sends the materials (and their
  * linked C-cards) to the replen pile (Replen Set) or the graveyard (Commit Set,
- * for Commander Heroes) and sets the card. Cancel / backdrop / Escape aborts and
+ * for Commander Heroes) and sets the card. Up to 1 of the selected materials'
+ * Equipment may be kept; it moves onto the new Hero once its slot is picked. Cancel / backdrop / Escape aborts and
  * leaves the card in hand.
  *
  * Marked `data-ui-overlay` so PointerControls ignores clicks on it.
@@ -25,11 +26,14 @@ export function TributeModal() {
   const cancelTributeSummon = useGameStore((s) => s.cancelTributeSummon);
 
   const [selected, setSelected] = useState<SlotId[]>([]);
+  // C slot of the one material Equipment to keep on the new Hero (optional).
+  const [keepSlot, setKeepSlot] = useState<SlotId | null>(null);
 
   // Reset the selection whenever a new tribute prompt opens.
   const pendingCardId = pending?.cardId ?? null;
   useEffect(() => {
     setSelected([]);
+    setKeepSlot(null);
   }, [pendingCardId]);
 
   useEffect(() => {
@@ -69,10 +73,19 @@ export function TributeModal() {
     .filter((p) => p.materials && p.setKind !== 'normal')
     .map((p) => `${p.materials!.count} ${p.materials!.subType ?? ''} Hero${p.materials!.count > 1 ? 'es' : ''}`.replace(/\s+/g, ' '));
 
-  const toggle = (slot: SlotId) =>
+  const toggle = (slot: SlotId) => {
+    if (selected.includes(slot) && keepSlot === `C${slot[1]}`) setKeepSlot(null);
     setSelected((prev) =>
       prev.includes(slot) ? prev.filter((s) => s !== slot) : [...prev, slot],
     );
+  };
+  // Equipment linked to the selected materials: up to 1 may be kept.
+  const keepable = selected.flatMap((a) => {
+    const c = `C${a[1]}` as SlotId;
+    const id = board[c];
+    const eq = id ? cardsById[id] : undefined;
+    return eq ? [{ slot: c, card: eq }] : [];
+  });
 
   return (
     <div data-ui-overlay style={BACKDROP_STYLE} onClick={() => cancelTributeSummon()}>
@@ -137,6 +150,36 @@ export function TributeModal() {
           </div>
         )}
 
+        {keepable.length > 0 && (
+          <div style={KEEP_STYLE}>
+            <div style={{ fontSize: 12.5, color: '#8b95a3', marginBottom: 8 }}>
+              Keep 1 Equipment from the materials (optional) — it moves to {card.name}.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {keepable.map(({ slot, card: eq }) => {
+                const on = keepSlot === slot;
+                return (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => setKeepSlot(on ? null : slot)}
+                    style={{
+                      ...KEEP_CHIP_STYLE,
+                      border: `2px solid ${on ? '#ffcf3f' : TYPE_ACCENT.C}`,
+                      boxShadow: on ? '0 0 10px rgba(255,207,63,0.5)' : 'none',
+                    }}
+                    title={eq.name}
+                  >
+                    <span style={{ color: TYPE_ACCENT.C, fontWeight: 800 }}>C</span> {eq.name}
+                    {eq.subType ? <span style={{ color: '#8b95a3' }}> · {eq.subType}</span> : null}
+                    {on && <span style={{ color: '#ffcf3f', fontWeight: 900 }}> ✓ Keep</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div style={FOOTER_STYLE}>
           <button type="button" onClick={() => cancelTributeSummon()} style={CANCEL_STYLE}>
             Cancel
@@ -144,7 +187,7 @@ export function TributeModal() {
           <button
             type="button"
             disabled={!ready}
-            onClick={() => ready && confirmTributeSummon(selected)}
+            onClick={() => ready && confirmTributeSummon(selected, keepSlot)}
             style={{
               ...CONFIRM_STYLE,
               opacity: ready ? 1 : 0.4,
@@ -291,6 +334,20 @@ const CHECK_STYLE: CSSProperties = {
   color: '#1a1206',
   fontWeight: 900,
   fontSize: 13,
+};
+
+const KEEP_STYLE: CSSProperties = {
+  padding: '0 16px 12px',
+};
+
+const KEEP_CHIP_STYLE: CSSProperties = {
+  padding: '6px 10px',
+  borderRadius: 8,
+  background: '#0e1218',
+  color: '#dfe4ea',
+  fontSize: 12,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
 };
 
 const FOOTER_STYLE: CSSProperties = {

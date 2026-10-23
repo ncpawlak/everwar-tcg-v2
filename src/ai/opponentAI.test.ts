@@ -157,6 +157,26 @@ describe('CPU turn by difficulty', () => {
     expect(s.opponentReplen).toEqual(expect.arrayContaining([l1.id, l2.id]));
   });
 
+  it('a tribute Set keeps the best material Equipment on the new Hero', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const big = oppFind(base, (c) => c.type === 'A' && c.level === 3 && !c.commander && requiresTribute(c));
+    const l1 = oppFind(base, (c) => c.type === 'A' && c.level === 1 && !requiresTribute(c));
+    const l2 = oppFind(base, (c) => c.type === 'A' && c.level === 2 && !requiresTribute(c));
+    const eq = oppFind(base, (c) => c.type === 'C' && c.subType === 'Weapon');
+    const store = startCpuTurn({
+      difficulty: 'normal',
+      opponentHand: [big.id],
+      opponentBoard: { ...base.opponentBoard, O1: l1.id, O2: l2.id, O3: null, O4: null },
+      opponentCBoard: { ...base.opponentCBoard, OC1: eq.id },
+    });
+    vi.advanceTimersByTime(OPP_PHASE_STEP_MS + OPP_PLAY_STEP_MS);
+    const s = store.getState();
+    const slot = (Object.keys(s.opponentBoard) as (keyof typeof s.opponentBoard)[]).find((k) => s.opponentBoard[k] === big.id)!;
+    expect(s.opponentCBoard[`OC${slot[1]}` as keyof typeof s.opponentCBoard]).toBe(eq.id);
+    expect(s.opponentReplen).not.toContain(eq.id);
+  });
+
   it('a spell resolves step by step and the next play waits for it to settle', () => {
     vi.useFakeTimers();
     const base = createInitialState();

@@ -284,6 +284,9 @@ export interface PendingSummon {
   /** The materials satisfied a "can attack during the turn this Hero is Set"
    *  ability (Shock Deployment). */
   setTurnAttack?: boolean;
+  /** One material's Equipment kept through the tribute: it stays in its C slot
+   *  until the Hero is placed, then moves to the Hero's column. */
+  keptEquip?: { cardId: CardId; from: SlotId };
 }
 
 /**

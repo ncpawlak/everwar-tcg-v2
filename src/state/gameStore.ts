@@ -174,7 +174,9 @@ export interface GameActions {
    * the card. No-op unless a tribute is pending and the selected materials'
    * levels sum exactly to the card's level.
    */
-  confirmTributeSummon: (materialSlots: SlotId[]) => void;
+  /** `keepEquipSlot`: optionally keep 1 material's Equipment (its C slot) and
+   *  move it onto the new Hero. */
+  confirmTributeSummon: (materialSlots: SlotId[], keepEquipSlot?: SlotId | null) => void;
   /** Cancel a pending tribute summon; the card stays in hand. */
   cancelTributeSummon: () => void;
   /** Place a pending level-3+ summon (materials already consumed) into a chosen
@@ -1447,6 +1449,15 @@ export function createGameStore(
           }
           const slot = plan.materials[0];
           opponentBoard[slot] = plan.cardId;
+          // Keep the best Equipment among the materials on the new Hero.
+          const equips = sent.filter((id) => st.opponentCards[id]?.type === 'C');
+          if (equips.length) {
+            const best = equips.reduce((a, b) =>
+              equipValue(st.opponentCards[b]) > equipValue(st.opponentCards[a]) ? b : a,
+            );
+            sent.splice(sent.indexOf(best), 1);
+            opponentCBoard[`OC${slot[1]}` as OppCSlotId] = best;
+          }
           return {
             opponentHand: st.opponentHand.filter((id) => id !== plan.cardId),
             opponentBoard,
@@ -2008,7 +2019,7 @@ export function createGameStore(
       commitPlacement(cardId, card.type, target);
     },
 
-    confirmTributeSummon: (materialSlots) => {
+    confirmTributeSummon: (materialSlots, keepEquipSlot = null) => {
       const s = get();
       const pending = s.pendingTribute;
       if (!pending) return;
@@ -2026,6 +2037,13 @@ export function createGameStore(
       }
       const kind = tributeSetKind(card, mats);
       if (!kind) return;
+      // The kept Equipment must belong to one of the materials.
+      const keep =
+        keepEquipSlot &&
+        materialSlots.some((a) => `C${a[1]}` === keepEquipSlot) &&
+        s.board[keepEquipSlot]
+          ? { cardId: s.board[keepEquipSlot]!, from: keepEquipSlot }
+          : null;
       // Send each material A-card (and its linked C-card) away: Commit Set →
       // GRAVEYARD, Replen Set → replen pile.
       const toGraveyard = kind === 'commit';
@@ -2039,7 +2057,7 @@ export function createGameStore(
         sent.push(board[aSlot]!);
         board[aSlot] = null;
         const cSlot = `C${aSlot[1]}` as SlotId;
-        if (board[cSlot]) {
+        if (board[cSlot] && cSlot !== keep?.from) {
           sink.push(board[cSlot]!);
           sent.push(board[cSlot]!);
           board[cSlot] = null;
@@ -2060,6 +2078,7 @@ export function createGameStore(
           setKind: toGraveyard ? 'commit' : 'replen',
           materials: materialSlots.length,
           ...(setTurnAttack ? { setTurnAttack: true } : {}),
+          ...(keep ? { keptEquip: keep } : {}),
         },
       });
       scheduleOnSentPrompt(sent, toGraveyard ? 'graveyard' : 'replen');
@@ -2079,6 +2098,21 @@ export function createGameStore(
         kind: pending.setKind ?? 'replen',
         materials: pending.materials ?? 0,
       });
+      const kept = pending.keptEquip;
+      if (kept) {
+        const to = linkedCSlot(slotId);
+        set((st) => {
+          if (st.board[kept.from] !== kept.cardId || to === kept.from) return {};
+          // Target column already holds Equipment: the kept card can't fit, so it
+          // follows the materials after all.
+          if (st.board[to]) {
+            return pending.setKind === 'commit'
+              ? { board: { ...st.board, [kept.from]: null }, graveyard: [...st.graveyard, kept.cardId] }
+              : { board: { ...st.board, [kept.from]: null }, replen: [...st.replen, kept.cardId] };
+          }
+          return { board: { ...st.board, [kept.from]: null, [to]: kept.cardId } };
+        });
+      }
       if (pending.setTurnAttack) set((st) => ({ setTurnAttack: { ...st.setTurnAttack, [pending.cardId]: true } }));
     },
 
@@ -2565,8 +2599,9 @@ function trackFieldEntries(store: StoreApi<GameStore>) {
  */
 function trackEquipment(store: StoreApi<GameStore>) {
   const applied = new Map<CardId, { hp: number; bars: number }>();
-  // Bar count when a bar-loss Equipment attached; it breaks below this.
-  const attachBars = new Map<CardId, number>();
+  // Bar count when a bar-loss Equipment attached to a Hero (keyed
+  // "equip|hero", so a kept Equipment re-arms on its new Hero).
+  const attachBars = new Map<string, number>();
   const sides = [
     { side: 'player' as const, slots: ['A1', 'A2', 'A3', 'A4'] as SlotId[] },
     { side: 'opponent' as const, slots: OPP_SLOT_IDS as readonly OppSlotId[] },
@@ -2616,9 +2651,10 @@ function trackEquipment(store: StoreApi<GameStore>) {
         const equip = linkedEquipment(s, side, slot);
         if (!equip?.equipStats?.destroyOnBarLoss) continue;
         const bars = currentArmorBars[id] ?? heroMaxBars(s, side, slot);
-        if (!attachBars.has(equip.id)) attachBars.set(equip.id, bars);
-        if (bars < attachBars.get(equip.id)!) {
-          attachBars.delete(equip.id);
+        const key = `${equip.id}|${id}`;
+        if (!attachBars.has(key)) attachBars.set(key, bars);
+        if (bars < attachBars.get(key)!) {
+          attachBars.delete(key);
           const col = slot[slot.length - 1];
           if (side === 'player') {
             board = { ...board, [`C${col}`]: null };
@@ -2633,7 +2669,7 @@ function trackEquipment(store: StoreApi<GameStore>) {
     }
     for (const id of [...applied.keys()]) if (!seen.has(id)) applied.delete(id);
     const linked = new Set([...Object.values(board), ...Object.values(opponentCBoard)]);
-    for (const id of [...attachBars.keys()]) if (!linked.has(id)) attachBars.delete(id);
+    for (const key of [...attachBars.keys()]) if (!linked.has(key.split('|')[0])) attachBars.delete(key);
     if (changed) store.setState({ currentHp, currentArmorBars, board, opponentCBoard, graveyard, opponentGraveyard });
   });
 }

@@ -14,6 +14,7 @@ import { OpponentField } from './OpponentField';
 import { OpponentHand } from './OpponentHand';
 import { TargetingArrows } from './TargetingArrows';
 import { OpeningDeal } from './OpeningDeal';
+import { AttackReadyFrames } from './AttackReadyFrames';
 import { FieldTurnHighlight } from './FieldTurnHighlight';
 import { ThreeBridge } from './ThreeBridge';
 import { DeckCounts } from './DeckCounts';
@@ -45,6 +46,7 @@ export function GameScene() {
       />
       <BoardView />
       <FieldTurnHighlight />
+      <AttackReadyFrames />
       <SlotView />
       <OpponentField />
       <OpponentHand />

@@ -53,7 +53,7 @@ function fieldRect(points: Vec3[]): { cx: number; cz: number; w: number; h: numb
 }
 
 /** Trace a rounded rectangle (width w, height h, corner r) into a path. */
-function traceRoundedRect(path: THREE.Shape | THREE.Path, w: number, h: number, r: number) {
+export function traceRoundedRect(path: THREE.Shape | THREE.Path, w: number, h: number, r: number) {
   const x = -w / 2;
   const y = -h / 2;
   path.moveTo(x + r, y);
@@ -68,11 +68,11 @@ function traceRoundedRect(path: THREE.Shape | THREE.Path, w: number, h: number, 
 }
 
 /** A flat frame-band geometry (outer rounded rect minus an inner hole). */
-function makeFrameGeometry(w: number, h: number): THREE.ShapeGeometry {
+export function makeFrameGeometry(w: number, h: number, radius = RADIUS, band = BAND): THREE.ShapeGeometry {
   const shape = new THREE.Shape();
-  traceRoundedRect(shape, w, h, RADIUS);
+  traceRoundedRect(shape, w, h, radius);
   const hole = new THREE.Path();
-  traceRoundedRect(hole, w - 2 * BAND, h - 2 * BAND, Math.max(0.02, RADIUS - BAND));
+  traceRoundedRect(hole, w - 2 * band, h - 2 * band, Math.max(0.02, radius - band));
   shape.holes.push(hole);
   return new THREE.ShapeGeometry(shape);
 }
