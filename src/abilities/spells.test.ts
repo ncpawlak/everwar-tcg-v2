@@ -17,9 +17,28 @@ describe('parseSpell', () => {
     expect(parseSpell(text('The Armory'))).toEqual({ steps: [{ kind: 'draw', count: 2 }] });
   });
 
+  it('parses reveal / last-turn-loss condition / equip-ally spells', () => {
+    expect(parseSpell(text('Snowmobile Transport'))).toEqual({
+      steps: [{ kind: 'reveal', count: 5, pick: { cardType: 'A', family: 'Echo' }, restTo: 'replen' }],
+    });
+    expect(parseSpell(text('Man Down!'))?.steps).toEqual([
+      { kind: 'requireAllyLostLastTurn', select: { cardType: 'A', allegiance: 'Coalition' } },
+      { kind: 'tutor', count: 1, select: { cardType: 'A', allegiance: 'Coalition', subType: 'Medic' } },
+      { kind: 'disturb' },
+    ]);
+    expect(parseSpell(text('Big Weapon Drop'))?.steps).toEqual([
+      {
+        kind: 'equipAlly',
+        ally: { cardType: 'A', subType: 'Heavy' },
+        equip: { cardType: 'C', subType: 'Weapon', weaponClass: 'Suppressive' },
+      },
+      { kind: 'disturb' },
+    ]);
+  });
+
   it('returns null for wording it does not understand', () => {
     expect(parseSpell(text('Disarm'))).toBeNull();
-    expect(parseSpell(text('Snowmobile Transport'))).toBeNull();
+    expect(parseSpell('Reveal the top 5 cards of your Deck.')).toBeNull();
     expect(parseSpell('')).toBeNull();
   });
 });

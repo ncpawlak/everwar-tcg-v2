@@ -2272,4 +2272,122 @@ describe('B-card spells', () => {
     expect(store.getState().hand).toHaveLength(2);
     vi.useRealTimers();
   });
+
+  const cast = (store: ReturnType<typeof createGameStore>, spell: string) => {
+    store.getState().beginDrag(spell);
+    store.getState().dropCard(spell, 'B1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+  };
+  const find = (pred: (c: Card) => boolean) => {
+    const base = createInitialState();
+    return Object.values(base.cardsById).filter(pred).map((c) => c.id);
+  };
+
+  it('Snowmobile Transport: reveal 5, add the picked Echo Hero, rest to Replen', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-1';
+    const echo = find((c) => c.type === 'A' && c.name.includes('Echo'))[0];
+    const others = base.deck.filter((id) => id !== spell && id !== echo && !base.cardsById[id].name.includes('Echo'));
+    // Deck end is the top: echo sits 3rd from the top.
+    const deck = [...others.slice(4), others[0], others[1], echo, others[2], others[3]];
+    const store = createGameStore({ ...base, hand: [spell], deck, phase: 'main' });
+    cast(store, spell);
+    const sc = store.getState().spellChoice!;
+    expect(sc).toMatchObject({ kind: 'reveal', options: [echo] });
+    expect(sc.revealed).toHaveLength(5);
+    expect(store.getState().deck).toHaveLength(deck.length - 5);
+    store.getState().resolveSpellChoice(echo);
+    const s = store.getState();
+    expect(s.spellChoice).toBeNull();
+    expect(s.hand).toEqual([echo]);
+    expect(s.replen).toHaveLength(4);
+    expect(s.replen).not.toContain(echo);
+    vi.useRealTimers();
+  });
+
+  it('Snowmobile Transport: no Echo revealed sends all 5 to Replen', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-1';
+    const deck = base.deck.filter((id) => id !== spell && !base.cardsById[id].name.includes('Echo'));
+    const store = createGameStore({ ...base, hand: [spell], deck, phase: 'main' });
+    cast(store, spell);
+    expect(store.getState().spellChoice).toBeNull();
+    expect(store.getState().replen).toHaveLength(5);
+    vi.useRealTimers();
+  });
+
+  it('Man Down!: fizzles without a Coalition loss last turn', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-6';
+    const deck = base.deck.filter((id) => id !== spell);
+    const store = createGameStore({ ...base, hand: [spell], deck, phase: 'main', turn: 3 });
+    cast(store, spell);
+    expect(store.getState().hand).toHaveLength(0);
+    expect(store.getState().deck).toHaveLength(deck.length);
+    vi.useRealTimers();
+  });
+
+  it('Man Down!: tutors a Coalition Medic after a Coalition Hero fell last turn', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-6';
+    const medic = find((c) => c.type === 'A' && c.allegiance === 'Coalition' && c.subType === 'Medic')[0];
+    const fallen = find((c) => c.type === 'A' && c.allegiance === 'Coalition' && c.id !== medic)[0];
+    const deck = [...base.deck.filter((id) => id !== spell && id !== medic && id !== fallen), medic];
+    const store = createGameStore({
+      ...base,
+      hand: [spell],
+      deck,
+      phase: 'main',
+      turn: 3,
+      graveyard: [fallen],
+      playerHeroLosses: [{ cardId: fallen, turn: 2 }],
+    });
+    cast(store, spell);
+    const s = store.getState();
+    expect(s.hand).toEqual([medic]);
+    expect(s.replen).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it('Big Weapon Drop: equips the top Suppressive Weapon to the chosen Heavy Hero', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-9';
+    const heavy = find((c) => c.type === 'A' && c.subType === 'Heavy')[0];
+    const supp = find((c) => c.type === 'C' && c.subType === 'Weapon' && c.weaponClass === 'Suppressive');
+    expect(supp.length).toBeGreaterThan(0);
+    const deck = [...base.deck.filter((id) => id !== spell && id !== heavy && !supp.includes(id)), supp[0]];
+    const store = createGameStore({
+      ...base,
+      hand: [spell],
+      deck,
+      phase: 'main',
+      board: { ...base.board, A2: heavy },
+    });
+    cast(store, spell);
+    expect(store.getState().spellChoice).toMatchObject({ kind: 'equipAlly', options: [heavy] });
+    store.getState().resolveSpellChoice(heavy);
+    const s = store.getState();
+    expect(s.spellChoice).toBeNull();
+    expect(s.board.C2).toBe(supp[0]);
+    expect(s.deck).not.toContain(supp[0]);
+    expect(s.replen).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it('Big Weapon Drop: fizzles with no unequipped Heavy Hero', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-9';
+    const deck = base.deck.filter((id) => id !== spell);
+    const store = createGameStore({ ...base, hand: [spell], deck, phase: 'main' });
+    cast(store, spell);
+    expect(store.getState().spellChoice).toBeNull();
+    expect(store.getState().replen).toHaveLength(0);
+    vi.useRealTimers();
+  });
 });

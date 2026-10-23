@@ -281,6 +281,62 @@ export function SpellCostModal() {
   );
 }
 
+/**
+ * Mandatory pick for a paused B-card spell step (`spellChoice`): Snowmobile
+ * Transport's revealed Hero, or Big Weapon Drop's ally Hero to equip.
+ */
+export function SpellChoiceModal() {
+  const sc = useGameStore((s) => s.spellChoice);
+  const cardsById = useGameStore((s) => s.cardsById);
+  const resolve = useGameStore((s) => s.resolveSpellChoice);
+  const [selected, setSelected] = useState<CardId | null>(null);
+
+  useEffect(() => {
+    setSelected(null);
+  }, [sc?.sourceCardId, sc?.stepIndex]);
+
+  if (!sc) return null;
+  const source = cardsById[sc.sourceCardId];
+  const tiles = sc.options.map((id) => cardsById[id]).filter((c): c is Card => Boolean(c));
+  const selectedCard = selected ? cardsById[selected] ?? null : null;
+  const others = (sc.revealed ?? []).filter((id) => !sc.options.includes(id)).map((id) => cardsById[id]?.name);
+  const subtitle =
+    sc.kind === 'reveal'
+      ? `${sc.prompt}; the other revealed cards go to Replen.${others.length ? ` Also revealed: ${others.join(', ')}.` : ''}`
+      : `${sc.prompt}, then Confirm.`;
+
+  return (
+    <div data-ui-overlay style={BACKDROP_STYLE}>
+      <div style={PANEL_STYLE} onClick={(e) => e.stopPropagation()}>
+        <div style={HEADER_STYLE}>
+          <span style={{ fontWeight: 700, letterSpacing: 0.4 }}>
+            <span style={{ color: '#ffb020' }}>{source?.name ?? 'Ability'}</span>
+          </span>
+        </div>
+        <div style={SUBTITLE_STYLE}>{subtitle}</div>
+        <div style={GRID_SCROLL_STYLE}>
+          <div style={GRID_STYLE}>
+            {tiles.map((c) => (
+              <CardTile key={c.id} card={c} on={selected === c.id} onPick={() => setSelected(c.id)} />
+            ))}
+          </div>
+        </div>
+        {selectedCard && <CardDetail card={selectedCard} />}
+        <div style={FOOTER_STYLE}>
+          <button
+            type="button"
+            disabled={!selected}
+            onClick={() => selected && resolve(selected)}
+            style={{ ...CONFIRM_STYLE, opacity: selected ? 1 : 0.4, cursor: selected ? 'pointer' : 'not-allowed' }}
+          >
+            {sc.kind === 'reveal' ? 'Add to Hand' : 'Equip'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Prompt + button copy for the cost step. */
 function costCopy(ir: AbilityIR): { verb: string; button: string } {
   switch (ir.cost?.kind) {

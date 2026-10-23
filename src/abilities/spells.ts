@@ -18,12 +18,23 @@ export interface DeckCardSelector {
   subType?: string;
   /** "Normal" Hero = level ≤ 2. */
   normal?: boolean;
+  /** Weapon class, e.g. "Suppressive". */
+  weaponClass?: string;
 }
 
 export type SpellStep =
   | { kind: 'draw'; count: number }
   | { kind: 'tutor'; count: number; select: DeckCardSelector }
-  | { kind: 'disturb' };
+  | { kind: 'disturb' }
+  /** "Reveal the top N cards of your Deck. Add 1 <X> from among them to your
+   *  Hand. Send the remaining cards to Replen." — the player picks. */
+  | { kind: 'reveal'; count: number; pick?: DeckCardSelector; restTo?: 'replen' | 'graveyard' }
+  /** "If a <X> Hero on your field was destroyed or eliminated last turn, …" —
+   *  the rest of the spell only resolves when this held. */
+  | { kind: 'requireAllyLostLastTurn'; select: DeckCardSelector }
+  /** "Select 1 <X> Hero you control. Equip the top <Y> from your Deck to that
+   *  Hero." — the player picks an unequipped matching ally. */
+  | { kind: 'equipAlly'; ally: DeckCardSelector; equip?: DeckCardSelector };
 
 export interface SpellIR {
   /** Mandatory Hand cost paid first: the player picks the card. */
@@ -58,6 +69,37 @@ function heroSelector(desc: string): DeckCardSelector | null {
 function parseClause(clause: string, first: boolean, ir: SpellIR): boolean {
   const t = clause.trim();
   let m: RegExpMatchArray | null;
+  const last = ir.steps[ir.steps.length - 1];
+  if ((m = t.match(/^If an? (.+?) Hero on your field was destroyed or eliminated last turn, (.+)$/i))) {
+    const select = heroSelector(m[1]);
+    if (!select) return false;
+    ir.steps.push({ kind: 'requireAllyLostLastTurn', select });
+    return parseClause(m[2], false, ir);
+  }
+  if ((m = t.match(/^Reveal the top (\d+) cards of your Deck$/i))) {
+    ir.steps.push({ kind: 'reveal', count: +m[1] });
+    return true;
+  }
+  if (last?.kind === 'reveal' && !last.pick && (m = t.match(/^Add 1 (.+?) Hero from among them to your Hand$/i))) {
+    const select = heroSelector(m[1]);
+    if (!select) return false;
+    last.pick = select;
+    return true;
+  }
+  if (last?.kind === 'reveal' && !last.restTo && (m = t.match(/^Send the remaining cards to (the GY|Replen)$/i))) {
+    last.restTo = /GY/i.test(m[1]) ? 'graveyard' : 'replen';
+    return true;
+  }
+  if ((m = t.match(/^Select 1 (.+?) Hero you control$/i))) {
+    const ally = heroSelector(m[1]);
+    if (!ally) return false;
+    ir.steps.push({ kind: 'equipAlly', ally });
+    return true;
+  }
+  if (last?.kind === 'equipAlly' && !last.equip && (m = t.match(/^Equip the top (?:(\w+) )?(Weapon|Armor|Loadout) from your Deck to that Hero$/i))) {
+    last.equip = { cardType: 'C', subType: m[2], ...(m[1] ? { weaponClass: m[1] } : {}) };
+    return true;
+  }
   if (first && (m = t.match(/^Send 1 (card|Hero card) from your Hand to (the GY|Replen)$/i))) {
     ir.cost = { to: /GY/i.test(m[2]) ? 'graveyard' : 'replen', heroOnly: /hero/i.test(m[1]) };
     return true;
@@ -94,18 +136,23 @@ export function parseSpell(text: string | undefined): SpellIR | null {
     .split(/\.\s+|,\s+then\s+/i)
     .filter(Boolean);
   const ir: SpellIR = { steps: [] };
-  const ok = clauses.length > 0 && clauses.every((c, i) => parseClause(c, i === 0, ir)) && ir.steps.length > 0;
+  const ok =
+    clauses.length > 0 &&
+    clauses.every((c, i) => parseClause(c, i === 0, ir)) &&
+    ir.steps.length > 0 &&
+    ir.steps.every((st) => (st.kind === 'reveal' ? st.pick && st.restTo : st.kind === 'equipAlly' ? st.equip : true));
   const out = ok ? ir : null;
   cache.set(text, out);
   return out;
 }
 
-export function matchesDeckSelector(card: Card, sel: DeckCardSelector): boolean {
-  if (card.type !== sel.cardType) return false;
+export function matchesDeckSelector(card: Card | undefined, sel: DeckCardSelector): boolean {
+  if (!card || card.type !== sel.cardType) return false;
   if (sel.family && !card.name.includes(sel.family)) return false;
   if (sel.allegiance && card.allegiance !== sel.allegiance) return false;
   if (sel.subType && (card.subType ?? '').toLowerCase() !== sel.subType.toLowerCase()) return false;
   if (sel.normal && (card.level ?? 1) > 2) return false;
+  if (sel.weaponClass && (card.weaponClass ?? '').toLowerCase() !== sel.weaponClass.toLowerCase()) return false;
   return true;
 }
 

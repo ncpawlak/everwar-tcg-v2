@@ -281,6 +281,19 @@ export interface OnSetChoice {
  * Convoy Incoming: "Send 1 card from your Hand to the GY"). The rest of the
  * spell resolves once the cost is paid. Null when no cost pick is open.
  */
+/** A mid-resolution B-card spell step awaiting the player's mandatory pick.
+ *  `reveal`: pick 1 of the revealed eligible cards for the Hand (the rest of
+ *  `revealed` go to the step's pile). `equipAlly`: pick the ally Hero to equip. */
+export interface SpellChoice {
+  sourceCardId: CardId;
+  stepIndex: number;
+  kind: 'reveal' | 'equipAlly';
+  prompt: string;
+  options: CardId[];
+  /** `reveal` only: every card taken off the top of the Deck. */
+  revealed?: CardId[];
+}
+
 export interface SpellCostChoice {
   sourceCardId: CardId;
   to: 'graveyard' | 'replen';
@@ -346,6 +359,11 @@ export interface GameState {
   /** An On-Set ability awaiting the player's card pick (or skip), or null. */
   onSetChoice: OnSetChoice | null;
   spellCost: SpellCostChoice | null;
+  /** A B-card spell paused on a pick (reveal / equip target), or null. */
+  spellChoice: SpellChoice | null;
+  /** Player Heroes destroyed/eliminated on the field, with the turn it happened
+   *  (Man Down! checks "last turn"). */
+  playerHeroLosses: { cardId: CardId; turn: number }[];
   /** A paused Resolution awaiting the player's yes/no on Snow Viper's Bunker
    *  Busting Round, or null when combat is not paused for it. */
   combatPrompt: CombatPrompt | null;

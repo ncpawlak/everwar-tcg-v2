@@ -25,7 +25,7 @@ import {
 import type { AbilityIR } from '../abilities/abilityIR';
 import { onSentAbilities, pileActivatedAbilityFor } from '../abilities/pile';
 import { combatHitAbilities, finisherEliminates, ignoresArmorBars } from '../abilities/combat';
-import { parseSpell, spellCostOptions, tutorPicks, type SpellIR } from '../abilities/spells';
+import { matchesDeckSelector, parseSpell, spellCostOptions, tutorPicks, type SpellIR } from '../abilities/spells';
 import { onSetAbilities, onSetNeedsChoice, onSetChoiceOptions, dominationVictims } from '../abilities/onSet';
 import type { SetKind } from '../abilities/abilityIR';
 import { OPP_SLOT_IDS } from '../board/boardConfig';
@@ -184,6 +184,8 @@ export interface GameActions {
   resolveOnSetChoice: (cardId: CardId | null) => void;
   /** Pay a B card's Hand cost with `cardId`, then resolve the rest of the spell. */
   resolveSpellCost: (cardId: CardId) => void;
+  /** Resolve the open `spellChoice` with the picked card and resume the spell. */
+  resolveSpellChoice: (cardId: CardId) => void;
   /** Trigger a Hero's in-pile activated ability from the pile it sits in (e.g.
    *  return it to the Hand). No-op unless it is the player's Main phase, the card
    *  is in a player pile, and it has a matching pile-activated ability. */
@@ -793,12 +795,14 @@ export function createGameStore(
                 const currentArmorBars = { ...s.currentArmorBars };
                 const activatedStatBuffs = { ...s.activatedStatBuffs };
                 const usedActivatedAbilities = { ...s.usedActivatedAbilities };
+                const playerHeroLosses = [...s.playerHeroLosses];
                 for (const slot of ['A1', 'A2', 'A3', 'A4'] as SlotId[]) {
                   const pid = board[slot];
                   if (!pid || (currentHp[pid] ?? Infinity) > 0) continue;
                   destroyedAny = true;
                   board[slot] = null;
                   graveyard.push(pid);
+                  playerHeroLosses.push({ cardId: pid, turn: s.turn });
                   delete currentHp[pid];
                   delete currentArmorBars[pid];
                   delete activatedStatBuffs[pid];
@@ -823,6 +827,7 @@ export function createGameStore(
                   currentArmorBars,
                   activatedStatBuffs,
                   usedActivatedAbilities,
+                  playerHeroLosses,
                 };
               });
               if (destroyedAny) {
@@ -1220,12 +1225,50 @@ export function createGameStore(
      *  just-sent Hero whose ability triggers for that pile. Only prompts on the
      *  player's turn (a player choice) and never stacks over an open prompt or a
      *  card that has since left the pile. */
-    /** Resolve a parsed B-card spell's steps in order (cost already paid). */
-    const runSpellSteps = (ir: SpellIR) => {
-      for (const step of ir.steps) {
+    /** Resolve a parsed B-card spell's steps in order from `from` (cost already
+     *  paid). A step needing a pick pauses on `spellChoice`; `resolveSpellChoice`
+     *  resumes at the next step. A failed condition / no legal target fizzles. */
+    const runSpellSteps = (ir: SpellIR, cardId: CardId, from = 0) => {
+      for (let i = from; i < ir.steps.length; i++) {
+        const step = ir.steps[i];
         if (step.kind === 'draw') drawStaggered(step.count);
         else if (step.kind === 'disturb') get().disturbDeck();
-        else {
+        else if (step.kind === 'requireAllyLostLastTurn') {
+          const s = get();
+          const lost = s.playerHeroLosses.some(
+            (l) => l.turn === s.turn - 1 && matchesDeckSelector(s.cardsById[l.cardId], step.select),
+          );
+          if (!lost) return;
+        } else if (step.kind === 'reveal') {
+          const s = get();
+          const n = Math.min(step.count, s.deck.length);
+          if (n === 0) continue;
+          // The deck end is the top; list the revealed cards top-first.
+          const revealed = s.deck.slice(s.deck.length - n).reverse();
+          const deck = s.deck.slice(0, s.deck.length - n);
+          const options = revealed.filter((id) => matchesDeckSelector(s.cardsById[id], step.pick!));
+          if (options.length === 0) {
+            set(step.restTo === 'graveyard'
+              ? { deck, graveyard: [...s.graveyard, ...revealed] }
+              : { deck, replen: [...s.replen, ...revealed] });
+            continue;
+          }
+          set({
+            deck,
+            spellChoice: { sourceCardId: cardId, stepIndex: i, kind: 'reveal', prompt: 'Add 1 revealed card to your Hand', options, revealed },
+          });
+          return;
+        } else if (step.kind === 'equipAlly') {
+          const s = get();
+          const hasEquip = s.deck.some((id) => matchesDeckSelector(s.cardsById[id], step.equip!));
+          const options = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).flatMap((slot) => {
+            const id = s.board[slot];
+            return id && !s.board[linkedCSlot(slot)] && matchesDeckSelector(s.cardsById[id], step.ally) ? [id] : [];
+          });
+          if (!hasEquip || options.length === 0) return;
+          set({ spellChoice: { sourceCardId: cardId, stepIndex: i, kind: 'equipAlly', prompt: 'Select 1 Hero to equip', options } });
+          return;
+        } else {
           const s = get();
           const picks = tutorPicks(s.deck, s.cardsById, step.select, step.count);
           if (picks.length === 0) continue;
@@ -1238,7 +1281,7 @@ export function createGameStore(
      *  A cost that can't be paid (no eligible Hand card) fizzles the spell. */
     const castSpell = (cardId: CardId, ir: SpellIR) => {
       if (!ir.cost) {
-        runSpellSteps(ir);
+        runSpellSteps(ir, cardId);
         return;
       }
       const s = get();
@@ -1554,7 +1597,44 @@ export function createGameStore(
       if (sc.to === 'graveyard') set({ hand, graveyard: [...s.graveyard, pick], spellCost: null });
       else set({ hand, replen: [...s.replen, pick], spellCost: null });
       scheduleOnSentPrompt([pick], sc.to);
-      if (ir) runSpellSteps(ir);
+      if (ir) runSpellSteps(ir, sc.sourceCardId);
+    },
+
+    resolveSpellChoice: (pick) => {
+      const s = get();
+      const sc = s.spellChoice;
+      if (!sc || !sc.options.includes(pick)) return;
+      const ir = parseSpell(s.cardsById[sc.sourceCardId]?.effect);
+      const step = ir?.steps[sc.stepIndex];
+      if (!ir || !step) {
+        set({ spellChoice: null });
+        return;
+      }
+      if (step.kind === 'reveal') {
+        const rest = (sc.revealed ?? []).filter((id) => id !== pick);
+        set(step.restTo === 'graveyard'
+          ? { spellChoice: null, hand: [...s.hand, pick], graveyard: [...s.graveyard, ...rest] }
+          : { spellChoice: null, hand: [...s.hand, pick], replen: [...s.replen, ...rest] });
+      } else if (step.kind === 'equipAlly') {
+        const slot = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).find((a) => s.board[a] === pick);
+        const cSlot = slot && linkedCSlot(slot);
+        let idx = -1;
+        for (let i = s.deck.length - 1; i >= 0; i--) {
+          if (matchesDeckSelector(s.cardsById[s.deck[i]], step.equip!)) {
+            idx = i;
+            break;
+          }
+        }
+        if (!cSlot || s.board[cSlot] || idx < 0) {
+          set({ spellChoice: null });
+          return;
+        }
+        const eqId = s.deck[idx];
+        set({ spellChoice: null, deck: s.deck.filter((_, i) => i !== idx), board: { ...s.board, [cSlot]: eqId } });
+      } else {
+        set({ spellChoice: null });
+      }
+      runSpellSteps(ir, sc.sourceCardId, sc.stepIndex + 1);
     },
 
     resolveAbilityPrompt: (accept) => {
@@ -1638,7 +1718,11 @@ export function createGameStore(
         board[cSlot] = null;
         sent.push(cCard);
       }
-      set({ board, graveyard: [...s.graveyard, ...sent] });
+      set({
+        board,
+        graveyard: [...s.graveyard, ...sent],
+        playerHeroLosses: [...s.playerHeroLosses, { cardId: aCard, turn: s.turn }],
+      });
       scheduleOnSentPrompt(sent, 'graveyard');
     },
 

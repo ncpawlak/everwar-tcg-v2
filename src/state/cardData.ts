@@ -444,6 +444,8 @@ export function createInitialState(rand: () => number = Math.random): GameState 
     abilityTargeting: null,
     onSetChoice: null,
     spellCost: null,
+    spellChoice: null,
+    playerHeroLosses: [],
     abilityPrompt: null,
     combatPrompt: null,
     pendingCombatQueue: null,

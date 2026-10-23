@@ -4,7 +4,7 @@ import { PointerControls } from '../input/PointerControls';
 import { InspectionPanel } from '../ui/InspectionPanel';
 import { PileSearchHost } from '../ui/PileSearchHost';
 import { TributeModal } from '../ui/TributeModal';
-import { AbilityTargetModal, OnSetChoiceModal, SpellCostModal } from '../ui/AbilityTargetModal';
+import { AbilityTargetModal, OnSetChoiceModal, SpellChoiceModal, SpellCostModal } from '../ui/AbilityTargetModal';
 import { AbilityPromptModal } from '../ui/AbilityPromptModal';
 import { CombatPromptModal } from '../ui/CombatPromptModal';
 import { SummonSlotPrompt } from '../ui/SummonSlotPrompt';
@@ -41,6 +41,7 @@ export function App() {
       <AbilityTargetModal />
       <OnSetChoiceModal />
       <SpellCostModal />
+      <SpellChoiceModal />
       <AbilityPromptModal />
       <CombatPromptModal />
       <SummonSlotPrompt />
