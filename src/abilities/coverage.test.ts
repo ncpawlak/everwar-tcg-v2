@@ -22,7 +22,7 @@ function catalogAbilityLines(): string[] {
 
 describe('P8 v3 ability parse-coverage', () => {
   // Ratchet DOWN as rules are added. Current baseline is measured, not aspirational.
-  const MAX_UNIMPLEMENTED = 70;
+  const MAX_UNIMPLEMENTED = 27;
 
   it('reports how much of the catalog the parser structures', () => {
     const lines = catalogAbilityLines();

@@ -1,6 +1,6 @@
-import { useGameStore } from '../state/useGameStore';
+import { useColdGameState } from '../state/useGameStore';
 import { SLOT_POSITIONS } from '../board/boardConfig';
-import { effectiveStats } from '../state/combatStats';
+import { effectiveStats, heroBars, heroMaxBars, heroArmor } from '../state/combatStats';
 import type { SlotId, SlotIndex, Vec3 } from '../state/types';
 import {
   HpOverlay,
@@ -16,7 +16,7 @@ import {
  * health bar at the TOP of the A/C link, and a DMG/ACC line UNDERNEATH it. Both
  * appear (pop in) the moment a card is set and disappear when the slot empties,
  * driven purely by board state. Numbers are the A card's EFFECTIVE stats (base +
- * linked C-card boost), so setting/removing a C card recolors and updates them.
+ * auras and buffs), so setting/removing a C card recolors and updates them.
  *
  * A-zone only for now (Vanguard front line); other zones can opt in later. Both
  * overlays are centered horizontally over the linked A/C column pair (A_i ↔ C_i).
@@ -25,7 +25,7 @@ import {
 const PAIR_INDICES: SlotIndex[] = [1, 2, 3, 4];
 
 export function AZoneStats() {
-  const state = useGameStore((s) => s);
+  const state = useColdGameState();
   const { board } = state;
 
   return (
@@ -45,7 +45,14 @@ export function AZoneStats() {
         const daPos: Vec3 = [ax, ay + DA_Y_OFFSET, az + DA_Z_OFFSET];
         return (
           <group key={aSlot}>
-            <HpOverlay stats={stats} position={hpPos} currentHp={currentHp} />
+            <HpOverlay
+              stats={stats}
+              position={hpPos}
+              currentHp={currentHp}
+              bars={heroBars(state, 'player', aSlot)}
+              maxBars={heroMaxBars(state, 'player', aSlot)}
+              armor={heroArmor(state, 'player', aSlot)}
+            />
             <DmgAccOverlay stats={stats} position={daPos} />
           </group>
         );

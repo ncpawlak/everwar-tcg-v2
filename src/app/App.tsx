@@ -4,12 +4,17 @@ import { PointerControls } from '../input/PointerControls';
 import { InspectionPanel } from '../ui/InspectionPanel';
 import { PileSearchHost } from '../ui/PileSearchHost';
 import { TributeModal } from '../ui/TributeModal';
-import { AbilityTargetModal } from '../ui/AbilityTargetModal';
+import { AbilityTargetModal, OnSetChoiceModal, SpellChoiceModal, SpellCostModal } from '../ui/AbilityTargetModal';
 import { AbilityPromptModal } from '../ui/AbilityPromptModal';
+import { CounterPromptModal } from '../ui/CounterPromptModal';
 import { CombatPromptModal } from '../ui/CombatPromptModal';
 import { SummonSlotPrompt } from '../ui/SummonSlotPrompt';
 import { TurnHud } from '../ui/TurnHud';
 import { PhaseBanner } from '../ui/PhaseBanner';
+import { ScoreHud } from '../ui/ScoreHud';
+import { NoticeToast } from '../ui/NoticeToast';
+import { StartScreen } from '../ui/StartScreen';
+import { MulliganModal } from '../ui/MulliganModal';
 import { CAMERA_FOV, CAMERA_POSITION, CAMERA_TARGET } from '../board/boardConfig';
 
 /**
@@ -37,11 +42,19 @@ export function App() {
       <PileSearchHost />
       <TurnHud />
       <PhaseBanner />
+      <ScoreHud />
+      <NoticeToast />
       <TributeModal />
       <AbilityTargetModal />
+      <OnSetChoiceModal />
+      <SpellCostModal />
+      <SpellChoiceModal />
       <AbilityPromptModal />
+      <CounterPromptModal />
       <CombatPromptModal />
       <SummonSlotPrompt />
+      <MulliganModal />
+      <StartScreen />
     </div>
   );
 }

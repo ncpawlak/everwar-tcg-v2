@@ -11,19 +11,55 @@
  *  be modeled ahead of the armor-combat slice that will consume them. */
 export type AuraStat = 'hp' | 'dmg' | 'acc' | 'armor';
 
-/** Who an aura targets. `self` = the ability owner's own cards ("you control");
- *  `family` is an archetype name matched against a Hero's card name (e.g. "Echo"). */
-export interface AuraScope {
-  controller: 'self';
-  family: string;
+/**
+ * Which Heroes a clause refers to, relative to the ability's controller. Built
+ * from v3 noun phrases, e.g.:
+ *  - `all "Echo" Heroes you control`        → { side: 'ally', family: 'Echo' }
+ *  - `all Coalition Recon Heroes you control` → { side: 'ally', allegiance, subType }
+ *  - `other "Zero" Heroes you control`      → { side: 'ally', family, excludeSelf }
+ *  - `enemy Heroes`                         → { side: 'enemy' }
+ *  - `this Hero`                            → { side: 'ally', self: true }
+ * Quoted words (`family`) match as a substring of the card name, so both
+ * archetypes ("Echo") and exact cards ("Drone Scout") use the same field.
+ */
+export interface HeroSelector {
+  side: 'ally' | 'enemy';
+  /** "this Hero" — only the ability's own card (or, for Equipment, its bearer). */
+  self?: boolean;
+  /** "other" / "another" — every match except the ability's own card. */
+  excludeSelf?: boolean;
+  family?: string;
+  allegiance?: string;
+  subType?: string;
 }
 
-/** A continuous stat aura: "+N STAT to all <family> Heroes you control". */
+/** A continuous stat modifier: "<selector> gain(s) +N STAT" (or "have -N STAT"
+ *  for enemy debuffs). `amount` is signed. */
 export interface StatAuraEffect {
   kind: 'statAura';
   stat: AuraStat;
   amount: number;
-  scope: AuraScope;
+  target: HeroSelector;
+}
+
+/** "<selector> cannot be targeted for attacks." Parsed; not yet enforced. */
+export interface UntargetableEffect {
+  kind: 'untargetable';
+  target: HeroSelector;
+}
+
+/** "enemy Heroes can only target this Hero for attacks, if able." Parsed; not
+ *  yet enforced. */
+export interface ForceTargetEffect {
+  kind: 'forceTarget';
+}
+
+/** A rule restricting the opponent's Ability Card play. Parsed; not yet
+ *  enforced. */
+export interface OpponentRestrictionEffect {
+  kind: 'opponentRestriction';
+  restriction: 'noContinuousAbilityCards' | 'abilityCardsPerTurn';
+  max?: number;
 }
 
 /** An activated self-buff: "this Hero gains +N STAT" applied to the ability's
@@ -34,23 +70,98 @@ export interface SelfStatBuffEffect {
   amount: number;
 }
 
-/** Which cards an activated ability may target when the player triggers it.
- *  `ally` = a Hero on the player's own A-board. `subType` (optional) restricts to
- *  a Hero sub-type (e.g. "Infantry"). `excludeSelf` drops the ability's owner
- *  ("another … Hero"). */
-export interface TargetSpec {
-  side: 'ally';
-  subType?: string;
-  excludeSelf: boolean;
-}
-
 /** An activated buff applied to a chosen target: "select another <sub> Hero you
- *  control to gain +N STAT". The buff persists while that Hero stays on the field. */
+ *  control; that Hero gains +N STAT". The buff persists while that Hero stays on
+ *  the field. */
 export interface TargetStatBuffEffect {
   kind: 'targetStatBuff';
   stat: AuraStat;
   amount: number;
-  target: TargetSpec;
+  target: HeroSelector;
+}
+
+/** "select 1 Hero you control; that Hero recovers N HP" — heal a chosen Hero,
+ *  capped at its effective max HP. */
+export interface HealTargetEffect {
+  kind: 'healTarget';
+  amount: number;
+  target: HeroSelector;
+}
+
+/** "select 1 <Hero|Equipment|Ability card> in your GY and send it to Replen"
+ *  (or "add that card to your Hand" when `to` is 'hand'). */
+export interface RecoverFromGraveyardEffect {
+  kind: 'recoverFromGraveyard';
+  /** Card type to pick: A = Hero, B = Ability Card, C = Equipment. */
+  cardType: 'A' | 'B' | 'C';
+  /** Destination; defaults to Replen. */
+  to?: 'replen' | 'hand';
+}
+
+/** "randomly select N card from your opponent's Hand and send that card to
+ *  Replen" (Supply Disruption). */
+export interface OpponentHandToReplenEffect {
+  kind: 'opponentHandToReplen';
+  count: number;
+}
+
+/** "look at the top N cards of your Deck, then return them to the top of your
+ *  Deck in any order" (Forward Intel). Parsed only — needs a reorder UI. */
+export interface PeekDeckTopEffect {
+  kind: 'peekDeckTop';
+  count: number;
+}
+
+/** "select 1 Equipment on your opponent's field and send that Equipment to
+ *  Replen" (Field Disruption). Player picks. */
+export interface OpponentEquipmentToReplenEffect {
+  kind: 'opponentEquipmentToReplen';
+}
+
+/** "if this Hero is unequipped, equip this Hero with the top Weapon card from
+ *  your Deck, then Disturb your Deck" (Stay Armed). */
+export interface EquipFromDeckEffect {
+  kind: 'equipFromDeck';
+  subType: string;
+  disturb: boolean;
+}
+
+/** "destroy all Human Normal Heroes on your opponent's field" (Domination).
+ *  Older wording capped it "up to the number of materials used to Commit Set
+ *  this Hero". Destroyed = sent to the GY with no points. Every Hero counts as
+ *  Human for now. */
+export interface DestroyEnemyNormalHeroesEffect {
+  kind: 'destroyEnemyNormalHeroes';
+  /** True = cap at the number of Set materials; false = every qualifying Hero. */
+  upToMaterials: boolean;
+}
+
+/** "send the top card of your opponent's Deck to Replen" (Shadow Hack). */
+export interface OpponentDeckTopToReplenEffect {
+  kind: 'opponentDeckTopToReplen';
+  count: number;
+}
+
+/** "this Hero's Armor Bars cannot be reduced" (Shell Up). Parsed only. */
+export interface ArmorBarsLockEffect {
+  kind: 'armorBarsLock';
+}
+
+/** "select 1 enemy Hero; Heroes you control gain +N STAT when attacking that
+ *  Hero" (Holo-Target). Parsed only. */
+export interface MarkEnemyEffect {
+  kind: 'markEnemy';
+  stat: AuraStat;
+  amount: number;
+}
+
+/** "select up to N enemy Heroes; those Heroes have -M STAT" (Heavy
+ *  Suppression). Parsed only. */
+export interface EnemyStatDebuffEffect {
+  kind: 'enemyStatDebuff';
+  stat: AuraStat;
+  amount: number;
+  maxTargets: number;
 }
 
 /** Draw N cards from the top of the deck. Used by on-sent pile triggers
@@ -73,11 +184,62 @@ export interface BreakAllArmorBarsEffect {
   kind: 'breakAllArmorBars';
 }
 
-/** Eliminate the target Hero instantly, ignoring its armor and Armor Bars. Used
- *  by Snow Viper's Hidden Finisher (`combatHit`, mandatory). The runtime gates it
- *  on the target being a Normal Hero (level ≤ 2) at less than half HP. */
+/** Conditions on a combat hit that must ALL hold for an `instantEliminate`. */
+export interface EliminateGate {
+  /** "against a Normal Hero" — target level ≤ 2. */
+  targetNormal?: boolean;
+  /** "with less than half HP" — checked before this hit's damage. */
+  targetBelowHalfHp?: boolean;
+  /** "rolls a Critical Hit". */
+  critOnly?: boolean;
+  /** "against a target with no Armor Bars" — checked before this hit. */
+  targetNoArmorBars?: boolean;
+}
+
+/** Eliminate the target Hero instantly, ignoring its armor and Armor Bars
+ *  (`combatHit`, mandatory). Hidden Finisher: Normal Hero under half HP;
+ *  Headhunter: Critical Hit against a target with no Armor Bars. */
 export interface InstantEliminateEffect {
   kind: 'instantEliminate';
+  gate: EliminateGate;
+}
+
+/** "This Hero's [Normal ]Hits ignore Armor Bars." (Anvil) — passive combat
+ *  modifier: the hit skips the target's Armor Bars (they are neither consumed
+ *  nor absorb). `normalOnly` limits it to normal hits (not crits/glancing). */
+export interface IgnoreArmorBarsEffect {
+  kind: 'ignoreArmorBars';
+  normalOnly?: true;
+}
+
+/** "This Hero can be <Kind> Set[ with N <SubType> Hero(es)]." — an alternate
+ *  way to Set this Hero. Without `materials` it lifts the tribute requirement
+ *  (Rapid Deployment: Normal Set); with them, exactly `count` Heroes of
+ *  `subType` satisfy the tribute regardless of their levels (Troop Lead). */
+export interface SetPermissionEffect {
+  kind: 'setPermission';
+  setKind: SetKind;
+  materials?: { count: number; subType?: string };
+}
+
+/** "If only <Allegiance> <SubType> Heroes were used to <Kind> Set this Hero,
+ *  this Hero can attack during the turn this Hero is <Kind> Set." (Shock
+ *  Deployment) — lifts the Set-turn attack restriction. */
+export interface AttackOnSetTurnEffect {
+  kind: 'attackOnSetTurn';
+  setKind: SetKind;
+  materials: { allegiance?: string; subType?: string };
+}
+
+/** Counter abilities (Devil Dog Reinforcement, Zero Guide): gain 1 counter on
+ *  `gain`; on reaching `threshold`, (optionally) send this Hero to `sendTo` and
+ *  Normal Set the top `setFamily` Special Hero from the Deck, then Disturb. */
+export interface CounterEffect {
+  kind: 'counter';
+  gain: 'endOfTurn' | 'inflictDamage';
+  threshold: number;
+  sendTo: PileKind;
+  setFamily: string;
 }
 
 /** Fallback for ability text no rule models yet. Inert at runtime. */
@@ -87,25 +249,57 @@ export interface UnimplementedEffect {
 
 export type AbilityEffect =
   | StatAuraEffect
+  | UntargetableEffect
+  | ForceTargetEffect
+  | OpponentRestrictionEffect
   | SelfStatBuffEffect
   | TargetStatBuffEffect
+  | HealTargetEffect
+  | RecoverFromGraveyardEffect
+  | ArmorBarsLockEffect
+  | MarkEnemyEffect
+  | EnemyStatDebuffEffect
   | DrawEffect
   | ReturnSelfToHandEffect
   | BreakAllArmorBarsEffect
   | InstantEliminateEffect
+  | IgnoreArmorBarsEffect
+  | OpponentHandToReplenEffect
+  | PeekDeckTopEffect
+  | OpponentEquipmentToReplenEffect
+  | EquipFromDeckEffect
+  | DestroyEnemyNormalHeroesEffect
+  | OpponentDeckTopToReplenEffect
+  | SetPermissionEffect
+  | AttackOnSetTurnEffect
+  | CounterEffect
   | UnimplementedEffect;
 
 /** A pile a card can be sent to / activate from. */
 export type PileKind = 'graveyard' | 'replen';
 
-/** A cost the player must pay to trigger an activated ability. Modeled kinds so
- *  far: send N cards from the Hand to the Replen pile. */
-export interface SendHandToReplenCost {
-  kind: 'sendHandToReplen';
-  count: number;
-}
+/** A cost the player must pay to trigger an activated ability (the clause before
+ *  the colon in "you can <cost>: <effect>"). */
+export type AbilityCost =
+  /** "send N card from your Hand to Replen" */
+  | { kind: 'sendHandToReplen'; count: number }
+  /** "discard N card [from your Hand]" — Hand → GY */
+  | { kind: 'discardHand'; count: number }
+  /** "send N card from your Replen to the GY" */
+  | { kind: 'sendReplenToGraveyard'; count: number }
+  /** "discard the top card of your Deck" — Deck → GY */
+  | { kind: 'discardDeckTop'; count: number }
+  /** "destroy 1 other Hero you control" */
+  | { kind: 'destroyOtherAlly' }
+  /** "destroy this Hero" */
+  | { kind: 'destroySelf' };
 
-export type AbilityCost = SendHandToReplenCost;
+/** How a Hero entered the field: Normal Set (no materials), Replen Set
+ *  (materials to Replen) or Commit Set (materials to the GY). */
+export type SetKind = 'normal' | 'replen' | 'commit';
+
+/** How long a one-shot activated effect lasts. */
+export type AbilityDuration = 'endOfTurn' | 'opponentNextTurn';
 
 /** When an ability's effect is evaluated. `passive` (continuous) auras,
  *  `activated` (player-triggered, Main phase), `onSentToPile` (fires when the
@@ -117,6 +311,11 @@ export type AbilityTrigger =
   | 'onSentToPile'
   | 'pileActivated'
   | 'combatHit'
+  | 'onSet'
+  | 'usedAsMaterial'
+  | 'setPermission'
+  | 'setTurnAttack'
+  | 'counter'
   | 'unimplemented';
 
 /** "Only 1 <name> Ability can be active on your field at once." */
@@ -127,6 +326,42 @@ export interface MaxActiveConstraint {
 }
 
 export type AbilityConstraint = MaxActiveConstraint;
+
+/** "While you control <selector>" — at least one Hero on the controller's field
+ *  matches the selector. */
+export interface ControlsCondition {
+  kind: 'controls';
+  selector: HeroSelector;
+}
+
+/** "While this Hero is equipped with a [<"Family">] <Class> [or <Class>] <SubType>"
+ *  — checks the Equipment in this Hero's linked C slot. */
+export interface EquippedCondition {
+  kind: 'equipped';
+  /** Equipment sub-type: Weapon / Armor / Loadout. */
+  subType: string;
+  /** Allowed weapon classes (any-of), e.g. ["Suppressive", "Assault"]. */
+  weaponClasses?: string[];
+  /** Quoted name fragment, e.g. "Drone". */
+  family?: string;
+}
+
+/** "While equipped to a <selector>" — on an Equipment card: its bearer must
+ *  match the selector. */
+export interface EquippedToCondition {
+  kind: 'equippedTo';
+  selector: HeroSelector;
+}
+
+export type AbilityCondition = ControlsCondition | EquippedCondition | EquippedToCondition;
+
+/** An extra clause joined with "; while …" that adds to the main effect (e.g.
+ *  "this Hero gains an additional +10 ACC"). It applies only when BOTH the main
+ *  ability's conditions and the rider's own conditions hold. */
+export interface AbilityRider {
+  conditions: AbilityCondition[];
+  effect: AbilityEffect;
+}
 
 /** Parsed, structured form of one ability rules-text line. */
 export interface AbilityIR {
@@ -141,6 +376,9 @@ export interface AbilityIR {
   oncePerTurn?: boolean;
   /** Cost the player must pay to trigger an activated ability, if any. */
   cost?: AbilityCost;
+  /** Limited lifetime of an activated effect ("until the end of your turn",
+   *  "during your opponent's next turn"). Undefined = persists while on field. */
+  duration?: AbilityDuration;
   /** For `onSentToPile` / `pileActivated` triggers: which pile the trigger
    *  concerns (Graveyard or Replen). Undefined for other triggers. */
   pile?: PileKind;
@@ -148,4 +386,19 @@ export interface AbilityIR {
    *  when it triggers (e.g. Bunker Busting Round's "you can"). Mandatory combat
    *  triggers (e.g. Hidden Finisher) leave this undefined. */
   optional?: boolean;
+  /** Conditions that must ALL hold for a passive effect to apply ("While …"). */
+  conditions?: AbilityCondition[];
+  /** Additional "; while …" clauses layered on the main effect. */
+  riders?: AbilityRider[];
+  /** For `onSet`: which Set kinds fire it. For `usedAsMaterial`: the Set kind
+   *  the Hero must be material for. */
+  setKinds?: SetKind[];
+  /** For `usedAsMaterial`: the Hero being Set must match this selector. */
+  materialFor?: HeroSelector;
+  /** For `usedAsMaterial`: the material is sent from its pile to the GY as the
+   *  price of the effect ("you can send this Hero to the GY, then …"). */
+  selfToGraveyard?: boolean;
+  /** True when the line lives on an Equipment card: "this Hero" then means the
+   *  Hero the Equipment is attached to. */
+  fromEquipment?: boolean;
 }

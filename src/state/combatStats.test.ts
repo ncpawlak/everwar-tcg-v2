@@ -1,22 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { effectiveStats, linkedCSlot, rollCBuff, BUFF_AMOUNTS, STAT_KEYS } from './combatStats';
+import { effectiveStats, linkedCSlot, heroArmor, heroMaxBars, heroBars, unarmedReduction } from './combatStats';
 import { createInitialState } from './cardData';
-import type { GameState } from './types';
+import type { GameState, Card } from './types';
 
 describe('combatStats', () => {
   it('linkedCSlot maps an A slot to its column C slot', () => {
     expect(linkedCSlot('A1')).toBe('C1');
     expect(linkedCSlot('A4')).toBe('C4');
-  });
-
-  it('rollCBuff returns a valid stat + amount and is deterministic for a fixed rng', () => {
-    const buff = rollCBuff(() => 0);
-    expect(STAT_KEYS).toContain(buff.stat);
-    expect(BUFF_AMOUNTS).toContain(buff.amount);
-    expect(rollCBuff(() => 0)).toEqual(buff);
-    // A near-1 rng lands on the last option of each list.
-    const high = rollCBuff(() => 0.999);
-    expect(high).toEqual({ stat: STAT_KEYS[STAT_KEYS.length - 1], amount: BUFF_AMOUNTS[BUFF_AMOUNTS.length - 1] });
   });
 
   it('effectiveStats returns base values with zero deltas when no C card is linked', () => {
@@ -29,40 +19,36 @@ describe('combatStats', () => {
     expect(eff.hp).toEqual({ value: card.hp, delta: 0 });
   });
 
-  it('effectiveStats adds the linked C card buff to the matching stat only', () => {
+  it('a linked C card adds its printed Equipment stats to the Hero', () => {
     const base = createInitialState();
-    const buffed = { ...base.cardsById['card-equipment-1'], buff: { stat: 'dmg' as const, amount: 300 } };
+    const equip = base.cardsById['card-equipment-1'];
+    const state: GameState = { ...base, board: { ...base.board, A1: 'card-hero-6', C1: 'card-equipment-1' } };
+    const eff = effectiveStats(state, 'A1');
+    const e = equip.equipStats ?? {};
+    expect([eff.hp.delta, eff.dmg.delta, eff.acc.delta]).toEqual([e.hp ?? 0, e.dmg ?? 0, e.acc ?? 0]);
+  });
+
+  it('Equipment armor / bars / Medic HP / Tankwalker reduction', () => {
+    const base = createInitialState();
+    const hero = { ...base.cardsById['card-hero-6'], armor: 10, armorBars: 1, subType: 'Medic' } as Card;
+    const vest = { ...base.cardsById['card-equipment-1'], subType: 'Armor', equipStats: { hp: 40, medicHp: 40, armor: 20, armorBars: 1, unarmedReduction: 20 } } as Card;
     const state: GameState = {
       ...base,
-      board: { ...base.board, A1: 'card-hero-6', C1: 'card-equipment-1' },
-      cardsById: { ...base.cardsById, 'card-equipment-1': buffed },
+      cardsById: { ...base.cardsById, [hero.id]: hero, [vest.id]: vest },
+      board: { ...base.board, A1: hero.id, C1: vest.id },
     };
-    const card = state.cardsById['card-hero-6'];
-    const eff = effectiveStats(state, 'A1');
-    expect(eff.dmg).toEqual({ value: card.dmg! + 300, delta: 300 });
-    expect(eff.acc).toEqual({ value: card.acc, delta: 0 });
-    expect(eff.hp).toEqual({ value: card.hp, delta: 0 });
+    expect(effectiveStats(state, 'A1').hp.delta).toBe(80);
+    expect(heroArmor(state, 'player', 'A1')).toBe(30);
+    expect(heroMaxBars(state, 'player', 'A1')).toBe(2);
+    expect(heroBars(state, 'player', 'A1')).toBe(2);
+    expect(heroBars({ ...state, currentArmorBars: { [hero.id]: 1 } }, 'player', 'A1')).toBe(1);
+    // Attacker O1 has no Weapon -> reduced; non-Medic gets no medic bonus.
+    expect(unarmedReduction(state, 'player', 'A1', 'O1')).toBe(20);
+    const nonMedic = { ...state, cardsById: { ...state.cardsById, [hero.id]: { ...hero, subType: 'Assault' } as Card } };
+    expect(effectiveStats(nonMedic, 'A1').hp.delta).toBe(40);
   });
 
-  it('removing the C card reverts the boost (buff is presence-based)', () => {
-    const base = createInitialState();
-    const buffed = { ...base.cardsById['card-equipment-1'], buff: { stat: 'acc' as const, amount: 500 } };
-    const withC: GameState = {
-      ...base,
-      board: { ...base.board, A1: 'card-hero-6', C1: 'card-equipment-1' },
-      cardsById: { ...base.cardsById, 'card-equipment-1': buffed },
-    };
-    expect(effectiveStats(withC, 'A1').acc.delta).toBe(500);
-    // C1 removed from the board -> no boost, even though the card still carries buff data.
-    const withoutC: GameState = { ...withC, board: { ...withC.board, C1: null } };
-    expect(effectiveStats(withoutC, 'A1').acc.delta).toBe(0);
-  });
-
-  // TODO(ability-engine phase): the v3 Echo Assist text ("While this Hero is on
-  // your field, all \"Echo\" Heroes you control gain +10 ACC. ...") is not matched
-  // by the current STAT_GAIN_AURA parser rule (which expects the body to start
-  // with "All"). Re-enable once the aura parser handles the v3 verbiage.
-  it.skip('P8: an Echo Assist source on the board raises ACC of every Echo Hero, itself included', () => {
+  it('P8: an Echo Assist source on the board raises ACC of every Echo Hero, itself included', () => {
     const base = createInitialState();
     // card-hero-3 = Echo Reserve (carries Echo Assist, base acc 60);
     // card-hero-26 = Echo Demolitions (Echo, base acc 80, no ability of its own).
@@ -77,9 +63,7 @@ describe('combatStats', () => {
     expect(effectiveStats(state, 'A1').dmg.delta).toBe(0);
   });
 
-  // TODO(ability-engine phase): see note above — v3 Echo Assist verbiage isn't
-  // parsed yet. Re-enable with the aura parser update.
-  it.skip('P8: Echo Assist ignores non-Echo Heroes and reverts when its source leaves the board', () => {
+  it('P8: Echo Assist ignores non-Echo Heroes and reverts when its source leaves the board', () => {
     const base = createInitialState();
     // card-hero-1 = Tundra Rifleman (not an Echo Hero).
     const scout = base.cardsById['card-hero-1'];

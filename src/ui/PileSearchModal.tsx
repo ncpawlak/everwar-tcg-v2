@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import type { Card, PileSource } from '../state/types';
-import { abilityLabel } from '../state/abilities';
+import { abilityLabel, equipmentLabel } from '../state/abilities';
 import { pileActivatedAbilityFor } from '../abilities/pile';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 
@@ -151,11 +151,7 @@ function tileFoot(card: Card) {
     );
   }
   return (
-    <span style={{ color: card.buff ? (card.buff.amount >= 0 ? '#5ed17a' : '#e08a72') : '#8fa39a', fontSize: 10, fontWeight: 700 }}>
-      {card.buff
-        ? `${card.buff.amount >= 0 ? '▲' : '▼'} ${card.buff.stat.toUpperCase()} ${card.buff.amount >= 0 ? '+' : ''}${card.buff.amount}`
-        : 'Boost'}
-    </span>
+    <span style={{ color: '#8fa39a', fontSize: 10, fontWeight: 700 }}>{equipmentLabel(card)}</span>
   );
 }
 

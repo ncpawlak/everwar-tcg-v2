@@ -2,9 +2,10 @@ import { RoundedBox, Text } from '@react-three/drei';
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type { Mesh, MeshStandardMaterial } from 'three';
+import { RoundedBoxGeometry } from 'three-stdlib';
 import { CARD_HEIGHT, CARD_THICKNESS, CARD_WIDTH } from '../board/boardConfig';
 import type { Card } from '../state/types';
-import { abilityLabel } from '../state/abilities';
+import { abilityLabel, equipmentLabel, equipmentStatLine } from '../state/abilities';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from './cardTheme';
 
 /**
@@ -163,6 +164,9 @@ function AbilityRipple() {
   );
 }
 
+/** One card-body geometry shared by every card (was one per card). */
+const CARD_BODY_GEOMETRY = new RoundedBoxGeometry(CARD_WIDTH, CARD_HEIGHT, CARD_THICKNESS, 3, 0.025);
+
 export function CardView({
   card,
   pickable = true,
@@ -170,8 +174,12 @@ export function CardView({
   activatable = false,
   showcasing = false,
   armorBars,
+  faceHidden = false,
 }: {
   card: Card;
+  /** Skip the face artwork/text (deck cards, buried pile cards): nobody can
+   *  see it, and each face is ~15 text meshes + plates. */
+  faceHidden?: boolean;
   pickable?: boolean;
   auraActive?: boolean;
   /** True when this board Hero has an activated ability the player can trigger
@@ -190,20 +198,15 @@ export function CardView({
 
   return (
     <group>
-      {auraActive && <AuraGlow />}
-      {(activatable || showcasing) && <ActivatableGlow />}
-      {showcasing && <AbilityRipple />}
-      <RoundedBox
-        args={[CARD_WIDTH, CARD_HEIGHT, CARD_THICKNESS]}
-        radius={0.025}
-        smoothness={4}
-        castShadow
-        receiveShadow
-        raycast={pickable ? undefined : () => null}
-      >
+      {!faceHidden && auraActive && <AuraGlow />}
+      {!faceHidden && (activatable || showcasing) && <ActivatableGlow />}
+      {!faceHidden && showcasing && <AbilityRipple />}
+      <mesh geometry={CARD_BODY_GEOMETRY} castShadow receiveShadow raycast={pickable ? undefined : () => null}>
         <meshStandardMaterial color="#f5f1e4" roughness={0.55} metalness={0.05} />
-      </RoundedBox>
+      </mesh>
 
+      {!faceHidden && (
+      <>
       {/* Name header band */}
       <mesh position={[0, HALF_H - 0.1, ZF]}>
         <planeGeometry args={[CARD_WIDTH * 0.92, 0.15]} />
@@ -320,23 +323,9 @@ export function CardView({
       </mesh>
 
       {card.type === 'C' ? (
-        /* C cards are supports: instead of their own stat line they show the
-           random boost they grant a linked A card. The concrete roll appears
-           once the card is set; in hand it reads as a generic promise. */
-        card.buff ? (
-          <Text
-            position={[0, -HALF_H + 0.09, ZF + 0.001]}
-            fontSize={0.058}
-            color={card.buff.amount >= 0 ? '#2f9e46' : '#b23a1f'}
-            anchorX="center"
-            anchorY="middle"
-          >
-            {`${card.buff.amount >= 0 ? '▲' : '▼'} ${card.buff.stat.toUpperCase()} ${
-              card.buff.amount >= 0 ? '+' : ''
-            }${card.buff.amount}`}
-          </Text>
-        ) : (
-          <Text
+        /* C cards are Equipment: instead of a stat line they show their
+           equipment type (e.g. "Weapon · Assault"). */
+        <Text
             position={[0, -HALF_H + 0.09, ZF + 0.001]}
             fontSize={0.036}
             maxWidth={CARD_WIDTH * 0.82}
@@ -346,9 +335,8 @@ export function CardView({
             anchorY="middle"
             textAlign="center"
           >
-            Boosts a random stat of its linked A card
+            {equipmentStatLine(card) ? `${equipmentLabel(card)}\n${equipmentStatLine(card)}` : equipmentLabel(card)}
           </Text>
-        )
       ) : card.type === 'B' ? (
         /* B cards are spells: instead of combat stats they show the on-play
            ability they enact when set. Continuous B cards get a badge since they
@@ -427,6 +415,9 @@ export function CardView({
             </Text>
           )}
         </>
+      )}
+
+      </>
       )}
 
       {/* Back face accent (shown when face-down, e.g. in the deck) */}

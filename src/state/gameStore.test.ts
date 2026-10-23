@@ -4,6 +4,8 @@ import { MULTI_DRAW_STAGGER_MS } from '../animation/motionConfig';
 import { createInitialState, DECK_SIZE } from './cardData';
 import type { GameState, Card, OppSlotId } from './types';
 import { effectiveStats } from './combatStats';
+import { heroCanAttack, opponentEffectiveStats } from './combatStats';
+import { counterAbility } from '../abilities/counters';
 
 /** Build a store with a deterministic hand (cards removed from the deck). */
 function storeWithHand(hand: GameState['cardsById'][string]['id'][]) {
@@ -120,7 +122,7 @@ describe('P2-S02/S08 game store actions', () => {
     expect(s.dragging).toBeNull();
   });
 
-  it('dropCard sets a C card on its linked A column and rolls a stat buff', () => {
+  it('dropCard sets a C card on its linked A column (no random stat buff)', () => {
     const store = storeWithHand(['card-hero-6', 'card-equipment-1']);
     store.getState().beginDrag('card-hero-6');
     store.getState().dropCard('card-hero-6', 'A1');
@@ -130,10 +132,7 @@ describe('P2-S02/S08 game store actions', () => {
 
     const s = store.getState();
     expect(s.board.C1).toBe('card-equipment-1');
-    const buff = s.cardsById['card-equipment-1'].buff;
-    expect(buff).toBeDefined();
-    expect(['hp', 'dmg', 'acc']).toContain(buff!.stat);
-    expect(buff!.amount).toBeGreaterThan(0);
+    expect(s.cardsById['card-equipment-1']).not.toHaveProperty('buff');
   });
 
   it('dropCard starts a summon reveal that clears after the showcase window', () => {
@@ -210,7 +209,7 @@ describe('P2-S02/S08 game store actions', () => {
     expect(s.board.C1).toBeNull(); // linked C tributed too
     expect(s.replen).toEqual(expect.arrayContaining(['card-hero-1', 'card-hero-17', 'card-equipment-1']));
     expect(s.pendingTribute).toBeNull();
-    expect(s.pendingSummon).toEqual({ cardId: 'card-hero-40' });
+    expect(s.pendingSummon).toEqual({ cardId: 'card-hero-40', setKind: 'replen', materials: 2 });
     expect(s.hand).toContain('card-hero-40'); // not placed until a slot is picked
 
     // Pick an open slot — now the card is summoned there.
@@ -219,6 +218,48 @@ describe('P2-S02/S08 game store actions', () => {
     expect(s.board.A3).toBe('card-hero-40');
     expect(s.hand).not.toContain('card-hero-40');
     expect(s.pendingSummon).toBeNull();
+  });
+
+  it('a tribute can keep 1 material Equipment, which moves onto the new Hero (a Weapon lets it attack)', () => {
+    const base = createInitialState();
+    const weapon = Object.values(base.cardsById).find((c) => c.type === 'C' && c.subType === 'Weapon')!.id;
+    const other = Object.values(base.cardsById).find((c) => c.type === 'C' && c.id !== weapon)!.id;
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-40'],
+      deck: base.deck.filter((id) => !['card-hero-40', 'card-hero-1', 'card-hero-17', weapon, other].includes(id)),
+      board: { ...base.board, A1: 'card-hero-1', A2: 'card-hero-17', C1: weapon, C2: other },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-hero-40');
+    store.getState().dropCard('card-hero-40', 'A3');
+    store.getState().confirmTributeSummon(['A1', 'A2'], 'C1');
+    let s = store.getState();
+    expect(s.replen).toEqual(expect.arrayContaining(['card-hero-1', 'card-hero-17', other]));
+    expect(s.replen).not.toContain(weapon);
+
+    store.getState().placePendingSummon('A3');
+    s = store.getState();
+    expect(s.board.A3).toBe('card-hero-40');
+    expect(s.board.C3).toBe(weapon);
+    expect(s.board.C1).toBeNull();
+    expect(heroCanAttack(s, 'player', 'A3')).toBe(true);
+  });
+
+  it('a keep slot outside the materials is ignored', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-40'],
+      deck: base.deck.filter((id) => !['card-hero-40', 'card-hero-1', 'card-hero-17', 'card-hero-4', 'card-equipment-1'].includes(id)),
+      board: { ...base.board, A1: 'card-hero-1', A2: 'card-hero-17', A4: 'card-hero-4', C4: 'card-equipment-1' },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-hero-40');
+    store.getState().dropCard('card-hero-40', 'A3');
+    store.getState().confirmTributeSummon(['A1', 'A2'], 'C4');
+    expect(store.getState().pendingSummon?.keptEquip).toBeUndefined();
+    expect(store.getState().board.C4).toBe('card-equipment-1');
   });
 
   it('confirming a COMMANDER tribute sends materials (and linked C) to the graveyard', () => {
@@ -315,7 +356,7 @@ describe('P2-S02/S08 game store actions', () => {
     expect(store.getState().pendingTribute).toEqual({ cardId: 'card-hero-40' });
 
     store.getState().confirmTributeSummon(['A1', 'A2']); // frees A1 and A2
-    expect(store.getState().pendingSummon).toEqual({ cardId: 'card-hero-40' });
+    expect(store.getState().pendingSummon).toEqual({ cardId: 'card-hero-40', setKind: 'replen', materials: 2 });
 
     // A freed slot is now a legal target.
     store.getState().placePendingSummon('A1');
@@ -838,7 +879,7 @@ describe('P4 turn / phase mechanics', () => {
   it('phases auto-advance Main -> Battle -> Resolution -> End, and End auto-hands off to the opponent', () => {
     vi.useFakeTimers();
     try {
-      const store = createGameStore({ ...createInitialState(), phase: 'main' });
+      const store = createGameStore({ ...createInitialState(), phase: 'main', turn: 2 });
 
       store.getState().advancePhase();
       expect(store.getState().phase).toBe('battle');
@@ -1251,6 +1292,7 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
         // summon step is a no-op — this test isolates the combat path.
         ...withOpponent(base, 'O1'),
         opponentHand: [],
+        opponentDeck: [],
       });
 
       // Player has no attackers: Battle -> Resolution flows straight to End...
@@ -1298,7 +1340,7 @@ describe('P7-S3 opponent-as-attacker combat (bidirectional)', () => {
     const rand = vi.spyOn(Math, 'random').mockReturnValue(0);
     try {
       const base = createInitialState();
-      const store = createGameStore({ ...base, phase: 'battle', activePlayer: 'player' });
+      const store = createGameStore({ ...base, phase: 'battle', activePlayer: 'player', opponentHand: [], opponentDeck: [] });
       store.getState().advancePhase();
       vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
       vi.advanceTimersByTime(END_PHASE_DWELL_MS + 20);
@@ -1392,7 +1434,7 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
     }
   });
 
-  it('the opponent plays one of each row type per turn — a Vanguard, a linked Bulwark (with a stat boost), and an Arcane', () => {
+  it('the opponent plays one of each row type per turn — a Vanguard, a linked Bulwark, and an Arcane', () => {
     vi.useFakeTimers();
     try {
       const base = createInitialState();
@@ -1422,8 +1464,6 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
       expect(s.opponentBoard.O1).toBe('opp-deck-hero-1');
       // Bulwark set to a linked, occupied OC-slot (OC1, linked to O1).
       expect(s.opponentCBoard.OC1).toBe('opp-deck-equipment-3');
-      // ...and it rolled a stat boost (mirror of the player's C set).
-      expect(s.opponentCards['opp-deck-equipment-3'].buff).toBeTruthy();
       // Arcane set to the first open OB-slot (OB1).
       expect(s.opponentBBoard.OB1).toBe('opp-deck-ability-1');
       // All three left the hand.
@@ -1436,155 +1476,234 @@ describe('P7-S4 opponent AI (draw + summon)', () => {
   });
 });
 
-// TODO(ability-engine phase): these blocks exercise the activated / pile /
-// combat-trigger ability engine against fixture heroes (Combat Focus, Fire
-// Support, Salvage Beacon, Field Cache) that no longer exist in the v3 catalog.
+// TODO(ability-engine phase): the pile / combat-trigger blocks below still use
+// v1 fixture wording (Salvage Beacon, Field Cache) absent from the v3 catalog.
 // The engine is intact; the tests will be rewritten with explicit ability
 // fixtures when we build out ability parsing. Quarantined to keep the suite green
 // after the catalog swap.
-describe.skip('P8 activated abilities (self stat-buff)', () => {
-  // Duneside Scout (card-hero-1) carries "Combat Focus: Once per turn, you can:
-  // this Hero gains +20 ACC." — a self-buff activated ability.
-  function withScoutOnBoard() {
+describe('P8 activated abilities (self stat-buff, discard cost, end-of-turn)', () => {
+  // Roma (card-hero-49): "Wasteland Deadeye: Once per turn, you can discard 1
+  // card from your Hand: this Hero gains +30 ACC until the end of your turn."
+  const ROMA = 'card-hero-49';
+  const FODDER = 'card-hero-1';
+  function withRomaOnBoard(hand: string[] = [FODDER]) {
     const base = createInitialState();
     return createGameStore({
       ...base,
-      deck: base.deck.filter((id) => id !== 'card-hero-1'),
-      board: { ...base.board, A1: 'card-hero-1' },
+      deck: base.deck.filter((id) => id !== ROMA && !hand.includes(id)),
+      board: { ...base.board, A1: ROMA },
+      hand,
       phase: 'main',
     });
   }
 
-  it('activates a self stat-buff and folds it into effective ACC', () => {
-    const store = withScoutOnBoard();
+  it('discards the picked Hand card and folds +30 ACC into effective ACC', () => {
+    const store = withRomaOnBoard();
     const before = effectiveStats(store.getState(), 'A1').acc.value;
-    store.getState().activateAbility('card-hero-1', 0);
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toMatchObject({ sourceCardId: ROMA, step: 'cost' });
+    store.getState().chooseAbilityCost(FODDER);
     const s = store.getState();
-    expect(s.activatedStatBuffs['card-hero-1']).toEqual({ acc: 20 });
-    expect(s.usedActivatedAbilities['card-hero-1']).toEqual(['Combat Focus']);
-    expect(effectiveStats(s, 'A1').acc.value).toBe(before + 20);
+    expect(s.abilityTargeting).toBeNull();
+    expect(s.hand).not.toContain(FODDER);
+    expect(s.graveyard).toContain(FODDER);
+    expect(s.turnStatBuffs[ROMA]).toEqual({ acc: 30 });
+    expect(s.activatedStatBuffs[ROMA]).toBeUndefined();
+    expect(s.usedActivatedAbilities[ROMA]).toEqual(['Wasteland Deadeye']);
+    expect(effectiveStats(s, 'A1').acc.value).toBe(before + 30);
   });
 
   it('is once-per-turn: a second activation the same turn is a no-op', () => {
-    const store = withScoutOnBoard();
-    store.getState().activateAbility('card-hero-1', 0);
-    store.getState().activateAbility('card-hero-1', 0);
-    expect(store.getState().activatedStatBuffs['card-hero-1']).toEqual({ acc: 20 });
+    const store = withRomaOnBoard([FODDER, 'card-hero-2']);
+    store.getState().activateAbility(ROMA, 0);
+    store.getState().chooseAbilityCost(FODDER);
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toBeNull();
+    expect(store.getState().turnStatBuffs[ROMA]).toEqual({ acc: 30 });
   });
 
-  it('does nothing outside the player Main phase', () => {
-    const store = withScoutOnBoard();
+  it('the +30 ACC expires when the player turn ends', () => {
+    vi.useFakeTimers();
+    try {
+      const store = withRomaOnBoard();
+      store.getState().activateAbility(ROMA, 0);
+      store.getState().chooseAbilityCost(FODDER);
+      expect(store.getState().turnStatBuffs[ROMA]).toEqual({ acc: 30 });
+      store.setState({ phase: 'end' });
+      store.getState().advancePhase(); // end -> opponent turn
+      expect(store.getState().activePlayer).toBe('opponent');
+      expect(store.getState().turnStatBuffs).toEqual({});
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not open with an empty Hand (cost unpayable)', () => {
+    const store = withRomaOnBoard([]);
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toBeNull();
+  });
+
+  it('does nothing outside the player Main phase or on the opponent turn', () => {
+    const store = withRomaOnBoard();
     store.setState({ phase: 'battle' });
-    store.getState().activateAbility('card-hero-1', 0);
-    expect(store.getState().activatedStatBuffs['card-hero-1']).toBeUndefined();
-  });
-
-  it('does nothing on the opponent turn', () => {
-    const store = withScoutOnBoard();
-    store.setState({ activePlayer: 'opponent' });
-    store.getState().activateAbility('card-hero-1', 0);
-    expect(store.getState().activatedStatBuffs['card-hero-1']).toBeUndefined();
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toBeNull();
+    store.setState({ phase: 'main', activePlayer: 'opponent' });
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toBeNull();
   });
 
   it('does nothing for a card that is not on the player board', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      hand: ['card-hero-1'],
-      deck: base.deck.filter((id) => id !== 'card-hero-1'),
+      hand: [ROMA, FODDER],
+      deck: base.deck.filter((id) => id !== ROMA && id !== FODDER),
       phase: 'main',
     });
-    store.getState().activateAbility('card-hero-1', 0);
-    expect(store.getState().activatedStatBuffs['card-hero-1']).toBeUndefined();
+    store.getState().activateAbility(ROMA, 0);
+    expect(store.getState().abilityTargeting).toBeNull();
   });
 });
 
-describe.skip('P8 activated abilities (targeted cost — Quick Reload / Fire Support)', () => {
-  // Munitions Specialist (card-hero-4) carries "Fire Support: Once per turn, you
-  // can send 1 card from your Hand to Replen: select another Hero you control to
-  // gain +10DMG." Echo Reserve (card-hero-2) is the ally target.
-  function withDuo() {
+describe('P8 activated abilities (targeted cost: Quick Reload)', () => {
+  // Riko (card-hero-43) ability 1: "Quick Reload: Once per turn, you can send 1
+  // card from your Hand to Replen: select another Infantry Hero you control;
+  // that Hero gains +20 ACC." Tundra Rifleman (card-hero-1) is an Infantry ally.
+  const RIKO = 'card-hero-43';
+  const ALLY = 'card-hero-1';
+  const COST = 'card-hero-2';
+  function withDuo(hand: string[] = [COST], ally: string | null = ALLY) {
     const base = createInitialState();
     return createGameStore({
       ...base,
-      deck: base.deck.filter(
-        (id) => !['card-hero-2', 'card-hero-4', 'card-hero-5'].includes(id),
-      ),
-      board: { ...base.board, A1: 'card-hero-4', A2: 'card-hero-2' },
-      hand: ['card-hero-5'],
+      deck: base.deck.filter((id) => ![RIKO, ALLY, ...hand].includes(id)),
+      board: { ...base.board, A1: RIKO, A2: ally },
+      hand,
       phase: 'main',
     });
   }
 
   it('resolves the two-step flow: pay the cost, then buff the chosen target', () => {
     const store = withDuo();
-    const beforeDmg = effectiveStats(store.getState(), 'A2').dmg.value;
-
-    store.getState().activateAbility('card-hero-4', 0);
-    expect(store.getState().abilityTargeting).toMatchObject({
-      sourceCardId: 'card-hero-4',
-      step: 'cost',
-      costCardId: null,
-    });
-
-    store.getState().chooseAbilityCost('card-hero-5');
-    expect(store.getState().abilityTargeting).toMatchObject({ step: 'target', costCardId: 'card-hero-5' });
-
-    store.getState().chooseAbilityTarget('card-hero-2');
+    const beforeAcc = effectiveStats(store.getState(), 'A2').acc.value;
+    store.getState().activateAbility(RIKO, 1);
+    expect(store.getState().abilityTargeting).toMatchObject({ sourceCardId: RIKO, step: 'cost', costCardId: null });
+    store.getState().chooseAbilityCost(COST);
+    expect(store.getState().abilityTargeting).toMatchObject({ step: 'target', costCardId: COST });
+    store.getState().chooseAbilityTarget(ALLY);
     const s = store.getState();
     expect(s.abilityTargeting).toBeNull();
-    expect(s.hand).not.toContain('card-hero-5');
-    expect(s.replen).toContain('card-hero-5');
-    expect(s.activatedStatBuffs['card-hero-2']).toEqual({ dmg: 10 });
-    expect(s.usedActivatedAbilities['card-hero-4']).toEqual(['Fire Support']);
-    expect(effectiveStats(s, 'A2').dmg.value).toBe(beforeDmg + 10);
+    expect(s.hand).not.toContain(COST);
+    expect(s.replen).toContain(COST);
+    expect(s.activatedStatBuffs[ALLY]).toEqual({ acc: 20 });
+    expect(s.usedActivatedAbilities[RIKO]).toEqual(['Quick Reload']);
+    expect(effectiveStats(s, 'A2').acc.value).toBe(beforeAcc + 20);
+  });
+
+  it('rejects an illegal target (the source itself)', () => {
+    const store = withDuo();
+    store.getState().activateAbility(RIKO, 1);
+    store.getState().chooseAbilityCost(COST);
+    store.getState().chooseAbilityTarget(RIKO);
+    expect(store.getState().abilityTargeting).toMatchObject({ step: 'target' });
+    expect(store.getState().hand).toContain(COST);
   });
 
   it('cancelling at the target step spends nothing', () => {
     const store = withDuo();
-    store.getState().activateAbility('card-hero-4', 0);
-    store.getState().chooseAbilityCost('card-hero-5');
+    store.getState().activateAbility(RIKO, 1);
+    store.getState().chooseAbilityCost(COST);
     store.getState().cancelAbilityTargeting();
     const s = store.getState();
     expect(s.abilityTargeting).toBeNull();
-    expect(s.hand).toContain('card-hero-5');
-    expect(s.replen).not.toContain('card-hero-5');
-    expect(s.activatedStatBuffs['card-hero-2']).toBeUndefined();
-    expect(s.usedActivatedAbilities['card-hero-4']).toBeUndefined();
+    expect(s.hand).toContain(COST);
+    expect(s.replen).not.toContain(COST);
+    expect(s.activatedStatBuffs[ALLY]).toBeUndefined();
+    expect(s.usedActivatedAbilities[RIKO]).toBeUndefined();
   });
 
   it('does not open the flow when the Hand cannot pay the cost', () => {
-    const base = createInitialState();
-    const store = createGameStore({
-      ...base,
-      deck: base.deck.filter((id) => !['card-hero-2', 'card-hero-4'].includes(id)),
-      board: { ...base.board, A1: 'card-hero-4', A2: 'card-hero-2' },
-      hand: [],
-      phase: 'main',
-    });
-    store.getState().activateAbility('card-hero-4', 0);
+    const store = withDuo([]);
+    store.getState().activateAbility(RIKO, 1);
     expect(store.getState().abilityTargeting).toBeNull();
   });
 
   it('does not open the flow when there is no legal target', () => {
+    const store = withDuo([COST], null);
+    store.getState().activateAbility(RIKO, 1);
+    expect(store.getState().abilityTargeting).toBeNull();
+  });
+});
+
+describe('P8 activated abilities (heal + GY recovery)', () => {
+  // Frostline Medic (card-hero-39): "First Aid Kit: ... discard 1 card: select 1
+  // Hero you control; that Hero recovers 30 HP."
+  // Byrd (card-hero-51) ability 1: "Jackal Reinforcement: ... discard 1 card
+  // from your Hand: select 1 Hero in your GY and send that Hero to Replen."
+  const MEDIC = 'card-hero-39';
+  const BYRD = 'card-hero-51';
+  const ALLY = 'card-hero-1';
+  const COST = 'card-hero-2';
+  const DEAD = 'card-hero-3';
+
+  it('First Aid Kit heals the chosen Hero, capped at max HP', () => {
     const base = createInitialState();
     const store = createGameStore({
       ...base,
-      deck: base.deck.filter((id) => !['card-hero-4', 'card-hero-5'].includes(id)),
-      board: { ...base.board, A1: 'card-hero-4' },
-      hand: ['card-hero-5'],
+      deck: base.deck.filter((id) => ![MEDIC, ALLY, COST].includes(id)),
+      board: { ...base.board, A1: MEDIC, A2: ALLY },
+      hand: [COST],
+      currentHp: { [ALLY]: 50 },
       phase: 'main',
     });
-    store.getState().activateAbility('card-hero-4', 0);
-    expect(store.getState().abilityTargeting).toBeNull();
+    store.getState().activateAbility(MEDIC, 0);
+    store.getState().chooseAbilityCost(COST);
+    store.getState().chooseAbilityTarget(ALLY);
+    let s = store.getState();
+    expect(s.graveyard).toContain(COST);
+    expect(s.currentHp[ALLY]).toBe(80);
+
+    // Next turn: heal from 90/100 caps at 100.
+    store.setState({ usedActivatedAbilities: {}, hand: ['card-hero-4'], currentHp: { [ALLY]: 90 } });
+    store.getState().activateAbility(MEDIC, 0);
+    store.getState().chooseAbilityCost('card-hero-4');
+    store.getState().chooseAbilityTarget(ALLY);
+    s = store.getState();
+    expect(s.currentHp[ALLY]).toBe(effectiveStats(s, 'A2').hp.value);
   });
 
-  it('is once-per-turn: cannot re-open after resolving', () => {
-    const store = withDuo();
-    store.getState().activateAbility('card-hero-4', 0);
-    store.getState().chooseAbilityCost('card-hero-5');
-    store.getState().chooseAbilityTarget('card-hero-2');
-    store.getState().activateAbility('card-hero-4', 0);
+  it('Jackal Reinforcement moves a Hero from the GY to Replen', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      deck: base.deck.filter((id) => ![BYRD, COST, DEAD].includes(id)),
+      board: { ...base.board, A1: BYRD },
+      hand: [COST],
+      graveyard: [DEAD],
+      phase: 'main',
+    });
+    store.getState().activateAbility(BYRD, 1);
+    store.getState().chooseAbilityCost(COST);
+    store.getState().chooseAbilityTarget(DEAD);
+    const s = store.getState();
+    expect(s.graveyard).toEqual([COST]);
+    expect(s.replen).toContain(DEAD);
+    expect(s.usedActivatedAbilities[BYRD]).toEqual(['Jackal Reinforcement']);
+  });
+
+  it('Jackal Reinforcement does not open with an empty GY', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      deck: base.deck.filter((id) => ![BYRD, COST].includes(id)),
+      board: { ...base.board, A1: BYRD },
+      hand: [COST],
+      graveyard: [],
+      phase: 'main',
+    });
+    store.getState().activateAbility(BYRD, 1);
     expect(store.getState().abilityTargeting).toBeNull();
   });
 });
@@ -1687,17 +1806,13 @@ describe.skip('P8-S05 pile abilities', () => {
   });
 });
 
-// TODO(ability-engine phase): Snow Viper's combat-trigger abilities exist in the
-// v3 catalog (card-hero-57), but these tests hard-code the old fixture index
-// (card-hero-14) and a level-1 fixture hero carrying Bunker Busting that no
-// longer exists. Re-point + re-verify the parser against the v3 ability text
-// when we build out combat-trigger parsing. Quarantined after the catalog swap.
-describe.skip('P8 Snow Viper combat triggers (S6)', () => {
+describe('P8 combat triggers (S6, v3 wording)', () => {
   // Time to advance from entering Resolution to the point the hit lands / the
   // Bunker Busting prompt is raised.
   const TO_HIT = RESOLUTION_ROLL_DELAY_MS + DICE_ROLL_MS + DICE_HOLD_MS;
-  // card-hero-14 = Snow Viper (dmg 90, acc 140); card-hero-3 = Bobcat Convoy
-  // Escort — the level-1 test hero that also carries both combat abilities.
+  // card-hero-57 = Snow Viper (dmg 90, acc 140); card-hero-6 = Back Alley
+  // Patrolman (dmg 60, acc 70, no abilities); card-equipment-11 = Headhunter;
+  // card-equipment-16 = Anvil.
 
   it('Hidden Finisher instantly eliminates a low-HP Normal Hero, ignoring armor bars', () => {
     vi.useFakeTimers();
@@ -1707,7 +1822,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' },
+        board: { ...base.board, A1: 'card-hero-57' },
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 2, hp: 100, armor: 0, armorBars: 2 }),
         currentHp: { 'opp-O1': 40 }, // under half of 100
@@ -1733,7 +1848,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' }, // dmg 90
+        board: { ...base.board, A1: 'card-hero-57' }, // dmg 90
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 0 }),
         currentHp: { 'opp-O1': 100 }, // under half but level 3 -> not eligible
@@ -1758,7 +1873,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' },
+        board: { ...base.board, A1: 'card-hero-57' },
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 2 }),
       });
@@ -1769,7 +1884,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       expect(s.combatPrompt).toMatchObject({
         sourceSlot: 'A1',
         targetSlot: 'O1',
-        sourceCardId: 'card-hero-14',
+        sourceCardId: 'card-hero-57',
         targetCardId: 'opp-O1',
         abilityName: 'Bunker Busting Round',
       });
@@ -1790,7 +1905,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' },
+        board: { ...base.board, A1: 'card-hero-57' },
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 2 }),
       });
@@ -1801,7 +1916,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       expect(s.combatPrompt).toBeNull();
       expect(s.currentArmorBars['opp-O1']).toBe(0); // both bars wiped
       expect(s.currentHp['opp-O1']).toBeUndefined(); // no HP damage
-      expect(s.usedActivatedAbilities['card-hero-14']).toContain('Bunker Busting Round');
+      expect(s.usedActivatedAbilities['card-hero-57']).toContain('Bunker Busting Round');
       // Resolution resumes and settles to End.
       vi.advanceTimersByTime(OUTCOME_POPUP_MS + 40);
       expect(store.getState().phase).toBe('end');
@@ -1819,7 +1934,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' },
+        board: { ...base.board, A1: 'card-hero-57' },
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 2 }),
       });
@@ -1829,7 +1944,7 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const s = store.getState();
       expect(s.currentArmorBars['opp-O1']).toBe(1); // one bar absorbed the hit
       expect(s.currentHp['opp-O1']).toBeUndefined(); // bar ate it, no HP loss
-      expect(s.usedActivatedAbilities['card-hero-14']).toBeUndefined();
+      expect(s.usedActivatedAbilities['card-hero-57']).toBeUndefined();
     } finally {
       rnd.mockRestore();
       vi.useRealTimers();
@@ -1844,10 +1959,10 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-14' },
+        board: { ...base.board, A1: 'card-hero-57' },
         attackTargets: { A1: 'O1' },
         ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 2 }),
-        usedActivatedAbilities: { 'card-hero-14': ['Bunker Busting Round'] },
+        usedActivatedAbilities: { 'card-hero-57': ['Bunker Busting Round'] },
       });
       store.getState().advancePhase();
       vi.advanceTimersByTime(TO_HIT);
@@ -1860,24 +1975,72 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
     }
   });
 
-  it('the level-1 test hero (Bobcat Convoy Escort) also triggers Bunker Busting', () => {
+  it('Headhunter (equipped) eliminates on a crit against a target with no Armor Bars', () => {
     vi.useFakeTimers();
-    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.2); // roll 5, acc 70 -> normal hit
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.99); // roll 20 -> crit
     try {
       const base = createInitialState();
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        board: { ...base.board, A1: 'card-hero-3' },
+        board: { ...base.board, A1: 'card-hero-6', C1: 'card-equipment-11' },
         attackTargets: { A1: 'O1' },
-        ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 1 }),
+        ...withOpponent(base, 'O1', { level: 5, hp: 500, armor: 0, armorBars: 0 }),
       });
       store.getState().advancePhase();
       vi.advanceTimersByTime(TO_HIT);
-      expect(store.getState().combatPrompt).toMatchObject({
-        sourceCardId: 'card-hero-3',
-        abilityName: 'Bunker Busting Round',
+      const s = store.getState();
+      expect(s.currentHp['opp-O1']).toBe(0);
+      expect(s.destroying).toContain('O1');
+    } finally {
+      rnd.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('Headhunter does not fire when the target still has an Armor Bar', () => {
+    vi.useFakeTimers();
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.99); // crit
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        board: { ...base.board, A1: 'card-hero-6', C1: 'card-equipment-11' },
+        attackTargets: { A1: 'O1' },
+        ...withOpponent(base, 'O1', { level: 5, hp: 500, armor: 0, armorBars: 2 }),
       });
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(TO_HIT);
+      const s = store.getState();
+      expect(s.currentArmorBars['opp-O1']).toBe(0); // crit broke 2 bars
+      expect(s.currentHp['opp-O1']).toBeUndefined();
+      expect(s.destroying).not.toContain('O1');
+    } finally {
+      rnd.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('Anvil (equipped) hits ignore Armor Bars: full damage, bars untouched', () => {
+    vi.useFakeTimers();
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.2); // normal hit
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'battle',
+        board: { ...base.board, A1: 'card-hero-6', C1: 'card-equipment-16' },
+        attackTargets: { A1: 'O1' },
+        ...withOpponent(base, 'O1', { level: 3, hp: 300, armor: 0, armorBars: 2 }),
+      });
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(TO_HIT);
+      const s = store.getState();
+      const dmg = store.getState().resolutionResults.A1?.damage ?? 0;
+      expect(dmg).toBeGreaterThan(0);
+      expect(s.currentHp['opp-O1']).toBe(300 - dmg);
+      expect(s.currentArmorBars['opp-O1'] ?? 2).toBe(2);
     } finally {
       rnd.mockRestore();
       vi.useRealTimers();
@@ -1894,8 +2057,8 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       const store = createGameStore({
         ...base,
         phase: 'battle',
-        // A1 Snow Viper -> O1 (prompt); A2 card-hero-6 (dmg 70) -> O2 (normal).
-        board: { ...base.board, A1: 'card-hero-14', A2: 'card-hero-6' },
+        // A1 Snow Viper -> O1 (prompt); A2 card-hero-6 (dmg 60) -> O2 (normal).
+        board: { ...base.board, A1: 'card-hero-57', A2: 'card-hero-6' },
         attackTargets: { A1: 'O1', A2: 'O2' },
         opponentBoard: { ...base.opponentBoard, O1: 'opp-O1', O2: 'opp-O2' },
         opponentCards: { ...oA.opponentCards, ...oB.opponentCards },
@@ -1908,9 +2071,577 @@ describe.skip('P8 Snow Viper combat triggers (S6)', () => {
       store.getState().resolveCombatPrompt(true);
       const s = store.getState();
       expect(s.currentArmorBars['opp-O1']).toBe(0); // A1 bunker-busted
-      expect(s.currentHp['opp-O2']).toBe(230); // A2's 70 landed on resume
+      expect(s.currentHp['opp-O2']).toBe(240); // A2's 60 landed on resume
     } finally {
       rnd.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('P8 On-Set triggers (v3 wording)', () => {
+  /** Place `cardId` via the tribute hand-off (materials already paid). */
+  function storeForSet(cardId: string, setKind: 'replen' | 'commit', materials: number, extra: Partial<GameState> = {}) {
+    const base = createInitialState();
+    return createGameStore({
+      ...base,
+      phase: 'main',
+      hand: [cardId],
+      deck: base.deck.filter((id) => id !== cardId),
+      pendingSummon: { cardId, setKind, materials },
+      ...extra,
+    });
+  }
+
+  it('Supply Disruption (Normal Set) sends 1 random opponent Hand card to their Replen', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const store = createGameStore({
+        ...base,
+        phase: 'main',
+        hand: ['card-hero-16'],
+        deck: base.deck.filter((id) => id !== 'card-hero-16'),
+        opponentHand: ['o-1', 'o-2', 'o-3'],
+        opponentReplen: [],
+      });
+      store.getState().autoPlaceCard('card-hero-16');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      const s = store.getState();
+      expect(s.opponentHand).toHaveLength(2);
+      expect(s.opponentReplen).toHaveLength(1);
+      expect(['o-1', 'o-2', 'o-3']).toContain(s.opponentReplen[0]);
+      expect(s.abilityShowcase).toMatchObject({ cardId: 'card-hero-16', abilityName: 'Supply Disruption' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Extra Baggage draws 1 on a Replen Set but not on a Commit Set', () => {
+    vi.useFakeTimers();
+    try {
+      const store = storeForSet('card-hero-51', 'replen', 1);
+      store.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + MULTI_DRAW_STAGGER_MS * 2);
+      expect(store.getState().hand).toHaveLength(1);
+      const commit = storeForSet('card-hero-51', 'commit', 1);
+      commit.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + MULTI_DRAW_STAGGER_MS * 2);
+      expect(commit.getState().hand).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Stay Armed equips the top Weapon from the Deck, then Disturbs the Deck', () => {
+    vi.useFakeTimers();
+    try {
+      const deck = ['card-hero-6', 'card-equipment-11', 'card-hero-7', 'card-equipment-7'];
+      const store = storeForSet('card-hero-52', 'replen', 1, { deck });
+      store.getState().placePendingSummon('A2');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      const s = store.getState();
+      // Topmost Weapon is Headhunter (card-equipment-7 Tankwalker is not a Weapon).
+      expect(s.board.C2).toBe('card-equipment-11');
+      // Disturb: top card (Tankwalker) → Replen.
+      expect(s.replen).toEqual(['card-equipment-7']);
+      expect(s.deck).toEqual(['card-hero-6', 'card-hero-7']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Stay Armed does nothing when the Hero is already equipped', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const deck = ['card-equipment-11'];
+      const store = storeForSet('card-hero-52', 'replen', 1, { deck, board: { ...base.board, C2: 'card-equipment-16' } });
+      store.getState().placePendingSummon('A2');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      expect(store.getState().board.C2).toBe('card-equipment-16');
+      expect(store.getState().deck).toEqual(['card-equipment-11']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Domination destroys every enemy Normal Hero; Special Heroes are immune', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const o1 = withOpponent(base, 'O1', { level: 1, hp: 50 });
+      const o2 = withOpponent(base, 'O2', { level: 2, hp: 80 });
+      const o3 = withOpponent(base, 'O3', { level: 3, hp: 120 });
+      const store = storeForSet('card-hero-56', 'commit', 1, {
+        opponentBoard: { ...base.opponentBoard, O1: 'opp-O1', O2: 'opp-O2', O3: 'opp-O3' },
+        opponentCards: { ...o1.opponentCards, ...o2.opponentCards, ...o3.opponentCards },
+      });
+      store.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      const s = store.getState();
+      expect(s.opponentBoard.O1).toBeNull();
+      expect(s.opponentBoard.O2).toBeNull(); // no material cap any more
+      expect(s.opponentBoard.O3).toBe('opp-O3'); // Special Hero immune
+      expect(s.opponentGraveyard).toEqual(expect.arrayContaining(['opp-O1', 'opp-O2']));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Reclaim Ops opens a GY Ability Card choice; confirming adds it to the Hand', () => {
+    vi.useFakeTimers();
+    try {
+      const store = storeForSet('card-hero-58', 'commit', 2, { graveyard: ['card-hero-6', 'card-ability-1'] });
+      store.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      expect(store.getState().onSetChoice).toMatchObject({ sourceCardId: 'card-hero-58', options: ['card-ability-1'] });
+      store.getState().resolveOnSetChoice('card-ability-1');
+      const s = store.getState();
+      expect(s.onSetChoice).toBeNull();
+      expect(s.hand).toContain('card-ability-1');
+      expect(s.graveyard).toEqual(['card-hero-6']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Field Disruption lets the player send an enemy Equipment to their Replen, or skip', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const opp = withOpponent(base, 'O1', { level: 2 });
+      const eq = { id: 'opp-eq', type: 'C', name: 'Enemy Rifle', subType: 'Weapon', rarity: 'Common' } as Card;
+      const extra: Partial<GameState> = {
+        ...opp,
+        opponentCards: { ...opp.opponentCards, 'opp-eq': eq },
+        opponentCBoard: { ...base.opponentCBoard, OC1: 'opp-eq' },
+        opponentReplen: [],
+      };
+      const store = storeForSet('card-hero-46', 'replen', 1, extra);
+      store.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      expect(store.getState().onSetChoice?.options).toEqual(['opp-eq']);
+      store.getState().resolveOnSetChoice('opp-eq');
+      expect(store.getState().opponentCBoard.OC1).toBeNull();
+      expect(store.getState().opponentReplen).toEqual(['opp-eq']);
+
+      const skip = storeForSet('card-hero-46', 'replen', 1, extra);
+      skip.getState().placePendingSummon('A1');
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      skip.getState().resolveOnSetChoice(null);
+      expect(skip.getState().onSetChoice).toBeNull();
+      expect(skip.getState().opponentCBoard.OC1).toBe('opp-eq');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+describe('set permissions in the store', () => {
+  it('Troop Lead: Sandman Replen Sets with a single Infantry Hero', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-52'],
+      deck: base.deck.filter((id) => !['card-hero-52', 'card-hero-1'].includes(id)),
+      board: { ...base.board, A1: 'card-hero-1' },
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-hero-52');
+    store.getState().dropCard('card-hero-52', 'A2');
+    expect(store.getState().pendingTribute).toEqual({ cardId: 'card-hero-52' });
+    store.getState().confirmTributeSummon(['A1']);
+    const s = store.getState();
+    expect(s.board.A1).toBeNull();
+    expect(s.replen).toContain('card-hero-1');
+    expect(s.pendingSummon).toEqual({ cardId: 'card-hero-52', setKind: 'replen', materials: 1 });
+  });
+
+  it('Rapid Deployment: Riko is Normal Set straight into a slot', () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      hand: ['card-hero-43'],
+      deck: base.deck.filter((id) => id !== 'card-hero-43'),
+      phase: 'main',
+    });
+    store.getState().beginDrag('card-hero-43');
+    store.getState().dropCard('card-hero-43', 'A1');
+    expect(store.getState().board.A1).toBe('card-hero-43');
+    expect(store.getState().pendingTribute).toBeNull();
+  });
+});
+describe('B-card spells', () => {
+  it('Convoy Incoming: pick a Hand card for the GY, then tutor a Devil Dog and Disturb', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const dogs = base.deck.filter((id) => base.cardsById[id].type === 'A' && base.cardsById[id].name.includes('Devil Dog'));
+    expect(dogs.length).toBeGreaterThan(0);
+    const spell = 'card-ability-8';
+    const fodder = 'card-hero-1';
+    const deck = base.deck.filter((id) => id !== spell && id !== fodder);
+    const topDog = [...deck].reverse().find((id) => dogs.includes(id))!;
+    const store = createGameStore({ ...base, hand: [spell, fodder], deck, phase: 'main' });
+    store.getState().beginDrag(spell);
+    store.getState().dropCard(spell, 'B1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+    expect(store.getState().spellCost).toMatchObject({ sourceCardId: spell, to: 'graveyard', options: [fodder] });
+    store.getState().resolveSpellCost(fodder);
+    vi.advanceTimersByTime(5000);
+    const s = store.getState();
+    expect(s.spellCost).toBeNull();
+    expect(s.graveyard).toContain(fodder);
+    expect(s.hand).toContain(topDog);
+    expect(s.deck).not.toContain(topDog);
+    expect(s.replen.length).toBe(1); // Disturb moved the top deck card to Replen
+    vi.useRealTimers();
+  });
+
+  it('a Hand cost with nothing to pay fizzles the spell', () => {
+    vi.useFakeTimers();
+    const store = storeWithHand(['card-ability-8']);
+    store.getState().beginDrag('card-ability-8');
+    store.getState().dropCard('card-ability-8', 'B1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+    expect(store.getState().spellCost).toBeNull();
+    expect(store.getState().hand).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it('The Armory draws 2 cards', () => {
+    vi.useFakeTimers();
+    const store = storeWithHand(['card-ability-20']);
+    store.getState().beginDrag('card-ability-20');
+    store.getState().dropCard('card-ability-20', 'B1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + MULTI_DRAW_STAGGER_MS * 2);
+    expect(store.getState().hand).toHaveLength(2);
+    vi.useRealTimers();
+  });
+
+  const cast = (store: ReturnType<typeof createGameStore>, spell: string) => {
+    store.getState().beginDrag(spell);
+    store.getState().dropCard(spell, 'B1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+  };
+  const find = (pred: (c: Card) => boolean) => {
+    const base = createInitialState();
+    return Object.values(base.cardsById).filter(pred).map((c) => c.id);
+  };
+
+  it('Snowmobile Transport: reveal 5, add the picked Echo Hero, rest to Replen', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-1';
+    const echo = find((c) => c.type === 'A' && c.name.includes('Echo'))[0];
+    const others = base.deck.filter((id) => id !== spell && id !== echo && !base.cardsById[id].name.includes('Echo'));
+    // Deck end is the top: echo sits 3rd from the top.
+    const deck = [...others.slice(4), others[0], others[1], echo, others[2], others[3]];
+    const store = createGameStore({ ...base, hand: [spell], deck, phase: 'main' });
+    cast(store, spell);
+    const sc = store.getState().spellChoice!;
+    expect(sc).toMatchObject({ kind: 'reveal', options: [echo] });
+    expect(sc.revealed).toHaveLength(5);
+    expect(store.getState().deck).toHaveLength(deck.length - 5);
+    store.getState().resolveSpellChoice(echo);
+    const s = store.getState();
+    expect(s.spellChoice).toBeNull();
+    expect(s.hand).toEqual([echo]);
+    expect(s.replen).toHaveLength(4);
+    expect(s.replen).not.toContain(echo);
+    vi.useRealTimers();
+  });
+
+  it('Snowmobile Transport: no Echo revealed sends all 5 to Replen', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-1';
+    const deck = base.deck.filter((id) => id !== spell && !base.cardsById[id].name.includes('Echo'));
+    const store = createGameStore({ ...base, hand: [spell], deck, phase: 'main' });
+    cast(store, spell);
+    expect(store.getState().spellChoice).toBeNull();
+    expect(store.getState().replen).toHaveLength(5);
+    vi.useRealTimers();
+  });
+
+  it('Man Down!: fizzles without a Coalition loss last turn', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-6';
+    const deck = base.deck.filter((id) => id !== spell);
+    const store = createGameStore({ ...base, hand: [spell], deck, phase: 'main', turn: 3 });
+    cast(store, spell);
+    expect(store.getState().hand).toHaveLength(0);
+    expect(store.getState().deck).toHaveLength(deck.length);
+    vi.useRealTimers();
+  });
+
+  it('Man Down!: tutors a Coalition Medic after a Coalition Hero fell last turn', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-6';
+    const medic = find((c) => c.type === 'A' && c.allegiance === 'Coalition' && c.subType === 'Medic')[0];
+    const fallen = find((c) => c.type === 'A' && c.allegiance === 'Coalition' && c.id !== medic)[0];
+    const deck = [...base.deck.filter((id) => id !== spell && id !== medic && id !== fallen), medic];
+    const store = createGameStore({
+      ...base,
+      hand: [spell],
+      deck,
+      phase: 'main',
+      turn: 3,
+      graveyard: [fallen],
+      playerHeroLosses: [{ cardId: fallen, turn: 2 }],
+    });
+    cast(store, spell);
+    const s = store.getState();
+    expect(s.hand).toEqual([medic]);
+    expect(s.replen).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it('Big Weapon Drop: equips the top Suppressive Weapon to the chosen Heavy Hero', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-9';
+    const heavy = find((c) => c.type === 'A' && c.subType === 'Heavy')[0];
+    const supp = find((c) => c.type === 'C' && c.subType === 'Weapon' && c.weaponClass === 'Suppressive');
+    expect(supp.length).toBeGreaterThan(0);
+    const deck = [...base.deck.filter((id) => id !== spell && id !== heavy && !supp.includes(id)), supp[0]];
+    const store = createGameStore({
+      ...base,
+      hand: [spell],
+      deck,
+      phase: 'main',
+      board: { ...base.board, A2: heavy },
+    });
+    cast(store, spell);
+    expect(store.getState().spellChoice).toMatchObject({ kind: 'equipAlly', options: [heavy] });
+    store.getState().resolveSpellChoice(heavy);
+    const s = store.getState();
+    expect(s.spellChoice).toBeNull();
+    expect(s.board.C2).toBe(supp[0]);
+    expect(s.deck).not.toContain(supp[0]);
+    expect(s.replen).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it('Big Weapon Drop: fizzles with no unequipped Heavy Hero', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const spell = 'card-ability-9';
+    const deck = base.deck.filter((id) => id !== spell);
+    const store = createGameStore({ ...base, hand: [spell], deck, phase: 'main' });
+    cast(store, spell);
+    expect(store.getState().spellChoice).toBeNull();
+    expect(store.getState().replen).toHaveLength(0);
+    vi.useRealTimers();
+  });
+});
+
+describe('Set-turn attack rule', () => {
+  const HERO = 'card-hero-1';
+  const WEAPON = 'card-equipment-13';
+  const fresh = (hand: string[]) => {
+    const base = createInitialState();
+    return createGameStore({ ...base, hand, deck: base.deck.filter((id) => !hand.includes(id)), phase: 'main' });
+  };
+
+  it('a Hero Set this turn cannot attack', () => {
+    vi.useFakeTimers();
+    const store = fresh([HERO]);
+    store.getState().beginDrag(HERO);
+    store.getState().dropCard(HERO, 'A1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + 2000);
+    expect(store.getState().board.A1).toBe(HERO);
+    expect(store.getState().heroSetTurn[HERO]).toBe(store.getState().turn);
+    store.setState({ phase: 'battle' });
+    store.getState().aimAttack('A1');
+    expect(store.getState().targeting).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('can attack the turn it is Set once a Weapon is equipped', () => {
+    vi.useFakeTimers();
+    const store = fresh([HERO, WEAPON]);
+    store.getState().beginDrag(HERO);
+    store.getState().dropCard(HERO, 'A1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + 2000);
+    store.getState().beginDrag(WEAPON);
+    store.getState().dropCard(WEAPON, 'C1');
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS + 2000);
+    expect(store.getState().board.C1).toBe(WEAPON);
+    store.setState({ phase: 'battle' });
+    store.getState().aimAttack('A1');
+    expect(store.getState().targeting).toBe('A1');
+    vi.useRealTimers();
+  });
+
+  it('a Hero Set on an earlier turn can attack', () => {
+    const store = fresh([]);
+    store.setState({ board: { ...store.getState().board, A1: HERO } });
+    store.setState({ turn: store.getState().turn + 2, phase: 'battle' });
+    store.getState().aimAttack('A1');
+    expect(store.getState().targeting).toBe('A1');
+  });
+
+  it('an opponent Hero placed this turn cannot attack without a Weapon', () => {
+    const base = createInitialState();
+    const store = createGameStore({ ...base, activePlayer: 'opponent' });
+    const opp = 'opp-deck-hero-1';
+    store.setState({ opponentBoard: { ...store.getState().opponentBoard, O1: opp } });
+    expect(heroCanAttack(store.getState(), 'opponent', 'O1')).toBe(false);
+    store.setState({ opponentCBoard: { ...store.getState().opponentCBoard, OC1: 'opp-deck-equipment-13' } });
+    expect(heroCanAttack(store.getState(), 'opponent', 'O1')).toBe(true);
+  });
+
+  it('entries for cards leaving the field are pruned', () => {
+    const store = fresh([]);
+    store.setState({ board: { ...store.getState().board, A1: HERO }, counters: { [HERO]: 2 } });
+    store.setState({ board: { ...store.getState().board, A1: null } });
+    expect(store.getState().heroSetTurn[HERO]).toBeUndefined();
+    expect(store.getState().counters[HERO]).toBeUndefined();
+  });
+});
+
+describe('Goliath abilities', () => {
+  const GOLIATH = 'card-hero-59';
+  const withGoliath = () => {
+    const base = createInitialState();
+    const store = createGameStore({
+      ...base,
+      deck: base.deck.filter((id) => id !== GOLIATH),
+      phase: 'main',
+    });
+    store.setState({
+      board: { ...store.getState().board, A1: GOLIATH },
+      opponentBoard: { O1: 'opp-deck-hero-1', O2: 'opp-deck-hero-23', O3: 'opp-deck-hero-5', O4: null },
+    });
+    return store;
+  };
+
+  it('Heavy Suppression debuffs up to 2 enemy Heroes until the opponent turn ends', () => {
+    vi.useFakeTimers();
+    const store = withGoliath();
+    const before = opponentEffectiveStats(store.getState(), 'O1').acc.value;
+    store.getState().activateAbility(GOLIATH, 0);
+    expect(store.getState().abilityTargeting).toMatchObject({ step: 'target' });
+    store.getState().chooseAbilityTargets(['opp-deck-hero-1', 'opp-deck-hero-23', 'opp-deck-hero-5']);
+    expect(store.getState().abilityTargeting).not.toBeNull(); // 3 > max 2
+    store.getState().chooseAbilityTargets(['opp-deck-hero-1', 'opp-deck-hero-23']);
+    const s = store.getState();
+    expect(s.abilityTargeting).toBeNull();
+    expect(Object.keys(s.enemyStatDebuffs).sort()).toEqual(['opp-deck-hero-1', 'opp-deck-hero-23']);
+    expect(opponentEffectiveStats(s, 'O1').acc.value).toBeLessThan(before);
+    vi.useRealTimers();
+  });
+
+  it('Iron Wall forces enemy attacks onto Goliath', () => {
+    const store = withGoliath();
+    store.getState().activateAbility(GOLIATH, 2);
+    const at = store.getState().abilityTargeting;
+    if (at) store.getState().chooseAbilityCost(store.getState().hand[0]);
+    expect(store.getState().forcedTarget).toBe(GOLIATH);
+  });
+});
+
+describe('Counters', () => {
+  const RIFLEMAN = 'card-hero-19';
+
+  it('Devil Dog Rifleman gains a counter each End; at 3 it can transform into a Devil Dog Special', () => {
+    vi.useFakeTimers();
+    const base = createInitialState();
+    const store = createGameStore({ ...base, deck: base.deck.filter((id) => id !== RIFLEMAN), phase: 'main' });
+    store.setState({ board: { ...store.getState().board, A1: RIFLEMAN }, counters: { [RIFLEMAN]: 2 } });
+    store.setState({ phase: 'battle' });
+    store.getState().advancePhase(); // battle -> resolution
+    vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400); // -> end
+    expect(store.getState().phase).toBe('end');
+    expect(store.getState().counters[RIFLEMAN]).toBe(3);
+    expect(store.getState().counterPrompt).toMatchObject({ cardId: RIFLEMAN });
+    vi.advanceTimersByTime(END_PHASE_DWELL_MS * 2);
+    expect(store.getState().activePlayer).toBe('player'); // hand-off waits on the prompt
+    const deckBefore = store.getState().deck;
+    store.getState().resolveCounterPrompt(true);
+    vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+    const s = store.getState();
+    expect(s.replen).toContain(RIFLEMAN);
+    const special = s.cardsById[s.board.A1!];
+    expect(special.name).toContain('Devil Dog');
+    expect(special.level).toBeGreaterThanOrEqual(3);
+    expect(s.deck.length).toBe(deckBefore.length - 2); // Special pulled + Disturb
+    vi.advanceTimersByTime(END_PHASE_DWELL_MS + 10);
+    expect(store.getState().activePlayer).toBe('opponent');
+    vi.useRealTimers();
+  });
+
+  it('two Riflemen hitting 3 together each Set a Special; with none left the prompt is skipped and a notice shows', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const rifles = Object.keys(base.cardsById).filter((id) => base.cardsById[id].name === 'Devil Dog Rifleman');
+      const specials = base.deck.filter((id) => /^Devil Dog \d/.test(base.cardsById[id].name));
+      // Keep exactly one Special in the Deck.
+      const deck = base.deck.filter((id) => !rifles.includes(id) && !specials.slice(1).includes(id));
+      const store = createGameStore({ ...base, deck, phase: 'battle', turn: 3 });
+      store.setState({ board: { ...store.getState().board, A1: rifles[0], A2: rifles[1] }, counters: { [rifles[0]]: 2, [rifles[1]]: 2 } });
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
+      expect(store.getState().counterPrompt?.cardId).toBe(rifles[0]);
+      store.getState().resolveCounterPrompt(true);
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      const s = store.getState();
+      expect(s.board.A1).toBe(specials[0]);
+      expect(s.counterPrompt).toBeNull();
+      expect(s.board.A2).toBe(rifles[1]); // not sent away for nothing
+      expect(s.notice?.text).toMatch(/no "Devil Dog" Special Hero left/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Zero Path Escort counts damage and hits its threshold (3) for the GY swap', () => {
+    const ca = counterAbility(createInitialState().opponentCards['opp-deck-hero-7']);
+    expect(ca?.effect).toMatchObject({ gain: 'inflictDamage', threshold: 3, sendTo: 'graveyard', setFamily: 'Zero' });
+    expect(ca?.ir.optional).toBeFalsy();
+  });
+});
+
+describe('turn-1 skip and points', () => {
+  it('turn 1 Main skips Battle and goes straight to End (no empty-field points on turn 1)', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createGameStore({ ...createInitialState(), phase: 'main', turn: 1 });
+      store.getState().advancePhase();
+      expect(store.getState().phase).toBe('end');
+      expect(store.getState().points).toEqual({ player: 0, opponent: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ending a later turn with no Heroes gives the opponent 3 points', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createGameStore({ ...createInitialState(), phase: 'main', turn: 2 });
+      store.getState().advancePhase(); // battle
+      store.getState().advancePhase(); // resolution
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
+      expect(store.getState().phase).toBe('end');
+      expect(store.getState().points.opponent).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reaching 15 points declares a winner', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createGameStore({ ...createInitialState(), phase: 'main', turn: 2, points: { player: 0, opponent: 13 } });
+      store.getState().advancePhase();
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
+      expect(store.getState().points.opponent).toBe(16);
+      expect(store.getState().winner).toBe('opponent');
+    } finally {
       vi.useRealTimers();
     }
   });

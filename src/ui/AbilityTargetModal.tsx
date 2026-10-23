@@ -1,16 +1,18 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import { parseAbility } from '../abilities/parseAbility';
-import { abilityValidTargets } from '../abilities/activated';
+import { abilityMaxTargets, abilityNeedsTarget, abilityTargetOptions, abilityZones, costPickZone } from '../abilities/activated';
+import type { AbilityIR } from '../abilities/abilityIR';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 import type { Card, CardId } from '../state/types';
 
 /**
- * Two-step resolver for activated abilities that need player selection (e.g.
- * Quick Reload, Fire Support). Opens when `abilityTargeting` is set.
+ * One- or two-step resolver for activated abilities that need player selection
+ * (e.g. Quick Reload, First Aid Kit, Jackal Reinforcement). Opens when
+ * `abilityTargeting` is set.
  *
- *  - `cost` step: pick a Hand card to send to Replen (the ability's cost).
- *  - `target` step: pick an ally Hero to receive the buff.
+ *  - `cost` step: pick the Hand / Replen card the ability's cost moves.
+ *  - `target` step: pick the Hero (or Graveyard card) the effect applies to.
  *
  * Each step is select-then-confirm: click a card to inspect it (name, stats and
  * full ability text) so the player can read effects that trigger on the move,
@@ -23,16 +25,21 @@ export function AbilityTargetModal() {
   const cardsById = useGameStore((s) => s.cardsById);
   const board = useGameStore((s) => s.board);
   const hand = useGameStore((s) => s.hand);
+  const replen = useGameStore((s) => s.replen);
+  const deck = useGameStore((s) => s.deck);
+  const graveyard = useGameStore((s) => s.graveyard);
+  const opponentBoard = useGameStore((s) => s.opponentBoard);
+  const opponentCards = useGameStore((s) => s.opponentCards);
   const chooseAbilityCost = useGameStore((s) => s.chooseAbilityCost);
-  const chooseAbilityTarget = useGameStore((s) => s.chooseAbilityTarget);
+  const chooseAbilityTargets = useGameStore((s) => s.chooseAbilityTargets);
   const cancel = useGameStore((s) => s.cancelAbilityTargeting);
 
-  const [selected, setSelected] = useState<CardId | null>(null);
+  const [picks, setPicks] = useState<CardId[]>([]);
 
   // Reset the pick whenever the step (or the whole flow) changes.
   const step = at?.step ?? null;
   useEffect(() => {
-    setSelected(null);
+    setPicks([]);
   }, [step, at?.sourceCardId]);
 
   useEffect(() => {
@@ -49,26 +56,37 @@ export function AbilityTargetModal() {
   if (!source || !source.abilities) return null;
   const ir = parseAbility(source.abilities[at.abilityIndex]);
 
-  const allyBoard: Card[] = Object.values(board)
-    .filter((id): id is CardId => id !== null)
-    .map((id) => cardsById[id])
-    .filter((c): c is Card => Boolean(c));
-
+  const zones = abilityZones({ board, cardsById, hand, replen, deck, graveyard, opponentBoard, opponentCards });
   const isCost = at.step === 'cost';
+  const costZone = costPickZone(ir);
+  const totalSteps = (costZone ? 1 : 0) + (abilityNeedsTarget(ir) ? 1 : 0);
+  const stepNo = isCost || !costZone ? 1 : 2;
   const title = at.abilityName;
-  const subtitle = isCost
-    ? 'Click a Hand card to inspect it, then Confirm to send it to the Replen pile.'
-    : 'Click a Hero you control to inspect it, then Confirm to apply the buff.';
+  const copy = isCost ? costCopy(ir) : targetCopy(ir);
+  const maxPicks = isCost ? 1 : abilityMaxTargets(ir);
+  const subtitle =
+    maxPicks > 1
+      ? `Select up to ${maxPicks} cards, then Confirm to ${copy.verb}.`
+      : `Click a card to inspect it, then Confirm to ${copy.verb}.`;
 
   const tiles: Card[] = isCost
-    ? hand.map((id) => cardsById[id]).filter((c): c is Card => Boolean(c))
-    : abilityValidTargets(ir, allyBoard, at.sourceCardId);
+    ? (costZone === 'replen' ? replen : hand).map((id) => cardsById[id]).filter((c): c is Card => Boolean(c))
+    : abilityTargetOptions(ir, zones, at.sourceCardId);
 
-  const selectedCard = selected ? cardsById[selected] ?? null : null;
+  const selected = picks[picks.length - 1] ?? null;
+  const selectedCard = selected ? cardsById[selected] ?? opponentCards[selected] ?? null : null;
+  const pick = (id: CardId) =>
+    setPicks((cur) =>
+      maxPicks <= 1
+        ? [id]
+        : cur.includes(id)
+          ? cur.filter((x) => x !== id)
+          : [...cur, id].slice(-maxPicks),
+    );
   const confirm = () => {
-    if (!selected) return;
-    if (isCost) chooseAbilityCost(selected);
-    else chooseAbilityTarget(selected);
+    if (!picks.length) return;
+    if (isCost) chooseAbilityCost(picks[0]);
+    else chooseAbilityTargets(picks);
   };
 
   return (
@@ -79,53 +97,21 @@ export function AbilityTargetModal() {
             <span style={{ color: '#ffb020' }}>{title}</span>
             <span style={{ color: '#8b95a3', fontWeight: 500 }}> · {isCost ? 'Cost' : 'Target'}</span>
           </span>
-          <span style={STEP_STYLE}>{isCost ? 'Step 1 / 2' : 'Step 2 / 2'}</span>
+          <span style={STEP_STYLE}>{`Step ${stepNo} / ${totalSteps}`}</span>
         </div>
 
         <div style={SUBTITLE_STYLE}>{subtitle}</div>
 
         {tiles.length === 0 ? (
           <div style={EMPTY_STYLE}>
-            {isCost ? 'No cards in Hand.' : 'No legal targets on your board.'}
+            {isCost ? 'No cards to pay the cost.' : 'No legal targets.'}
           </div>
         ) : (
           <div style={GRID_SCROLL_STYLE}>
             <div style={GRID_STYLE}>
-              {tiles.map((c) => {
-                const accent = TYPE_ACCENT[c.type];
-                const on = selected === c.id;
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setSelected(c.id)}
-                    style={{
-                      ...TILE_STYLE,
-                      border: `2px solid ${on ? '#ffcf3f' : RARITY_COLOR[c.rarity]}`,
-                      boxShadow: on ? '0 0 12px rgba(255,207,63,0.55)' : 'none',
-                    }}
-                    title={c.name}
-                  >
-                    <div
-                      style={{
-                        ...TILE_HEADER_STYLE,
-                        background: `linear-gradient(180deg, ${accent}cc, ${accent}77)`,
-                      }}
-                    >
-                      <span style={{ fontWeight: 800 }}>{c.type}</span>
-                      {c.level != null && <span style={TILE_LEVEL_STYLE}>Lv {c.level}</span>}
-                    </div>
-                    <div style={TILE_NAME_STYLE}>{c.name}</div>
-                    {c.type === 'A' && (
-                      <div style={TILE_FOOT_STYLE}>
-                        <span style={{ color: '#e07a5f' }}>{c.dmg}</span>
-                        <span style={{ color: '#6aa9e0' }}>{c.acc}</span>
-                      </div>
-                    )}
-                    {on && <div style={CHECK_STYLE}>✓</div>}
-                  </button>
-                );
-              })}
+              {tiles.map((c) => (
+                <CardTile key={c.id} card={c} on={picks.includes(c.id)} onPick={() => pick(c.id)} />
+              ))}
             </div>
           </div>
         )}
@@ -146,12 +132,253 @@ export function AbilityTargetModal() {
               cursor: selected ? 'pointer' : 'not-allowed',
             }}
           >
-            {isCost ? 'Send to Replen' : 'Apply Buff'}
+            {copy.button}
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+/** One selectable card tile. */
+function CardTile({ card: c, on, onPick }: { card: Card; on: boolean; onPick: () => void }) {
+  const accent = TYPE_ACCENT[c.type];
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      style={{
+        ...TILE_STYLE,
+        border: `2px solid ${on ? '#ffcf3f' : RARITY_COLOR[c.rarity]}`,
+        boxShadow: on ? '0 0 12px rgba(255,207,63,0.55)' : 'none',
+      }}
+      title={c.name}
+    >
+      <div style={{ ...TILE_HEADER_STYLE, background: `linear-gradient(180deg, ${accent}cc, ${accent}77)` }}>
+        <span style={{ fontWeight: 800 }}>{c.type}</span>
+        {c.level != null && <span style={TILE_LEVEL_STYLE}>Lv {c.level}</span>}
+      </div>
+      <div style={TILE_NAME_STYLE}>{c.name}</div>
+      {c.type === 'A' && (
+        <div style={TILE_FOOT_STYLE}>
+          <span style={{ color: '#e07a5f' }}>{c.dmg}</span>
+          <span style={{ color: '#6aa9e0' }}>{c.acc}</span>
+        </div>
+      )}
+      {on && <div style={CHECK_STYLE}>✓</div>}
+    </button>
+  );
+}
+
+/**
+ * Pick-one resolver for optional On-Set abilities (Field Disruption: an enemy
+ * Equipment; Reclaim Ops: an Ability Card in your GY). Opens when `onSetChoice`
+ * is set. Skip / backdrop / Escape declines the ability.
+ */
+export function OnSetChoiceModal() {
+  const ch = useGameStore((s) => s.onSetChoice);
+  const cardsById = useGameStore((s) => s.cardsById);
+  const opponentCards = useGameStore((s) => s.opponentCards);
+  const resolve = useGameStore((s) => s.resolveOnSetChoice);
+  const [selected, setSelected] = useState<CardId | null>(null);
+
+  useEffect(() => {
+    setSelected(null);
+  }, [ch?.sourceCardId, ch?.abilityIndex]);
+
+  useEffect(() => {
+    if (!ch) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') resolve(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ch, resolve]);
+
+  if (!ch) return null;
+  const source = cardsById[ch.sourceCardId];
+  const ir = parseAbility(source?.abilities?.[ch.abilityIndex] ?? '');
+  const enemy = ir.effect.kind === 'opponentEquipmentToReplen';
+  const lookup = (id: CardId) => cardsById[id] ?? opponentCards[id];
+  const tiles = ch.options.map(lookup).filter((c): c is Card => Boolean(c));
+  const selectedCard = selected ? lookup(selected) ?? null : null;
+  const verb = enemy ? "send it from your opponent's field to Replen" : 'add it to your Hand';
+  const button = enemy ? 'Send to Replen' : 'Add to Hand';
+
+  return (
+    <div data-ui-overlay style={BACKDROP_STYLE} onClick={() => resolve(null)}>
+      <div style={PANEL_STYLE} onClick={(e) => e.stopPropagation()}>
+        <div style={HEADER_STYLE}>
+          <span style={{ fontWeight: 700, letterSpacing: 0.4 }}>
+            <span style={{ color: '#ffb020' }}>{ch.abilityName}</span>
+            <span style={{ color: '#8b95a3', fontWeight: 500 }}> · On Set</span>
+          </span>
+        </div>
+        <div style={SUBTITLE_STYLE}>{`Click a card to inspect it, then Confirm to ${verb}.`}</div>
+        <div style={GRID_SCROLL_STYLE}>
+          <div style={GRID_STYLE}>
+            {tiles.map((c) => (
+              <CardTile key={c.id} card={c} on={selected === c.id} onPick={() => setSelected(c.id)} />
+            ))}
+          </div>
+        </div>
+        {selectedCard && <CardDetail card={selectedCard} />}
+        <div style={FOOTER_STYLE}>
+          <button type="button" onClick={() => resolve(null)} style={CANCEL_STYLE}>
+            Skip
+          </button>
+          <button
+            type="button"
+            disabled={!selected}
+            onClick={() => selected && resolve(selected)}
+            style={{ ...CONFIRM_STYLE, opacity: selected ? 1 : 0.4, cursor: selected ? 'pointer' : 'not-allowed' }}
+          >
+            {button}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Mandatory Hand-cost pick for an Ability (B) card spell (e.g. Convoy Incoming:
+ * "Send 1 card from your Hand to the GY"). Opens when `spellCost` is set. The
+ * card is already on the field, so there is no Skip — the rest of the spell
+ * resolves once a card is confirmed.
+ */
+export function SpellCostModal() {
+  const sc = useGameStore((s) => s.spellCost);
+  const cardsById = useGameStore((s) => s.cardsById);
+  const resolve = useGameStore((s) => s.resolveSpellCost);
+  const [selected, setSelected] = useState<CardId | null>(null);
+
+  useEffect(() => {
+    setSelected(null);
+  }, [sc?.sourceCardId]);
+
+  if (!sc) return null;
+  const source = cardsById[sc.sourceCardId];
+  const tiles = sc.options.map((id) => cardsById[id]).filter((c): c is Card => Boolean(c));
+  const selectedCard = selected ? cardsById[selected] ?? null : null;
+  const dest = sc.to === 'graveyard' ? 'the GY' : 'Replen';
+
+  return (
+    <div data-ui-overlay style={BACKDROP_STYLE}>
+      <div style={PANEL_STYLE} onClick={(e) => e.stopPropagation()}>
+        <div style={HEADER_STYLE}>
+          <span style={{ fontWeight: 700, letterSpacing: 0.4 }}>
+            <span style={{ color: '#ffb020' }}>{source?.name ?? 'Ability'}</span>
+            <span style={{ color: '#8b95a3', fontWeight: 500 }}> · Cost</span>
+          </span>
+        </div>
+        <div style={SUBTITLE_STYLE}>{`Select 1 card from your Hand to send to ${dest}, then Confirm.`}</div>
+        <div style={GRID_SCROLL_STYLE}>
+          <div style={GRID_STYLE}>
+            {tiles.map((c) => (
+              <CardTile key={c.id} card={c} on={selected === c.id} onPick={() => setSelected(c.id)} />
+            ))}
+          </div>
+        </div>
+        {selectedCard && <CardDetail card={selectedCard} />}
+        <div style={FOOTER_STYLE}>
+          <button
+            type="button"
+            disabled={!selected}
+            onClick={() => selected && resolve(selected)}
+            style={{ ...CONFIRM_STYLE, opacity: selected ? 1 : 0.4, cursor: selected ? 'pointer' : 'not-allowed' }}
+          >
+            {sc.to === 'graveyard' ? 'Send to GY' : 'Send to Replen'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Mandatory pick for a paused B-card spell step (`spellChoice`): Snowmobile
+ * Transport's revealed Hero, or Big Weapon Drop's ally Hero to equip.
+ */
+export function SpellChoiceModal() {
+  const sc = useGameStore((s) => s.spellChoice);
+  const cardsById = useGameStore((s) => s.cardsById);
+  const resolve = useGameStore((s) => s.resolveSpellChoice);
+  const [selected, setSelected] = useState<CardId | null>(null);
+
+  useEffect(() => {
+    setSelected(null);
+  }, [sc?.sourceCardId, sc?.stepIndex]);
+
+  if (!sc) return null;
+  const source = cardsById[sc.sourceCardId];
+  const tiles = sc.options.map((id) => cardsById[id]).filter((c): c is Card => Boolean(c));
+  const selectedCard = selected ? cardsById[selected] ?? null : null;
+  const others = (sc.revealed ?? []).filter((id) => !sc.options.includes(id)).map((id) => cardsById[id]?.name);
+  const subtitle =
+    sc.kind === 'reveal'
+      ? `${sc.prompt}; the other revealed cards go to Replen.${others.length ? ` Also revealed: ${others.join(', ')}.` : ''}`
+      : `${sc.prompt}, then Confirm.`;
+
+  return (
+    <div data-ui-overlay style={BACKDROP_STYLE}>
+      <div style={PANEL_STYLE} onClick={(e) => e.stopPropagation()}>
+        <div style={HEADER_STYLE}>
+          <span style={{ fontWeight: 700, letterSpacing: 0.4 }}>
+            <span style={{ color: '#ffb020' }}>{source?.name ?? 'Ability'}</span>
+          </span>
+        </div>
+        <div style={SUBTITLE_STYLE}>{subtitle}</div>
+        <div style={GRID_SCROLL_STYLE}>
+          <div style={GRID_STYLE}>
+            {tiles.map((c) => (
+              <CardTile key={c.id} card={c} on={selected === c.id} onPick={() => setSelected(c.id)} />
+            ))}
+          </div>
+        </div>
+        {selectedCard && <CardDetail card={selectedCard} />}
+        <div style={FOOTER_STYLE}>
+          <button
+            type="button"
+            disabled={!selected}
+            onClick={() => selected && resolve(selected)}
+            style={{ ...CONFIRM_STYLE, opacity: selected ? 1 : 0.4, cursor: selected ? 'pointer' : 'not-allowed' }}
+          >
+            {sc.kind === 'reveal' ? 'Add to Hand' : 'Equip'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Prompt + button copy for the cost step. */
+function costCopy(ir: AbilityIR): { verb: string; button: string } {
+  switch (ir.cost?.kind) {
+    case 'discardHand':
+      return { verb: 'discard it from your Hand', button: 'Discard' };
+    case 'sendReplenToGraveyard':
+      return { verb: 'send it from your Replen to the GY', button: 'Send to GY' };
+    default:
+      return { verb: 'send it from your Hand to Replen', button: 'Send to Replen' };
+  }
+}
+
+/** Prompt + button copy for the target step. */
+function targetCopy(ir: AbilityIR): { verb: string; button: string } {
+  switch (ir.effect.kind) {
+    case 'healTarget':
+      return { verb: `restore ${ir.effect.amount} HP to it`, button: 'Recover HP' };
+    case 'recoverFromGraveyard':
+      return { verb: 'send it from your GY to Replen', button: 'Send to Replen' };
+    case 'enemyStatDebuff':
+      return {
+        verb: `give them ${ir.effect.amount} ${ir.effect.stat.toUpperCase()} during your opponent's next turn`,
+        button: 'Apply Debuff',
+      };
+    default:
+      return { verb: 'apply the buff', button: 'Apply Buff' };
+  }
 }
 
 /** Inline detail of the currently-selected card so the player can read its stats

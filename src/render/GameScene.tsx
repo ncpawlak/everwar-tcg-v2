@@ -7,14 +7,17 @@ import { SummonRipple } from './SummonRipple';
 import { ResolutionDice } from './ResolutionDice';
 import { OutcomePopups } from './OutcomePopups';
 import { DamagePopups } from './DamagePopups';
+import { CounterBadges } from './CounterBadges';
 import { DestructionFx } from './DestructionFx';
 import { OpponentBoard } from './OpponentBoard';
 import { OpponentField } from './OpponentField';
 import { OpponentHand } from './OpponentHand';
 import { TargetingArrows } from './TargetingArrows';
 import { OpeningDeal } from './OpeningDeal';
+import { AttackReadyFrames } from './AttackReadyFrames';
 import { FieldTurnHighlight } from './FieldTurnHighlight';
 import { ThreeBridge } from './ThreeBridge';
+import { DeckCounts } from './DeckCounts';
 
 /**
  * Phase 1 scene composition. Lights + playmat + slots + one CardEntity per card
@@ -43,6 +46,7 @@ export function GameScene() {
       />
       <BoardView />
       <FieldTurnHighlight />
+      <AttackReadyFrames />
       <SlotView />
       <OpponentField />
       <OpponentHand />
@@ -56,6 +60,8 @@ export function GameScene() {
       <ResolutionDice />
       <OutcomePopups />
       <DamagePopups />
+      <CounterBadges />
+      <DeckCounts />
       <DestructionFx />
       <OpeningDeal />
     </>

@@ -1,4 +1,5 @@
-import { useGameStore } from '../state/useGameStore';
+import { buriedInPile } from './CardEntity';
+import { useColdGameState } from '../state/useGameStore';
 import {
   OPP_SLOT_IDS,
   OPP_SLOT_POSITIONS,
@@ -10,7 +11,7 @@ import { MotionCard } from '../animation/MotionCard';
 import { selectOpponentCardVisual } from '../animation/poseSelectors';
 import { CardView } from '../cards/CardView';
 import { opponentSummonFromPose } from '../board/layout';
-import { opponentEffectiveStats } from '../state/combatStats';
+import { heroBars, heroMaxBars, heroArmor, opponentEffectiveStats, opponentField } from '../state/combatStats';
 import { projectingAuraCardIds } from '../abilities/auras';
 import {
   HpOverlay,
@@ -42,15 +43,12 @@ function oppOverlayPos(oppSlot: OppSlotId, yOff: number, zOff: number): Vec3 {
 }
 
 export function OpponentBoard() {
-  const state = useGameStore((s) => s);
+  const state = useColdGameState();
   const { opponentBoard, opponentCards, targeting } = state;
   const selectable = targeting !== null;
 
   // Opponent Heroes projecting an active passive aura glow, same as the player.
-  const oppBoardHeroes = Object.values(opponentBoard)
-    .map((id) => (id ? opponentCards[id] : undefined))
-    .filter((c): c is NonNullable<typeof c> => !!c && c.type === 'A');
-  const oppAuraIds = projectingAuraCardIds(oppBoardHeroes);
+  const oppAuraIds = projectingAuraCardIds(opponentField(state));
 
   return (
     <>
@@ -69,7 +67,13 @@ export function OpponentBoard() {
             scale={visual.scale}
             from={visual.zone === 'summon' ? opponentSummonFromPose() : undefined}
           >
-            <CardView card={card} pickable={false} auraActive={oppAuraIds.has(id)} armorBars={state.currentArmorBars[id]} />
+            <CardView
+              card={card}
+              pickable={false}
+              auraActive={oppAuraIds.has(id)}
+              armorBars={state.currentArmorBars[id]}
+              faceHidden={buriedInPile(state.opponentGraveyard, id) || buriedInPile(state.opponentReplen, id)}
+            />
           </MotionCard>
         );
       })}
@@ -94,6 +98,9 @@ export function OpponentBoard() {
               stats={opponentEffectiveStats(state, slot as OppSlotId)}
               position={oppOverlayPos(slot as OppSlotId, HP_Y_OFFSET, HP_Z_OFFSET)}
               currentHp={state.currentHp[id]}
+              bars={heroBars(state, 'opponent', slot as OppSlotId)}
+              maxBars={heroMaxBars(state, 'opponent', slot as OppSlotId)}
+              armor={heroArmor(state, 'opponent', slot as OppSlotId)}
             />
             <DmgAccOverlay
               stats={opponentEffectiveStats(state, slot as OppSlotId)}

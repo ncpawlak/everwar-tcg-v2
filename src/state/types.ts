@@ -10,7 +10,7 @@ export type CardType = 'A' | 'B' | 'C';
 /** Card rarity tier, ordered common -> legendary. Drives the panel's accent. */
 export type Rarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
 
-/** The three combat stats a card carries and a C-card boost can target. */
+/** The three combat stats a Hero carries. */
 export type StatKey = 'hp' | 'dmg' | 'acc';
 
 /**
@@ -19,16 +19,6 @@ export type StatKey = 'hp' | 'dmg' | 'acc';
  * activation and effect data. Enacted the moment the card is set in a B slot.
  */
 export type BAbilityId = string;
-
-/**
- * A stat modifier a C card applies to its linked A card. Rolled when the C card
- * is set (random stat + random amount). `amount` is signed: positive raises the
- * stat (shown green), negative lowers it (shown red).
- */
-export interface StatBuff {
-  stat: StatKey;
-  amount: number;
-}
 
 /** Slot column index within a type family (1-based, 4 per family). */
 export type SlotIndex = 1 | 2 | 3 | 4;
@@ -77,7 +67,7 @@ export type OppBSlotId = 'OB1' | 'OB2' | 'OB3' | 'OB4';
 
 /**
  * Opponent Bulwark (C) slot identifier — the opponent's support/boost row,
- * column-linked to its Vanguard row (OC1 boosts O1, etc.). Phase 7.
+ * column-linked to its Vanguard row (OC1 equips O1, etc.). Phase 7.
  */
 export type OppCSlotId = 'OC1' | 'OC2' | 'OC3' | 'OC4';
 
@@ -85,6 +75,24 @@ export type OppCSlotId = 'OC1' | 'OC2' | 'OC3' | 'OC4';
  * A card's full combat profile (Phase 3). Every card carries display + combat
  * data even though the rules that consume ATK/DEF/effect land in later slices.
  */
+/** Bonuses an Equipment (C) card grants the Hero in its linked A slot. */
+export interface EquipStats {
+  hp?: number;
+  dmg?: number;
+  acc?: number;
+  armor?: number;
+  armorBars?: number;
+  /** Extra HP when the equipped Hero is a Medic (Medi-Gel Vest). */
+  medicHp?: number;
+  /** Incoming HP damage from Heroes WITHOUT a Weapon is reduced by this (Tankwalker). */
+  unarmedReduction?: number;
+  /** The Equipment is destroyed once the Hero loses a bar (Ballistic Armor Plate). */
+  destroyOnBarLoss?: boolean;
+}
+
+/** CPU strength (start screen). */
+export type Difficulty = 'easy' | 'normal' | 'hard';
+
 export interface Card {
   id: CardId;
   type: CardType;
@@ -109,6 +117,8 @@ export interface Card {
    * "Suppressive" / "Breach". Only Weapon-subtype Equipment carry one. Data only
    * for now; consumed by weapon-scoped abilities in a later slice. */
   weaponClass?: string;
+  /** Equipment (C) only: bonuses the equipped Hero gains while linked. */
+  equipStats?: EquipStats;
   /** Play-window of an Ability (B) card: "Main" / "Battle" / "Cont." — gates WHEN
    * the card may be activated. Data only for now. Only B cards carry one. */
   timing?: string;
@@ -141,11 +151,6 @@ export interface Card {
   effect: string;
   /** Non-mechanical flavor line. */
   flavor: string;
-  /**
-   * Random stat boost this card grants its linked A card. Only C cards carry
-   * one, and only once set in a C slot (rolled at placement). Absent otherwise.
-   */
-  buff?: StatBuff;
   /**
    * On-play ability. Only B (Arcane) cards carry one; enacted when the card is
    * set in a B slot. Absent for A/C cards.
@@ -272,6 +277,54 @@ export interface PendingTribute {
  */
 export interface PendingSummon {
   cardId: CardId;
+  /** Replen Set (materials → Replen) or Commit Set (materials → GY). */
+  setKind?: 'replen' | 'commit';
+  /** Number of materials used, for "up to the number of materials" effects. */
+  materials?: number;
+  /** The materials satisfied a "can attack during the turn this Hero is Set"
+   *  ability (Shock Deployment). */
+  setTurnAttack?: boolean;
+  /** One material's Equipment kept through the tribute: it stays in its C slot
+   *  until the Hero is placed, then moves to the Hero's column. */
+  keptEquip?: { cardId: CardId; from: SlotId };
+}
+
+/**
+ * An On-Set ability awaiting the player's pick (e.g. Field Disruption: select 1
+ * enemy Equipment; Reclaim Ops: select 1 Ability Card in the GY). The ability
+ * is optional, so the player may also skip. Null when no such choice is open.
+ */
+export interface OnSetChoice {
+  sourceCardId: CardId;
+  abilityIndex: number;
+  abilityName: string;
+  /** Legal picks (player or opponent card ids). */
+  options: CardId[];
+}
+
+/**
+ * An Ability (B) card's mandatory Hand cost awaiting the player's pick (e.g.
+ * Convoy Incoming: "Send 1 card from your Hand to the GY"). The rest of the
+ * spell resolves once the cost is paid. Null when no cost pick is open.
+ */
+/** A mid-resolution B-card spell step awaiting the player's mandatory pick.
+ *  `reveal`: pick 1 of the revealed eligible cards for the Hand (the rest of
+ *  `revealed` go to the step's pile). `equipAlly`: pick the ally Hero to equip. */
+export interface SpellChoice {
+  sourceCardId: CardId;
+  stepIndex: number;
+  kind: 'reveal' | 'equipAlly';
+  prompt: string;
+  options: CardId[];
+  /** `reveal` only: every card taken off the top of the Deck. */
+  revealed?: CardId[];
+}
+
+export interface SpellCostChoice {
+  sourceCardId: CardId;
+  to: 'graveyard' | 'replen';
+  /** Hand cards that can pay the cost. */
+  options: CardId[];
 }
 
 /**
@@ -329,6 +382,47 @@ export interface GameState {
   /** A just-sent Hero's on-sent pile ability awaiting the player's yes/no
    *  decision, or null. */
   abilityPrompt: AbilityPrompt | null;
+  /** An On-Set ability awaiting the player's card pick (or skip), or null. */
+  onSetChoice: OnSetChoice | null;
+  spellCost: SpellCostChoice | null;
+  /** Turn number each on-field Hero (either side) was Set on. A Hero may only
+   *  attack on its Set turn if a Weapon is equipped to it (or `setTurnAttack`). */
+  heroSetTurn: Record<CardId, number>;
+  /** Heroes whose Set satisfied an "attack during the turn this Hero is Set"
+   *  ability (Goliath's Shock Deployment). */
+  setTurnAttack: Record<CardId, true>;
+  /** Counters on field cards (either side). Removed when the card leaves. */
+  counters: Record<CardId, number>;
+  /** An optional counter-threshold ability awaiting the player's yes/no
+   *  (Devil Dog Reinforcement), or null. */
+  counterPrompt: { cardId: CardId; abilityName: string } | null;
+  /** Stat debuffs the player placed on enemy Heroes that last through the
+   *  opponent's next turn (Heavy Suppression). */
+  enemyStatDebuffs: Record<CardId, Partial<Record<StatKey, number>>>;
+  /** Player Hero enemy attacks must target during the opponent's next turn, if
+   *  able (Iron Wall), or null. */
+  forcedTarget: CardId | null;
+  /** A B-card spell paused on a pick (reveal / equip target), or null. */
+  spellChoice: SpellChoice | null;
+  /** Player Heroes destroyed/eliminated on the field, with the turn it happened
+   *  (Man Down! checks "last turn"). */
+  playerHeroLosses: { cardId: CardId; turn: number }[];
+  /** Match score. A side scores an eliminated enemy Hero's level, and 3 when
+   *  the other side ends a turn (after turn 1) with no Heroes. First to
+   *  WIN_POINTS wins. */
+  points: { player: number; opponent: number };
+  /** Set once a side reaches WIN_POINTS; all turn flow stops. */
+  winner: 'player' | 'opponent' | null;
+  /** Transient toast (e.g. a deck search found nothing); `key` re-triggers it. */
+  notice: { key: number; text: string } | null;
+  /** CPU strength picked on the start screen; null until chosen (the opening
+   *  deal waits on it). */
+  difficulty: Difficulty | null;
+  /** Opening-hand Keep/Mulligan choice: 'offer' while the prompt is up,
+   *  'done' once resolved (one mulligan per game), null before the deal. */
+  mulligan: 'offer' | 'done' | null;
+  /** Turn each card entered the opponent's GY (Alliance of Zero checks "last turn"). */
+  oppGySentTurn: Record<CardId, number>;
   /** A paused Resolution awaiting the player's yes/no on Snow Viper's Bunker
    *  Busting Round, or null when combat is not paused for it. */
   combatPrompt: CombatPrompt | null;
@@ -378,7 +472,7 @@ export interface GameState {
    * or null. Mirrors the player's B slots on the opponent's side of the field. */
   opponentBBoard: Record<OppBSlotId, CardId | null>;
   /** The opponent's Bulwark (C) row (Phase 7): which card occupies each OC slot,
-   * or null. Column-linked to the opponent Vanguard row for stat boosts. */
+   * or null. Column-linked to the opponent Vanguard row. */
   opponentCBoard: Record<OppCSlotId, CardId | null>;
   /** Attack declarations made during Battle: each of the player's attacking
    * A-slots mapped to the opponent slot it is aiming at. An A-card attacks only
@@ -425,6 +519,10 @@ export interface GameState {
    * keyed by card id then stat. Folded into `effectiveStats` on top of base /
    * C-buff / aura, and cleared when the card leaves the field. Player-only. */
   activatedStatBuffs: Record<CardId, Partial<Record<StatKey, number>>>;
+  /** Stat buffs from activated abilities that last "until the end of your
+   * turn" (e.g. Wasteland Deadeye). Folded into `effectiveStats` like
+   * `activatedStatBuffs`, and wiped when the player's turn ends. */
+  turnStatBuffs: Record<CardId, Partial<Record<StatKey, number>>>;
   /** Activated ability names each card has already used this turn (once-per-turn
    * gate), keyed by card id. Reset at the start of the player's turn. */
   usedActivatedAbilities: Record<CardId, string[]>;

@@ -7,6 +7,7 @@ import {
   hasSubsetSum,
   isSlotEmpty,
   requiresTribute,
+  tributeSetKind,
   resolveAttackerSlot,
   resolveLinkedTarget,
   slotAcceptsType,
@@ -151,5 +152,26 @@ describe('tribute-summon rules (level-3 A cards)', () => {
     expect(canDropCard(withMats, cardsById, 'A1', a4)).toBe(true);
     // B zones are never a tribute drop target.
     expect(canDropCard(withMats, cardsById, 'B1', a4)).toBe(false);
+  });
+});
+
+describe('set permissions (Troop Lead / Rapid Deployment)', () => {
+  const s = createInitialState();
+  const c = s.cardsById;
+  const SANDMAN = 'card-hero-52'; // Lv3 Infantry: "can be Replen Set with 1 Infantry Hero"
+  const RIKO = 'card-hero-43'; // Lv3: "can be Normal Set"
+
+  it('Rapid Deployment waives the tribute requirement', () => {
+    expect(requiresTribute(c[RIKO])).toBe(false);
+    expect(requiresTribute(c[SANDMAN])).toBe(true);
+  });
+
+  it('Troop Lead: 1 Infantry Hero of any level is enough', () => {
+    expect(tributeSetKind(c[SANDMAN], [c['card-hero-1']])).toBe('replen'); // Lv1 Infantry
+    expect(tributeSetKind(c[SANDMAN], [c['card-hero-9']])).toBeNull(); // Lv1 Recon
+    expect(tributeSetKind(c[SANDMAN], [c['card-hero-1'], c['card-hero-2']])).toBeNull(); // 2 ≠ 1 and sum 2 ≠ 3
+    const board = { ...createEmptyBoard(), A1: 'card-hero-1' };
+    expect(canAffordTribute(board, c, c[SANDMAN])).toBe(true);
+    expect(canAffordTribute({ ...createEmptyBoard(), A1: 'card-hero-9' }, c, c[SANDMAN])).toBe(false);
   });
 });

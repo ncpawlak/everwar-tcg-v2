@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useGameStore } from '../state/useGameStore';
 import type { Card } from '../state/types';
-import { abilityLabel } from '../state/abilities';
-import { activatedAbilityViews } from '../abilities/activated';
+import { abilityLabel, equipmentLabel, equipmentStatLine } from '../state/abilities';
+import { abilityZones, activatedAbilityViews } from '../abilities/activated';
 import { RARITY_COLOR, TYPE_ACCENT, TYPE_LABEL } from '../cards/cardTheme';
 
 /**
@@ -39,21 +39,21 @@ export function InspectionPanel() {
     s.selectedCardId ? s.usedActivatedAbilities[s.selectedCardId] : undefined,
   );
   const activateAbility = useGameStore((s) => s.activateAbility);
-  const handCount = useGameStore((s) => s.hand.length);
+  const hand = useGameStore((s) => s.hand);
+  const replen = useGameStore((s) => s.replen);
+  const deck = useGameStore((s) => s.deck);
+  const graveyard = useGameStore((s) => s.graveyard);
+  const opponentBoard = useGameStore((s) => s.opponentBoard);
+  const opponentCards = useGameStore((s) => s.opponentCards);
   const board = useGameStore((s) => s.board);
   const cardsById = useGameStore((s) => s.cardsById);
-  const allyBoard = Object.values(board)
-    .filter((id): id is NonNullable<typeof id> => id !== null)
-    .map((id) => cardsById[id])
-    .filter((c): c is Card => Boolean(c));
   const abilityViews =
     shown && shown.type === 'A'
       ? activatedAbilityViews(shown, {
           isPlayerMain,
           onPlayerBoard,
           usedNames: usedNames ?? [],
-          handCount,
-          allyBoard,
+          ...abilityZones({ board, cardsById, hand, replen, deck, graveyard, opponentBoard, opponentCards }),
         })
       : [];
 
@@ -245,29 +245,18 @@ export function InspectionPanel() {
                   marginBottom: 12,
                   padding: '10px 12px',
                   borderRadius: 8,
-                  background: shown.buff
-                    ? shown.buff.amount >= 0
-                      ? 'rgba(47,158,70,0.14)'
-                      : 'rgba(178,58,31,0.14)'
-                    : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${
-                    shown.buff
-                      ? shown.buff.amount >= 0
-                        ? 'rgba(47,158,70,0.5)'
-                        : 'rgba(178,58,31,0.5)'
-                      : 'rgba(255,255,255,0.1)'
-                  }`,
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
                   fontSize: 14,
                   fontWeight: 700,
-                  color: shown.buff ? (shown.buff.amount >= 0 ? '#5ed17a' : '#e08a72') : '#97a0ab',
+                  color: '#97a0ab',
                   textAlign: 'center',
                 }}
               >
-                {shown.buff
-                  ? `${shown.buff.amount >= 0 ? '▲' : '▼'} ${shown.buff.stat.toUpperCase()} ${
-                      shown.buff.amount >= 0 ? '+' : ''
-                    }${shown.buff.amount} to linked A card`
-                  : 'Boosts a random stat of its linked A card'}
+                {equipmentLabel(shown)}
+                {equipmentStatLine(shown) && (
+                  <div style={{ marginTop: 6, fontSize: 13, color: '#7fd18f' }}>{equipmentStatLine(shown)}</div>
+                )}
               </div>
             )}
 

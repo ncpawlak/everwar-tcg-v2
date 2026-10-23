@@ -2,55 +2,148 @@
  * Activated-ability runtime (Phase 8). Turns a Hero's parsed ability IR into the
  * per-ability view the UI needs: which lines are activated abilities, whether
  * each can be triggered right now (player's Main phase, on the player's board,
- * not already used this turn), and which are inert. Pure so the glow, the
- * ability popup, and the store action all read one source of truth.
+ * not already used this turn, cost payable, a legal target exists), and which
+ * are inert. Pure so the glow, the ability popup, the selection modal and the
+ * store action all read one source of truth.
  */
 
-import type { Card, CardId } from '../state/types';
+import type { Card, CardId, GameState, SlotId } from '../state/types';
 import { parseAbilities } from './parseAbility';
 import type { AbilityIR } from './abilityIR';
+import { matchesSelector } from './auras';
+
+/** Snapshot of the zones an activated ability can draw costs / targets from. */
+export interface AbilityZones {
+  /** Number of cards in the player's Hand. */
+  handCount: number;
+  /** Number of cards in the player's Replen pile. */
+  replenCount: number;
+  /** Number of cards in the player's Deck. */
+  deckCount: number;
+  /** Heroes on the player's own A-board. */
+  allyBoard: readonly Card[];
+  /** Cards in the player's Graveyard. */
+  graveyard: readonly Card[];
+  /** Heroes on the opponent's A-board. */
+  enemyBoard: readonly Card[];
+}
 
 /** Context the caller supplies about the current game moment. */
-export interface ActivationContext {
+export interface ActivationContext extends Partial<AbilityZones> {
   /** True when it is the player's turn AND the Main phase. */
   isPlayerMain: boolean;
   /** True when the card sits on the player's own A-board. */
   onPlayerBoard: boolean;
   /** Ability names this card has already used this turn (once-per-turn gate). */
   usedNames: readonly string[];
-  /** Cards in the player's hand — used to check payable costs. Defaults to 0. */
-  handCount?: number;
-  /** Hero cards currently on the player's own A-board — used to check whether a
-   *  targeting ability has any legal target. Defaults to none. */
-  allyBoard?: readonly Card[];
 }
 
-/** Legal targets for a targeting ability, given the player's board Heroes. Empty
- *  for non-targeting abilities. */
-export function abilityValidTargets(
-  ir: AbilityIR,
-  allyBoard: readonly Card[],
-  sourceId: CardId,
-): Card[] {
-  if (ir.effect.kind !== 'targetStatBuff') return [];
-  const t = ir.effect.target;
-  return allyBoard.filter((c) => {
-    if (t.excludeSelf && c.id === sourceId) return false;
-    if (t.subType && c.subType !== t.subType) return false;
-    return true;
-  });
+const A_SLOTS: SlotId[] = ['A1', 'A2', 'A3', 'A4'];
+
+/** The Heroes on the player's own A-board. */
+export function playerBoardHeroes(state: Pick<GameState, 'board' | 'cardsById'>): Card[] {
+  return A_SLOTS.map((slot) => state.board[slot])
+    .filter((id): id is CardId => Boolean(id))
+    .map((id) => state.cardsById[id])
+    .filter((c): c is Card => Boolean(c));
+}
+
+/** Build the zone snapshot from game state. */
+export function abilityZones(
+  state: Pick<GameState, 'board' | 'cardsById' | 'hand' | 'replen' | 'deck' | 'graveyard' | 'opponentBoard' | 'opponentCards'>,
+): AbilityZones {
+  return {
+    handCount: state.hand.length,
+    replenCount: state.replen.length,
+    deckCount: state.deck.length,
+    allyBoard: playerBoardHeroes(state),
+    graveyard: state.graveyard.map((id) => state.cardsById[id]).filter((c): c is Card => Boolean(c)),
+    enemyBoard: Object.values(state.opponentBoard)
+      .map((id) => (id ? state.opponentCards[id] : undefined))
+      .filter((c): c is Card => Boolean(c)),
+  };
+}
+
+/** Effects the runtime actually applies. Parsed-only effects (armorBarsLock,
+ *  markEnemy) stay non-activatable so a cost is never paid for nothing. */
+const ENFORCED_EFFECTS = new Set([
+  'selfStatBuff',
+  'targetStatBuff',
+  'healTarget',
+  'recoverFromGraveyard',
+  'enemyStatDebuff',
+  'forceTarget',
+]);
+const ENFORCED_COSTS = new Set(['sendHandToReplen', 'discardHand', 'sendReplenToGraveyard', 'discardDeckTop']);
+
+/** True when the runtime can fully resolve this activated ability. */
+export function isEnforcedActivated(ir: AbilityIR): boolean {
+  if (ir.trigger !== 'activated') return false;
+  if (!ENFORCED_EFFECTS.has(ir.effect.kind)) return false;
+  if (ir.cost) {
+    if (!ENFORCED_COSTS.has(ir.cost.kind)) return false;
+    if ('count' in ir.cost && ir.cost.count !== 1) return false;
+  }
+  return true;
+}
+
+/** Zone the player picks a cost card from, or null when the cost needs no pick
+ *  (no cost, or an automatic one like discarding the top of the Deck). */
+export function costPickZone(ir: AbilityIR): 'hand' | 'replen' | null {
+  switch (ir.cost?.kind) {
+    case 'sendHandToReplen':
+    case 'discardHand':
+      return 'hand';
+    case 'sendReplenToGraveyard':
+      return 'replen';
+    default:
+      return null;
+  }
+}
+
+/** True when the ability's cost (if any) can currently be paid. */
+export function costPayable(ir: AbilityIR, zones: Pick<AbilityZones, 'handCount' | 'replenCount' | 'deckCount'>): boolean {
+  const cost = ir.cost;
+  if (!cost) return true;
+  switch (cost.kind) {
+    case 'sendHandToReplen':
+    case 'discardHand':
+      return zones.handCount >= cost.count;
+    case 'sendReplenToGraveyard':
+      return zones.replenCount >= cost.count;
+    case 'discardDeckTop':
+      return zones.deckCount >= cost.count;
+    default:
+      return false;
+  }
 }
 
 /** True when the ability requires the player to pick a target. */
 export function abilityNeedsTarget(ir: AbilityIR): boolean {
-  return ir.effect.kind === 'targetStatBuff';
+  const k = ir.effect.kind;
+  return k === 'targetStatBuff' || k === 'healTarget' || k === 'recoverFromGraveyard' || k === 'enemyStatDebuff';
 }
 
-/** True when the ability's cost (if any) can currently be paid. */
-function costPayable(ir: AbilityIR, handCount: number): boolean {
-  if (!ir.cost) return true;
-  if (ir.cost.kind === 'sendHandToReplen') return handCount >= ir.cost.count;
-  return true;
+/** How many targets the player may pick (Heavy Suppression: up to 2). */
+export function abilityMaxTargets(ir: AbilityIR): number {
+  return ir.effect.kind === 'enemyStatDebuff' ? ir.effect.maxTargets : 1;
+}
+
+/** Legal targets for a targeting ability. Empty for non-targeting abilities. */
+export function abilityTargetOptions(
+  ir: AbilityIR,
+  zones: Pick<AbilityZones, 'allyBoard' | 'graveyard' | 'enemyBoard'>,
+  sourceId: CardId,
+): Card[] {
+  const e = ir.effect;
+  if (e.kind === 'targetStatBuff' || e.kind === 'healTarget') {
+    return zones.allyBoard.filter((c) => matchesSelector(c, e.target, 'ally', sourceId));
+  }
+  if (e.kind === 'recoverFromGraveyard') {
+    return zones.graveyard.filter((c) => c.type === e.cardType);
+  }
+  if (e.kind === 'enemyStatDebuff') return [...zones.enemyBoard];
+  return [];
 }
 
 /** One ability line as the UI should present it. */
@@ -69,20 +162,29 @@ export interface ActivatedAbilityView {
   activatable: boolean;
 }
 
+/** Feasibility of one activated ability given the zones (ignores phase/board). */
+export function activationFeasible(ir: AbilityIR, zones: AbilityZones, sourceId: CardId): boolean {
+  if (!isEnforcedActivated(ir)) return false;
+  if (!costPayable(ir, zones)) return false;
+  return !abilityNeedsTarget(ir) || abilityTargetOptions(ir, zones, sourceId).length > 0;
+}
+
 /** Build the per-ability views for a card in the current context. */
 export function activatedAbilityViews(card: Card, ctx: ActivationContext): ActivatedAbilityView[] {
   const irs = parseAbilities(card.abilities);
-  const handCount = ctx.handCount ?? 0;
-  const allyBoard = ctx.allyBoard ?? [];
+  const zones: AbilityZones = {
+    handCount: ctx.handCount ?? 0,
+    replenCount: ctx.replenCount ?? 0,
+    deckCount: ctx.deckCount ?? 0,
+    allyBoard: ctx.allyBoard ?? [],
+    graveyard: ctx.graveyard ?? [],
+    enemyBoard: ctx.enemyBoard ?? [],
+  };
   return irs.map((ir, index) => {
     const isActivated = ir.trigger === 'activated';
     const used = ir.oncePerTurn === true && ctx.usedNames.includes(ir.name);
-    // Feasible only if the cost is payable and, for targeting abilities, at
-    // least one legal target exists.
-    const feasible =
-      costPayable(ir, handCount) &&
-      (!abilityNeedsTarget(ir) || abilityValidTargets(ir, allyBoard, card.id).length > 0);
-    const activatable = isActivated && ctx.isPlayerMain && ctx.onPlayerBoard && !used && feasible;
+    const activatable =
+      isActivated && ctx.isPlayerMain && ctx.onPlayerBoard && !used && activationFeasible(ir, zones, card.id);
     return { index, name: ir.name, text: ir.raw, ir, isActivated, used, activatable };
   });
 }

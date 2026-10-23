@@ -123,3 +123,21 @@ export function runEffect(effect: EffectSpec, ctx: EffectContext): void {
       break;
   }
 }
+
+/** Short Equipment (C) descriptor, e.g. "Weapon · Assault", for card faces. */
+export function equipmentLabel(card: { subType?: string; weaponClass?: string }): string {
+  return [card.subType ?? 'Equipment', card.weaponClass].filter(Boolean).join(' · ');
+}
+
+/** Equipment stat bonuses as one line, e.g. "+10 DMG · +30 ACC". */
+export function equipmentStatLine(card: { equipStats?: import('./types').EquipStats }): string {
+  const e = card.equipStats;
+  if (!e) return '';
+  const parts: string[] = [];
+  if (e.hp) parts.push(`+${e.hp} HP`);
+  if (e.dmg) parts.push(`+${e.dmg} DMG`);
+  if (e.acc) parts.push(`+${e.acc} ACC`);
+  if (e.armor) parts.push(`+${e.armor} ARM`);
+  if (e.armorBars) parts.push(`+${e.armorBars} BAR`);
+  return parts.join(' \u00b7 ');
+}
