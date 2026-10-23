@@ -1,7 +1,8 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { Card, CardId, CardType, DiceState, GameState, OppBSlotId, OppCSlotId, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
+import type { Card, CardId, CardType, DiceState, Difficulty, GameState, OppBSlotId, OppCSlotId, OppSlotId, PileSource, Phase, RollResult, SlotId, Vec3 } from './types';
 import { ABILITY_REGISTRY, runEffect } from './abilities';
-import { createInitialState } from './cardData';
+import { createInitialState, OPENING_HAND_SIZE } from './cardData';
+import { cardValue, cheapestHandCard, equipValue, heroValue, pickFreeHero, planAttacks, planEquip, planTribute, shouldMulligan, type TributePlan } from '../ai/opponentAI';
 import { canDropCard, requiresTribute, canAffordTribute, validTargetSlots, tributeSetKind } from '../board/slotRules';
 import { shuffleArray } from './shuffle';
 import {
@@ -32,7 +33,7 @@ import { counterAbility, topSpecialOfFamily } from '../abilities/counters';
 import type { AbilityIR } from '../abilities/abilityIR';
 import { onSentAbilities, pileActivatedAbilityFor } from '../abilities/pile';
 import { combatHitAbilities, finisherEliminates, ignoresArmorBars } from '../abilities/combat';
-import { matchesDeckSelector, parseSpell, spellCostOptions, tutorPicks, type SpellIR } from '../abilities/spells';
+import { matchesDeckSelector, parseSpell, spellCostOptions, tutorPicks, type DeckCardSelector, type SpellIR, type SpellStep } from '../abilities/spells';
 import { onSetAbilities, onSetNeedsChoice, onSetChoiceOptions, dominationVictims } from '../abilities/onSet';
 import type { SetKind } from '../abilities/abilityIR';
 import { OPP_SLOT_IDS } from '../board/boardConfig';
@@ -106,11 +107,14 @@ export const OPP_PLAY_GAP_MS = 650;
  * pause after it. */
 export const OPP_PLAY_STEP_MS = OPP_PLAY_SHOWCASE_MS + OPP_PLAY_GAP_MS;
 
-/** How long (ms) the opponent's Main phase lasts before Battle. Sized to fit its
- * maximum three paced plays (A, C, B) — the last starts at 2×OPP_PLAY_STEP_MS
+/** Upper bound (ms) of the Easy CPU's Main phase: its maximum three paced plays
+ * (A, C, B). Normal/Hard run longer; Battle always starts once plays finish — the last starts at 2×OPP_PLAY_STEP_MS
  * and clears one showcase later — with margin, so the whole row settles before
  * attacks are declared. */
 export const OPP_MAIN_DURATION_MS = 3 * OPP_PLAY_STEP_MS;
+
+/** Safety cap on CPU Main-phase plays per turn (Normal/Hard keep playing). */
+export const OPP_MAX_PLAYS = 12;
 
 /** How long (ms) the End phase dwells before auto-handing the turn to the other
  * player. Lets the End banner + B-discard/replen-shuffle cleanup play before the
@@ -265,6 +269,16 @@ export interface GameActions {
    * the opening deal) and again at the top of every later turn via advancePhase.
    */
   beginDrawPhase: () => void;
+  /** Start screen: lock in the CPU difficulty (first pick wins). */
+  chooseDifficulty: (d: Difficulty) => void;
+  /** After the opening deal: open the Keep/Mulligan prompt (once per game). */
+  offerMulligan: () => void;
+  /**
+   * Resolve the opening prompt. `take` shuffles the hand into the Deck and
+   * redraws the opening hand; the CPU makes its own call by difficulty. Turn 1's
+   * Draw phase begins once the hand is settled.
+   */
+  resolveMulligan: (take: boolean) => void;
   /**
    * Advance to the next phase when the player clicks the field's phase button.
    * Main→Battle→Resolution→End, and End→next turn's Draw (turn increments). Draw
@@ -810,23 +824,26 @@ export function createGameStore(
        * A-cards on the field the opponent makes no attacks. Stored in
        * `oppAttackTargets` (mirror of the player's `attackTargets`).
        */
+      /** CPU strength; tests that never pick one get the classic Easy AI. */
+      const cpuDifficulty = (): Difficulty => get().difficulty ?? 'easy';
+
       const declareOpponentAttacks = () =>
         set((s) => {
-          const occupied = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).filter((a) => s.board[a]);
-          if (occupied.length === 0) return { oppAttackTargets: {} };
-          const targets: Partial<Record<OppSlotId, SlotId>> = {};
+          const targets = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).flatMap((a) => {
+            const id = s.board[a];
+            if (!id) return [];
+            const hp = s.currentHp[id] ?? effectiveStats(s, a).hp.value;
+            const bars = s.currentArmorBars[id] ?? heroMaxBars(s, 'player', a);
+            return [{ slot: a, hp, bars, level: s.cardsById[id]?.level ?? 1 }];
+          });
+          const attackers = OPP_SLOT_IDS.flatMap((o) =>
+            s.opponentBoard[o] && heroCanAttack(s, 'opponent', o)
+              ? [{ slot: o, dmg: opponentEffectiveStats(s, o).dmg.value }]
+              : [],
+          );
           // Iron Wall: enemy attacks must target the forced Hero while it stands.
-          const forced = occupied.find((a) => s.board[a] === s.forcedTarget);
-          for (const o of OPP_SLOT_IDS) {
-            if (!s.opponentBoard[o] || !heroCanAttack(s, 'opponent', o)) continue;
-            const sameCol = `A${o[1]}` as SlotId;
-            targets[o] = forced
-              ? forced
-              : s.board[sameCol]
-                ? sameCol
-                : occupied[Math.floor(Math.random() * occupied.length)];
-          }
-          return { oppAttackTargets: targets };
+          const forced = targets.find((t) => s.board[t.slot] === s.forcedTarget)?.slot ?? null;
+          return { oppAttackTargets: planAttacks({ attackers, targets, forced, difficulty: cpuDifficulty() }) };
         });
 
       /** True while the opponent's auto-turn is the active turn. */
@@ -858,6 +875,10 @@ export function createGameStore(
             phaseAnnounce: s.phaseAnnounce + 1,
             oppAttackTargets: {},
             ...(sent.length ? { opponentBBoard, opponentGraveyard: [...s.opponentGraveyard, ...sent] } : {}),
+            // Mirror of the player's End: the Replen pile shuffles back into the Deck.
+            ...(s.opponentReplen.length
+              ? { opponentDeck: shuffleArray([...s.opponentDeck, ...s.opponentReplen]), opponentReplen: [] }
+              : {}),
           };
         });
         scoreEmptyField('opponent');
@@ -1061,36 +1082,395 @@ export function createGameStore(
 
       /**
        * Reveal-and-clear a just-played opponent card: it's showcased face-up
-       * center-screen (its reveal) then springs to its slot. Kept short so a
-       * few plays can chain inside the Main window.
+       * center-screen (its reveal) then springs to its slot.
        */
       const revealOppCard = (cardId: CardId) =>
         setTimeout(() => {
           set((st) => (st.oppSummon && st.oppSummon.cardId === cardId ? { ...st, oppSummon: null } : st));
         }, OPP_PLAY_SHOWCASE_MS);
 
-      /**
-       * Opponent play step (Phase 7 Slice 4b): a simple heuristic AI plays ONE
-       * card of a not-yet-played row type this turn, re-reading the live board so
-       * a Bulwark can attach to a Vanguard summoned earlier the same turn. Order
-       * of preference: summon a free Vanguard (A, level ≤ 2) into an open O-slot;
-       * else set a Bulwark (C) onto an OC-slot whose linked O-column is occupied
-       * (like the player); else set an Arcane (B) into an
-       * open OB-slot. Returns the type it played, or null if nothing was playable.
-       * Each play is showcased as a reveal, mirroring the player's summon.
-       */
-      const opponentPlayStep = (playedTypes: Set<CardType>): CardType | null => {
-        if (!oppActive()) return null;
-        const s = get();
-        const hand = s.opponentHand;
+      // ---- CPU deck/hand/field primitives (mirrors of the player's) ----------
 
-        // A — summon a free Vanguard into the first open O-slot.
-        if (!playedTypes.has('A')) {
-          const slot = OPP_SLOT_IDS.find((o) => !s.opponentBoard[o]);
-          const cardId = hand.find((id) => {
-            const c = s.opponentCards[id];
-            return !!c && c.type === 'A' && !requiresTribute(c);
+      const oppDisturb = () =>
+        set((s) =>
+          s.opponentDeck.length
+            ? {
+                opponentDeck: s.opponentDeck.slice(0, -1),
+                opponentReplen: [...s.opponentReplen, s.opponentDeck[s.opponentDeck.length - 1]],
+              }
+            : {},
+        );
+
+      const oppTutor = (sel: DeckCardSelector, count: number) => {
+        const s = get();
+        const picks = tutorPicks(s.opponentDeck, s.opponentCards, sel, count);
+        if (picks.length) {
+          set({
+            opponentDeck: s.opponentDeck.filter((id) => !picks.includes(id)),
+            opponentHand: [...s.opponentHand, ...picks],
           });
+        }
+        return picks.length;
+      };
+
+      const oppSendFromHand = (id: CardId, to: 'graveyard' | 'replen') =>
+        set((s) => ({
+          opponentHand: s.opponentHand.filter((x) => x !== id),
+          ...(to === 'graveyard'
+            ? { opponentGraveyard: [...s.opponentGraveyard, id] }
+            : { opponentReplen: [...s.opponentReplen, id] }),
+        }));
+
+      /** Destroy a CPU Hero (and its linked Equipment) to the CPU's GY. */
+      const destroyOppHero = (o: OppSlotId) =>
+        set((s) => {
+          const id = s.opponentBoard[o];
+          if (!id) return {};
+          const oc = `OC${o[1]}` as OppCSlotId;
+          const cid = s.opponentCBoard[oc];
+          const currentHp = { ...s.currentHp };
+          const currentArmorBars = { ...s.currentArmorBars };
+          delete currentHp[id];
+          delete currentArmorBars[id];
+          return {
+            opponentBoard: { ...s.opponentBoard, [o]: null },
+            opponentCBoard: cid ? { ...s.opponentCBoard, [oc]: null } : s.opponentCBoard,
+            opponentGraveyard: [...s.opponentGraveyard, id, ...(cid ? [cid] : [])],
+            currentHp,
+            currentArmorBars,
+          };
+        });
+
+      /** Destroy a player Hero (and its linked Equipment) to the player's GY. */
+      const destroyPlayerHero = (a: SlotId) =>
+        set((s) => {
+          const id = s.board[a];
+          if (!id) return {};
+          const c = linkedCSlot(a);
+          const cid = s.board[c];
+          const currentHp = { ...s.currentHp };
+          const currentArmorBars = { ...s.currentArmorBars };
+          const activatedStatBuffs = { ...s.activatedStatBuffs };
+          delete currentHp[id];
+          delete currentArmorBars[id];
+          delete activatedStatBuffs[id];
+          return {
+            board: { ...s.board, [a]: null, ...(cid ? { [c]: null } : {}) },
+            graveyard: [...s.graveyard, id, ...(cid ? [cid] : [])],
+            playerHeroLosses: [...s.playerHeroLosses, { cardId: id, turn: s.turn }],
+            currentHp,
+            currentArmorBars,
+            activatedStatBuffs,
+          };
+        });
+
+      /** Did a CPU card matching `sel` reach its GY last turn? */
+      const oppLostLastTurn = (s: GameState, sel: DeckCardSelector) =>
+        s.opponentGraveyard.some(
+          (id) => (s.oppGySentTurn ?? {})[id] === s.turn - 1 && matchesDeckSelector(s.opponentCards[id], sel),
+        );
+
+      /** Best unequipped CPU ally + top matching Deck Equipment for "equip ally". */
+      const oppEquipAllyTarget = (s: GameState, step: Extract<SpellStep, { kind: 'equipAlly' }>) => {
+        const eqId = step.equip ? tutorPicks(s.opponentDeck, s.opponentCards, step.equip, 1)[0] : undefined;
+        if (!eqId) return null;
+        const allies = OPP_SLOT_IDS.filter((o) => {
+          const id = s.opponentBoard[o];
+          return !!id && !s.opponentCBoard[`OC${o[1]}` as OppCSlotId] && matchesDeckSelector(s.opponentCards[id], step.ally);
+        });
+        if (!allies.length) return null;
+        const o = allies.reduce((a, b) =>
+          heroValue(s.opponentCards[s.opponentBoard[b]!]) > heroValue(s.opponentCards[s.opponentBoard[a]!]) ? b : a,
+        );
+        return { o, eqId };
+      };
+
+      /** Run a parsed B-card spell for the CPU (cost already paid), with the CPU
+       *  making every pick: the most valuable revealed card, its best ally. */
+      const runOppSpellSteps = (ir: SpellIR) => {
+        for (const step of ir.steps) {
+          if (!oppActive()) return;
+          if (step.kind === 'draw') for (let i = 0; i < step.count; i++) drawOpponentCard();
+          else if (step.kind === 'disturb') oppDisturb();
+          else if (step.kind === 'tutor') oppTutor(step.select, step.count);
+          else if (step.kind === 'requireAllyLostLastTurn') {
+            if (!oppLostLastTurn(get(), step.select)) return;
+          } else if (step.kind === 'reveal') {
+            const s = get();
+            const n = Math.min(step.count, s.opponentDeck.length);
+            if (n === 0) continue;
+            const revealed = s.opponentDeck.slice(s.opponentDeck.length - n);
+            const matches = step.pick ? revealed.filter((id) => matchesDeckSelector(s.opponentCards[id], step.pick!)) : [];
+            const keep = matches.length
+              ? matches.reduce((a, b) => (cardValue(s.opponentCards[b]) > cardValue(s.opponentCards[a]) ? b : a))
+              : null;
+            const rest = revealed.filter((id) => id !== keep);
+            set({
+              opponentDeck: s.opponentDeck.slice(0, s.opponentDeck.length - n),
+              opponentHand: keep ? [...s.opponentHand, keep] : s.opponentHand,
+              ...(step.restTo === 'graveyard'
+                ? { opponentGraveyard: [...s.opponentGraveyard, ...rest] }
+                : { opponentReplen: [...s.opponentReplen, ...rest] }),
+            });
+          } else if (step.kind === 'equipAlly') {
+            const s = get();
+            const t = oppEquipAllyTarget(s, step);
+            if (!t) return;
+            set({
+              opponentDeck: s.opponentDeck.filter((id) => id !== t.eqId),
+              opponentCBoard: { ...s.opponentCBoard, [`OC${t.o[1]}`]: t.eqId },
+            });
+          }
+        }
+      };
+
+      /** Would this spell actually gain the CPU something right now? */
+      const oppSpellUseful = (ir: SpellIR, s: GameState) => {
+        let gain = false;
+        for (const step of ir.steps) {
+          if (step.kind === 'requireAllyLostLastTurn' && !oppLostLastTurn(s, step.select)) return false;
+          if (step.kind === 'draw' && s.opponentDeck.length) gain = true;
+          if (step.kind === 'reveal' && s.opponentDeck.length) gain = true;
+          if (step.kind === 'tutor' && tutorPicks(s.opponentDeck, s.opponentCards, step.select, 1).length) gain = true;
+          if (step.kind === 'equipAlly' && oppEquipAllyTarget(s, step)) gain = true;
+        }
+        return gain;
+      };
+
+      /**
+       * Decide whether the CPU can (and on Normal/Hard, should) cast B-card
+       * `cardId` in this window. Returns the effect to run once the card's reveal
+       * lands, or null. Main-timed (and Cont.) cards cast in Main, Battle-timed
+       * ones in Battle before attacks are declared. Spells the generic parser
+       * understands resolve through it; the Dictate-only Battle/field spells have
+       * their own handlers.
+       */
+      const planOppSpell = (cardId: CardId, window: 'main' | 'battle'): (() => void) | null => {
+        const s = get();
+        const card = s.opponentCards[cardId];
+        if (!card || card.type !== 'B') return null;
+        if (((card.timing ?? '').toLowerCase() === 'battle') !== (window === 'battle')) return null;
+        const d = cpuDifficulty();
+        const pick = <T,>(xs: T[], value: (x: T) => number): T =>
+          d === 'easy'
+            ? xs[Math.floor(Math.random() * xs.length)]
+            : xs.reduce((a, b) => (value(b) > value(a) ? b : a));
+        const heroAt = (a: SlotId) => {
+          const id = s.board[a];
+          return id ? s.cardsById[id] : undefined;
+        };
+
+        if (card.name === 'Disarm') {
+          const weapons = (['A1', 'A2', 'A3', 'A4'] as SlotId[]).flatMap((a) => {
+            const c = linkedCSlot(a);
+            const id = s.board[c];
+            return id && s.cardsById[id]?.subType === 'Weapon' ? [{ a, c, id }] : [];
+          });
+          if (!weapons.length) return null;
+          const w = pick(weapons, (x) => heroValue(heroAt(x.a)) + equipValue(s.cardsById[x.id]));
+          return () => {
+            const st = get();
+            if (st.board[w.c] !== w.id) return;
+            set({
+              board: { ...st.board, [w.c]: null },
+              graveyard: [...st.graveyard, w.id],
+              notice: makeNotice(`Disarm destroyed your ${st.cardsById[w.id]?.name ?? 'Weapon'}`),
+            });
+          };
+        }
+
+        if (card.name === 'Unfortunate Standoff') {
+          const pairs: { o: OppSlotId; a: SlotId; gain: number }[] = [];
+          for (const o of OPP_SLOT_IDS) {
+            const own = s.opponentBoard[o] ? s.opponentCards[s.opponentBoard[o]!] : undefined;
+            if (!own) continue;
+            for (const a of ['A1', 'A2', 'A3', 'A4'] as SlotId[]) {
+              const enemy = heroAt(a);
+              if (!enemy || (enemy.level ?? 1) > (own.level ?? 1)) continue;
+              pairs.push({ o, a, gain: heroValue(enemy) - heroValue(own) });
+            }
+          }
+          if (!pairs.length) return null;
+          const best = pick(pairs, (x) => x.gain);
+          if (d === 'hard' ? best.gain <= 0 : d === 'normal' ? best.gain < -5 : false) return null;
+          return () => {
+            const st = get();
+            const ownId = st.opponentBoard[best.o];
+            const enemyId = st.board[best.a];
+            if (!ownId || !enemyId) return;
+            destroyPlayerHero(best.a);
+            destroyOppHero(best.o);
+            set({
+              notice: makeNotice(
+                `Unfortunate Standoff destroyed ${st.cardsById[enemyId]?.name} and ${st.opponentCards[ownId]?.name}`,
+              ),
+            });
+          };
+        }
+
+        if (card.name === 'Ruined Patrol') {
+          const jackal: DeckCardSelector = { cardType: 'A', family: 'Jackal' };
+          if (d !== 'easy' && !tutorPicks(s.opponentDeck, s.opponentCards, jackal, 1).length) return null;
+          return () => {
+            const st = get();
+            const heroes: CardId[] = [];
+            for (let i = st.opponentDeck.length - 1; i >= 0 && heroes.length < 3; i--) {
+              if (st.opponentCards[st.opponentDeck[i]]?.type === 'A') heroes.push(st.opponentDeck[i]);
+            }
+            // Reveal the top 3 Heroes: the best goes to Replen (back into the Deck
+            // at End), the other two to the GY.
+            const keep = heroes.length
+              ? heroes.reduce((a, b) => (heroValue(st.opponentCards[b]) > heroValue(st.opponentCards[a]) ? b : a))
+              : null;
+            set({
+              opponentDeck: st.opponentDeck.filter((id) => !heroes.includes(id)),
+              opponentGraveyard: [...st.opponentGraveyard, ...heroes.filter((id) => id !== keep)],
+              opponentReplen: keep ? [...st.opponentReplen, keep] : st.opponentReplen,
+            });
+            oppTutor(jackal, 1);
+            oppDisturb();
+          };
+        }
+
+        if (card.name === 'Team Contingency') {
+          const fodder = cheapestHandCard(s, cardId, (c) => c.type === 'A');
+          if (!fodder) return null;
+          const sel: DeckCardSelector = { cardType: 'A', allegiance: s.opponentCards[fodder]?.allegiance };
+          if (!tutorPicks(s.opponentDeck, s.opponentCards, sel, 1).length) return null;
+          return () => {
+            if (!get().opponentHand.includes(fodder)) return;
+            oppSendFromHand(fodder, 'graveyard');
+            oppTutor(sel, 1);
+            oppDisturb();
+          };
+        }
+
+        if (card.name === 'Alliance of Zero') {
+          const lastTurn = s.opponentGraveyard.filter((id) => {
+            const c = s.opponentCards[id];
+            return c?.type === 'A' && c.allegiance === 'Dictate' && (s.oppGySentTurn ?? {})[id] === s.turn - 1;
+          });
+          const zero = s.opponentHand.filter(
+            (id) => id !== cardId && s.opponentCards[id]?.type === 'A' && s.opponentCards[id].name.includes('Zero'),
+          );
+          if (!lastTurn.length || !zero.length) return null;
+          const back = pick(lastTurn, (id) => heroValue(s.opponentCards[id]));
+          const send = zero.reduce((a, b) => (heroValue(s.opponentCards[b]) < heroValue(s.opponentCards[a]) ? b : a));
+          if (d !== 'easy' && heroValue(s.opponentCards[back]) <= heroValue(s.opponentCards[send])) return null;
+          return () => {
+            const st = get();
+            if (!st.opponentGraveyard.includes(back) || !st.opponentHand.includes(send)) return;
+            set({
+              opponentGraveyard: [...st.opponentGraveyard.filter((id) => id !== back), send],
+              opponentHand: [...st.opponentHand.filter((id) => id !== send), back],
+            });
+          };
+        }
+
+        const ir = parseSpell(card.effect);
+        if (!ir) return null;
+        let costPick: CardId | null = null;
+        if (ir.cost) {
+          costPick = cheapestHandCard(s, cardId, (c) => !ir.cost!.heroOnly || c.type === 'A');
+          if (!costPick) return null;
+        }
+        if (d !== 'easy' && !oppSpellUseful(ir, s)) return null;
+        return () => {
+          if (costPick) {
+            if (!get().opponentHand.includes(costPick)) return;
+            oppSendFromHand(costPick, ir.cost!.to);
+          }
+          runOppSpellSteps(ir);
+        };
+      };
+
+      /** Cast the first B-card the CPU wants this window into an open OB slot:
+       *  reveal it, then resolve its effect as the reveal lands. */
+      const castOppSpell = (window: 'main' | 'battle'): boolean => {
+        const s = get();
+        const obSlot = (['OB1', 'OB2', 'OB3', 'OB4'] as OppBSlotId[]).find((ob) => !s.opponentBBoard[ob]);
+        if (!obSlot) return false;
+        for (const cardId of s.opponentHand) {
+          const run = planOppSpell(cardId, window);
+          if (!run) continue;
+          set((st) => ({
+            opponentHand: st.opponentHand.filter((id) => id !== cardId),
+            opponentBBoard: { ...st.opponentBBoard, [obSlot]: cardId },
+            oppSummon: { cardId, slotId: obSlot },
+          }));
+          revealOppCard(cardId);
+          setTimeout(() => {
+            if (oppActive() && !get().winner) run();
+          }, OPP_PLAY_SHOWCASE_MS);
+          return true;
+        }
+        return false;
+      };
+
+      /** Tribute Set for the CPU: materials (and their Equipment) go to Replen,
+       *  or the GY for a Commit Set; the Hero takes the first freed column. */
+      const oppTributeSet = (plan: TributePlan) => {
+        set((st) => {
+          const opponentBoard = { ...st.opponentBoard };
+          const opponentCBoard = { ...st.opponentCBoard };
+          const currentHp = { ...st.currentHp };
+          const currentArmorBars = { ...st.currentArmorBars };
+          const sent: CardId[] = [];
+          for (const o of plan.materials) {
+            const id = opponentBoard[o];
+            if (!id) continue;
+            sent.push(id);
+            opponentBoard[o] = null;
+            delete currentHp[id];
+            delete currentArmorBars[id];
+            const oc = `OC${o[1]}` as OppCSlotId;
+            const cid = opponentCBoard[oc];
+            if (cid) {
+              sent.push(cid);
+              opponentCBoard[oc] = null;
+            }
+          }
+          const slot = plan.materials[0];
+          opponentBoard[slot] = plan.cardId;
+          return {
+            opponentHand: st.opponentHand.filter((id) => id !== plan.cardId),
+            opponentBoard,
+            opponentCBoard,
+            currentHp,
+            currentArmorBars,
+            ...(plan.kind === 'commit'
+              ? { opponentGraveyard: [...st.opponentGraveyard, ...sent] }
+              : { opponentReplen: [...st.opponentReplen, ...sent] }),
+            oppSummon: { cardId: plan.cardId, slotId: slot },
+          };
+        });
+        revealOppCard(plan.cardId);
+      };
+
+      /**
+       * One CPU Main-phase play, re-reading the live board each time. Easy plays
+       * at most one card of each type (Hero, Equipment, Ability) per turn, never
+       * tribute Sets, and casts last. Normal/Hard first cast searching spells (so
+       * the new cards can be Set this turn), then tribute Set, fill every open
+       * column with their strongest Heroes, and equip until nothing is left.
+       */
+      const opponentPlayStep = (played: Record<CardType, number>): CardType | null => {
+        if (!oppActive() || get().winner) return null;
+        const s = get();
+        const d = cpuDifficulty();
+        const easy = d === 'easy';
+        const can = (t: CardType) => !easy || played[t] === 0;
+
+        if (!easy && castOppSpell('main')) return 'B';
+
+        if (can('A')) {
+          const plan = planTribute(s, d);
+          if (plan) {
+            oppTributeSet(plan);
+            return 'A';
+          }
+          const slot = OPP_SLOT_IDS.find((o) => !s.opponentBoard[o]);
+          const cardId = slot ? pickFreeHero(s, d) : null;
           if (slot && cardId) {
             set((st) => ({
               opponentHand: st.opponentHand.filter((id) => id !== cardId),
@@ -1102,74 +1482,73 @@ export function createGameStore(
           }
         }
 
-        // C — set a Bulwark onto a linked, occupied, still-open OC-slot (mirror
-        // of the player's C set).
-        if (!playedTypes.has('C')) {
-          const cardId = hand.find((id) => s.opponentCards[id]?.type === 'C');
-          const ocSlot = (['OC1', 'OC2', 'OC3', 'OC4'] as OppCSlotId[]).find((oc) => {
-            const col = oc.slice(2);
-            return !s.opponentCBoard[oc] && !!s.opponentBoard[`O${col}` as OppSlotId];
-          });
-          if (cardId && ocSlot) {
+        if (can('C')) {
+          const eq = planEquip(s, d);
+          if (eq) {
             set((st) => ({
-              opponentHand: st.opponentHand.filter((id) => id !== cardId),
-              opponentCBoard: { ...st.opponentCBoard, [ocSlot]: cardId },
-              oppSummon: { cardId, slotId: ocSlot },
+              opponentHand: st.opponentHand.filter((id) => id !== eq.cardId),
+              opponentCBoard: { ...st.opponentCBoard, [eq.slot]: eq.cardId },
+              oppSummon: { cardId: eq.cardId, slotId: eq.slot },
             }));
-            revealOppCard(cardId);
+            revealOppCard(eq.cardId);
             return 'C';
           }
         }
 
-        // B — set an Arcane into the first open OB-slot. (Opponent on-play B
-        // abilities don't resolve yet — deferred to a later slice.)
-        if (!playedTypes.has('B')) {
-          const cardId = hand.find((id) => s.opponentCards[id]?.type === 'B');
-          const obSlot = (['OB1', 'OB2', 'OB3', 'OB4'] as OppBSlotId[]).find((ob) => !s.opponentBBoard[ob]);
-          if (cardId && obSlot) {
-            set((st) => ({
-              opponentHand: st.opponentHand.filter((id) => id !== cardId),
-              opponentBBoard: { ...st.opponentBBoard, [obSlot]: cardId },
-              oppSummon: { cardId, slotId: obSlot },
-            }));
-            revealOppCard(cardId);
-            return 'B';
-          }
-        }
+        if (easy && can('B') && castOppSpell('main')) return 'B';
         return null;
       };
 
       /**
-       * Opponent Main phase (Phase 7 Slice 4b): play up to one card of each row
-       * type, ONE AT A TIME — each card's reveal is showcased for a full
-       * OPP_PLAY_SHOWCASE_MS and springs to its slot before the next play begins,
-       * mirroring the deliberate feel of the player's summon (rather than a quick
-       * flash). Each attempt re-reads the board via opponentPlayStep, so a Bulwark
-       * can attach to a Vanguard summoned earlier this same turn. Stops as soon as
-       * an attempt finds nothing left to play.
+       * CPU Main phase: chain plays one at a time, each showcased for a full
+       * OPP_PLAY_SHOWCASE_MS and settled before the next. When nothing is left
+       * to play, `onDone` receives the elapsed time so Battle can wait out the
+       * Main banner when the CPU had nothing to do.
        */
-      const opponentMainPhase = () => {
-        const playedTypes = new Set<CardType>();
+      const opponentMainPhase = (played: Record<CardType, number>, onDone: (elapsedMs: number) => void) => {
+        let count = 0;
         const playNext = () => {
           if (!oppActive()) return;
-          const played = opponentPlayStep(playedTypes);
-          if (!played) return;
-          playedTypes.add(played);
-          // Pace the next play a full showcase + gap later, so the current card
-          // finishes its reveal and settles before the next one begins.
+          const t = count < OPP_MAX_PLAYS ? opponentPlayStep(played) : null;
+          if (!t) {
+            onDone(count * OPP_PLAY_STEP_MS);
+            return;
+          }
+          played[t]++;
+          count++;
           setTimeout(playNext, OPP_PLAY_STEP_MS);
         };
         playNext();
       };
 
+      /** CPU Battle phase: cast Battle-timed spells (Disarm, Standoff…) one at a
+       *  time, then declare attacks and run Resolution. */
+      const opponentBattlePhase = (played: Record<CardType, number>) => {
+        if (!oppActive() || get().winner) return;
+        set((s) => ({ phase: 'battle', phaseAnnounce: s.phaseAnnounce + 1 }));
+        const easy = cpuDifficulty() === 'easy';
+        const next = () => {
+          if (!oppActive() || get().winner) return;
+          if ((!easy || played.B === 0) && castOppSpell('battle')) {
+            played.B++;
+            setTimeout(next, OPP_PLAY_STEP_MS);
+            return;
+          }
+          declareOpponentAttacks();
+          setTimeout(() => {
+            if (!oppActive()) return;
+            set((s) => ({ phase: 'resolution', phaseAnnounce: s.phaseAnnounce + 1 }));
+            beginOpponentResolution();
+          }, OPP_PHASE_STEP_MS);
+        };
+        next();
+      };
+
       /**
        * Run the opponent's full auto-turn (Phase 7). Control passes here after
-       * the player ends their turn. The opponent takes its own turn number and
-       * steps draw -> main -> battle on a timer (shared HUD + banner announce
-       * each, field highlight flips to its side), plays its cards during Main,
-       * declares its attacks at Battle, then runs its Resolution (real
-       * bidirectional combat, Slice 3). The Resolution engine shows the End
-       * banner and hands control back when done.
+       * the player ends their turn. Draw -> Main (paced plays, as many as the
+       * difficulty allows) -> Battle (spells, then attacks) -> Resolution, whose
+       * engine shows the End banner and hands control back when done.
        */
       const runOpponentTurn = () => {
         if (get().activePlayer !== 'player') return; // already running / idempotent
@@ -1186,18 +1565,11 @@ export function createGameStore(
         setTimeout(() => {
           if (!oppActive()) return;
           set((s) => ({ phase: 'main', phaseAnnounce: s.phaseAnnounce + 1 }));
-          opponentMainPhase();
+          const played: Record<CardType, number> = { A: 0, B: 0, C: 0 };
+          opponentMainPhase(played, (elapsed) =>
+            setTimeout(() => opponentBattlePhase(played), Math.max(0, OPP_MAIN_DURATION_MS - elapsed)),
+          );
         }, OPP_PHASE_STEP_MS);
-        setTimeout(() => {
-          if (!oppActive()) return;
-          set((s) => ({ phase: 'battle', phaseAnnounce: s.phaseAnnounce + 1 }));
-          declareOpponentAttacks();
-        }, OPP_PHASE_STEP_MS + OPP_MAIN_DURATION_MS);
-        setTimeout(() => {
-          if (!oppActive()) return;
-          set((s) => ({ phase: 'resolution', phaseAnnounce: s.phaseAnnounce + 1 }));
-          beginOpponentResolution();
-        }, OPP_PHASE_STEP_MS * 2 + OPP_MAIN_DURATION_MS);
       };
 
     /** Fire the centered amber-ripple showcase for a card, clearing it after its
@@ -2036,6 +2408,33 @@ export function createGameStore(
 
     beginDrawPhase: () => goToPhase('draw'),
 
+    chooseDifficulty: (d) => set((s) => (s.difficulty ? s : { difficulty: d })),
+
+    offerMulligan: () => set((s) => (s.mulligan === null && s.phaseAnnounce === 0 ? { mulligan: 'offer' } : s)),
+
+    resolveMulligan: (take) => {
+      const s = get();
+      if (s.mulligan !== 'offer') return;
+      set({ mulligan: 'done' });
+      if (shouldMulligan(s.opponentHand, s.opponentCards, s.difficulty ?? 'easy')) {
+        set((st) => {
+          const deck = shuffleArray([...st.opponentDeck, ...st.opponentHand]);
+          const hand = deck.splice(Math.max(0, deck.length - OPENING_HAND_SIZE)).reverse();
+          return { opponentDeck: deck, opponentHand: hand, notice: makeNotice('Opponent took a mulligan') };
+        });
+      }
+      if (!take) {
+        goToPhase('draw');
+        return;
+      }
+      beginShuffle((st) => ({ deck: [...st.deck, ...st.hand], hand: [], hoveredCardId: null }));
+      const redrawAt = SHUFFLE_SPREAD_MS + 250;
+      setTimeout(() => drawStaggered(OPENING_HAND_SIZE), redrawAt);
+      setTimeout(() => {
+        if (get().phaseAnnounce === 0) goToPhase('draw');
+      }, redrawAt + OPENING_HAND_SIZE * MULTI_DRAW_STAGGER_MS + 700);
+    },
+
     advancePhase: () => {
       if (get().activePlayer !== 'player') return; // opponent auto-plays its turn
       const phase = get().phase;
@@ -2083,6 +2482,7 @@ export function createGameStore(
     };
   });
   trackFieldEntries(store);
+  trackOppGraveyard(store);
   trackEquipment(store);
   return store;
 }
@@ -2217,5 +2617,28 @@ function trackEquipment(store: StoreApi<GameStore>) {
     const linked = new Set([...Object.values(board), ...Object.values(opponentCBoard)]);
     for (const id of [...attachBars.keys()]) if (!linked.has(id)) attachBars.delete(id);
     if (changed) store.setState({ currentHp, currentArmorBars, board, opponentCBoard, graveyard, opponentGraveyard });
+  });
+}
+
+/** Stamp the turn each card enters the CPU's GY (Alliance of Zero reads "last
+ *  turn"); forget cards that leave it. */
+function trackOppGraveyard(store: StoreApi<GameStore>) {
+  store.subscribe((s, prev) => {
+    if (s.opponentGraveyard === prev.opponentGraveyard) return;
+    const before = new Set(prev.opponentGraveyard);
+    const inGy = new Set(s.opponentGraveyard);
+    const next: Record<CardId, number> = {};
+    let changed = false;
+    for (const [id, turn] of Object.entries(s.oppGySentTurn ?? {})) {
+      if (inGy.has(id)) next[id] = turn;
+      else changed = true;
+    }
+    for (const id of s.opponentGraveyard) {
+      if (!before.has(id)) {
+        next[id] = s.turn;
+        changed = true;
+      }
+    }
+    if (changed) store.setState({ oppGySentTurn: next });
   });
 }

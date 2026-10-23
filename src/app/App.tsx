@@ -13,6 +13,8 @@ import { TurnHud } from '../ui/TurnHud';
 import { PhaseBanner } from '../ui/PhaseBanner';
 import { ScoreHud } from '../ui/ScoreHud';
 import { NoticeToast } from '../ui/NoticeToast';
+import { StartScreen } from '../ui/StartScreen';
+import { MulliganModal } from '../ui/MulliganModal';
 import { CAMERA_FOV, CAMERA_POSITION, CAMERA_TARGET } from '../board/boardConfig';
 
 /**
@@ -51,6 +53,8 @@ export function App() {
       <CounterPromptModal />
       <CombatPromptModal />
       <SummonSlotPrompt />
+      <MulliganModal />
+      <StartScreen />
     </div>
   );
 }

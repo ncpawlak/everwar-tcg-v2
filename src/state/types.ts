@@ -90,6 +90,9 @@ export interface EquipStats {
   destroyOnBarLoss?: boolean;
 }
 
+/** CPU strength (start screen). */
+export type Difficulty = 'easy' | 'normal' | 'hard';
+
 export interface Card {
   id: CardId;
   type: CardType;
@@ -409,6 +412,14 @@ export interface GameState {
   winner: 'player' | 'opponent' | null;
   /** Transient toast (e.g. a deck search found nothing); `key` re-triggers it. */
   notice: { key: number; text: string } | null;
+  /** CPU strength picked on the start screen; null until chosen (the opening
+   *  deal waits on it). */
+  difficulty: Difficulty | null;
+  /** Opening-hand Keep/Mulligan choice: 'offer' while the prompt is up,
+   *  'done' once resolved (one mulligan per game), null before the deal. */
+  mulligan: 'offer' | 'done' | null;
+  /** Turn each card entered the opponent's GY (Alliance of Zero checks "last turn"). */
+  oppGySentTurn: Record<CardId, number>;
   /** A paused Resolution awaiting the player's yes/no on Snow Viper's Bunker
    *  Busting Round, or null when combat is not paused for it. */
   combatPrompt: CombatPrompt | null;
