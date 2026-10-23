@@ -457,6 +457,7 @@ export function createInitialState(rand: () => number = Math.random): GameState 
     playerHeroLosses: [],
     points: { player: 0, opponent: 0 },
     winner: null,
+    notice: null,
     abilityPrompt: null,
     combatPrompt: null,
     pendingCombatQueue: null,

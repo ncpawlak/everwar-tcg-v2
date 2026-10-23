@@ -119,6 +119,12 @@ export const OPP_MAIN_DURATION_MS = 3 * OPP_PLAY_STEP_MS;
 export const END_PHASE_DWELL_MS = 1400;
 
 /** First side to this many points wins the match. */
+let noticeSeq = 0;
+/** A fresh toast payload (unique key so repeats re-show). */
+export function makeNotice(text: string) {
+  return { key: ++noticeSeq, text };
+}
+
 export const WIN_POINTS = 15;
 /** Points the other side scores when a side ends its turn with no Heroes. */
 export const EMPTY_FIELD_POINTS = 3;
@@ -445,6 +451,10 @@ export function createGameStore(
           const ca = counterAbility(s.cardsById[id]);
           if (!ca || !Object.values(s.board).includes(id)) continue;
           if (ca.ir.optional) {
+            if (topSpecialOfFamily(s.deck, s.cardsById, ca.effect.setFamily) < 0) {
+              set({ notice: makeNotice(`${ca.ir.name}: no "${ca.effect.setFamily}" Special Hero left in your Deck`) });
+              continue;
+            }
             set({ counterPrompt: { cardId: id, abilityName: ca.ir.name } });
             return;
           }
@@ -479,6 +489,8 @@ export function createGameStore(
             const heroId = st.deck[idx];
             set({ deck: st.deck.filter((_, i) => i !== idx) });
             commitPlacement(heroId, 'A', slot);
+          } else {
+            set({ notice: makeNotice(`No "${ca.effect.setFamily}" Special Hero left in your Deck`) });
           }
           get().disturbDeck();
           return;
@@ -1370,7 +1382,10 @@ export function createGameStore(
               break;
             }
           }
-          if (idx < 0) continue;
+          if (idx < 0) {
+            set({ notice: makeNotice('No applicable cards available') });
+            continue;
+          }
           const eqId = s.deck[idx];
           set({
             deck: s.deck.filter((_, i) => i !== idx),
@@ -1437,6 +1452,7 @@ export function createGameStore(
           const deck = s.deck.slice(0, s.deck.length - n);
           const options = revealed.filter((id) => matchesDeckSelector(s.cardsById[id], step.pick!));
           if (options.length === 0) {
+            set({ notice: makeNotice('No applicable cards revealed') });
             set(step.restTo === 'graveyard'
               ? { deck, graveyard: [...s.graveyard, ...revealed] }
               : { deck, replen: [...s.replen, ...revealed] });
@@ -1454,13 +1470,19 @@ export function createGameStore(
             const id = s.board[slot];
             return id && !s.board[linkedCSlot(slot)] && matchesDeckSelector(s.cardsById[id], step.ally) ? [id] : [];
           });
-          if (!hasEquip || options.length === 0) return;
+          if (!hasEquip || options.length === 0) {
+            set({ notice: makeNotice('No applicable cards available') });
+            return;
+          }
           set({ spellChoice: { sourceCardId: cardId, stepIndex: i, kind: 'equipAlly', prompt: 'Select 1 Hero to equip', options } });
           return;
         } else {
           const s = get();
           const picks = tutorPicks(s.deck, s.cardsById, step.select, step.count);
-          if (picks.length === 0) continue;
+          if (picks.length === 0) {
+            set({ notice: makeNotice('No applicable cards available') });
+            continue;
+          }
           set({ deck: s.deck.filter((id) => !picks.includes(id)), hand: [...s.hand, ...picks] });
         }
       }
@@ -1843,7 +1865,7 @@ export function createGameStore(
           }
         }
         if (!cSlot || s.board[cSlot] || idx < 0) {
-          set({ spellChoice: null });
+          set({ spellChoice: null, ...(idx < 0 ? { notice: makeNotice('No applicable cards available') } : {}) });
           return;
         }
         const eqId = s.deck[idx];

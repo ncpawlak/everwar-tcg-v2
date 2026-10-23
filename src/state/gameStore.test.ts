@@ -2530,6 +2530,31 @@ describe('Counters', () => {
     vi.useRealTimers();
   });
 
+  it('two Riflemen hitting 3 together each Set a Special; with none left the prompt is skipped and a notice shows', () => {
+    vi.useFakeTimers();
+    try {
+      const base = createInitialState();
+      const rifles = Object.keys(base.cardsById).filter((id) => base.cardsById[id].name === 'Devil Dog Rifleman');
+      const specials = base.deck.filter((id) => /^Devil Dog \d/.test(base.cardsById[id].name));
+      // Keep exactly one Special in the Deck.
+      const deck = base.deck.filter((id) => !rifles.includes(id) && !specials.slice(1).includes(id));
+      const store = createGameStore({ ...base, deck, phase: 'battle', turn: 3 });
+      store.setState({ board: { ...store.getState().board, A1: rifles[0], A2: rifles[1] }, counters: { [rifles[0]]: 2, [rifles[1]]: 2 } });
+      store.getState().advancePhase();
+      vi.advanceTimersByTime(RESOLUTION_ROLL_DELAY_MS + 400);
+      expect(store.getState().counterPrompt?.cardId).toBe(rifles[0]);
+      store.getState().resolveCounterPrompt(true);
+      vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
+      const s = store.getState();
+      expect(s.board.A1).toBe(specials[0]);
+      expect(s.counterPrompt).toBeNull();
+      expect(s.board.A2).toBe(rifles[1]); // not sent away for nothing
+      expect(s.notice?.text).toMatch(/no "Devil Dog" Special Hero left/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('Zero Path Escort counts damage and hits its threshold (3) for the GY swap', () => {
     const ca = counterAbility(createInitialState().opponentCards['opp-deck-hero-7']);
     expect(ca?.effect).toMatchObject({ gain: 'inflictDamage', threshold: 3, sendTo: 'graveyard', setFamily: 'Zero' });

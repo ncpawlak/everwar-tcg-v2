@@ -407,6 +407,8 @@ export interface GameState {
   points: { player: number; opponent: number };
   /** Set once a side reaches WIN_POINTS; all turn flow stops. */
   winner: 'player' | 'opponent' | null;
+  /** Transient toast (e.g. a deck search found nothing); `key` re-triggers it. */
+  notice: { key: number; text: string } | null;
   /** A paused Resolution awaiting the player's yes/no on Snow Viper's Bunker
    *  Busting Round, or null when combat is not paused for it. */
   combatPrompt: CombatPrompt | null;
