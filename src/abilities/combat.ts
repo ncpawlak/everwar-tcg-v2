@@ -7,7 +7,8 @@
  *   - `breakAllArmorBars` (Bunker Busting Round): optional, once-per-turn. The
  *      runtime pauses Resolution and prompts yes/no; on accept it wipes every
  *      Armor Bar on the target and inflicts no HP damage.
- *   - `ignoreArmorBars` (Anvil): passive; the hit bypasses Armor Bars.
+ *   - `ignoreArmorBars` (Anvil): passive; the hit bypasses Armor Bars
+ *     (`ignoreArmorBarsNormalOnly`: only on a normal hit).
  * Kept pure so the store's Resolution loop and any UI read one source of truth.
  */
 
@@ -23,6 +24,13 @@ export interface CombatHitAbilities {
   instantEliminate: AbilityIR[];
   /** The attacker's Hits skip Armor Bars. */
   ignoreArmorBars: boolean;
+  /** …but only on a normal hit ("Normal Hits ignore Armor Bars"). */
+  ignoreArmorBarsNormalOnly?: boolean;
+}
+
+/** True when this hit outcome skips the target's Armor Bars. */
+export function ignoresArmorBars(a: CombatHitAbilities, outcome: RollOutcome): boolean {
+  return a.ignoreArmorBars && (!a.ignoreArmorBarsNormalOnly || outcome === 'normal');
 }
 
 /** Collect the combat abilities of an attacker and its equipped card. */
@@ -31,7 +39,10 @@ export function combatHitAbilities(card: Card | undefined, equipment?: Card): Co
   if (!card) return out;
   const irs = [...parseAbilities(card.abilities), ...(equipment ? parseAbilities(equipment.abilities) : [])];
   for (const ir of irs) {
-    if (ir.effect.kind === 'ignoreArmorBars') out.ignoreArmorBars = true;
+    if (ir.effect.kind === 'ignoreArmorBars') {
+      out.ignoreArmorBars = true;
+      if (ir.effect.normalOnly) out.ignoreArmorBarsNormalOnly = true;
+    }
     if (ir.trigger !== 'combatHit') continue;
     if (ir.effect.kind === 'breakAllArmorBars') out.breakAllArmorBars = ir;
     else if (ir.effect.kind === 'instantEliminate') out.instantEliminate.push(ir);

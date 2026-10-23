@@ -389,12 +389,12 @@ const INSTANT_ELIMINATE_RULE = regexRule(
   },
 );
 
-/** "This Hero's Hits ignore Armor Bars." (Anvil Weapon) — passive combat modifier. */
-const IGNORE_ARMOR_BARS_RULE = regexRule(/^This Hero's Hits ignore Armor Bars\.$/i, (_m, name, raw) => ({
+/** "This Hero's [Normal ]Hits ignore Armor Bars." (Anvil Weapon) — passive combat modifier. */
+const IGNORE_ARMOR_BARS_RULE = regexRule(/^This Hero's (Normal )?Hits ignore Armor Bars\.$/i, (m, name, raw) => ({
   name,
   raw,
   trigger: 'passive',
-  effect: { kind: 'ignoreArmorBars' },
+  effect: m[1] ? { kind: 'ignoreArmorBars', normalOnly: true } : { kind: 'ignoreArmorBars' },
   constraints: [],
 }));
 
@@ -425,12 +425,14 @@ function parseOnSetEffect(text: string): { effect: AbilityEffect; optional?: boo
     return { effect: { kind: 'equipFromDeck', subType: m[1], disturb: Boolean(m[2]) }, optional };
   if (/^destroy Human Normal Heroes on your opponent's field, up to the number of materials used to Commit Set this Hero$/i.test(t))
     return { effect: { kind: 'destroyEnemyNormalHeroes', upToMaterials: true }, optional };
+  if (/^destroy all Human Normal Heroes on your opponent's field$/i.test(t))
+    return { effect: { kind: 'destroyEnemyNormalHeroes', upToMaterials: false }, optional };
   if (/^select 1 Ability Card in your GY and add that card to your Hand$/i.test(t))
     return { effect: { kind: 'recoverFromGraveyard', cardType: 'B', to: 'hand' }, optional };
   return null;
 }
 
-const SET_WORD = '(Normal Set|Replen Set|Commit Set)';
+const SET_WORD = '(Normal Set|Replen Set|Commit Set|Set)';
 
 /**
  * On-Set triggers: "When this Hero is <Kind> Set[ or <Kind> Set], <effect>."
@@ -443,7 +445,11 @@ const ON_SET_RULE: ParseRule = {
     if (!m) return null;
     const parsed = parseOnSetEffect(m[3]);
     if (!parsed) return null;
-    const setKinds = [m[1], m[2]].filter(Boolean).map(setKindOf);
+    // A bare "is Set" fires on every Set kind (Reclaim Ops).
+    const words = [m[1], m[2]].filter(Boolean);
+    const setKinds: SetKind[] = words.some((w) => /^Set$/i.test(w))
+      ? ['normal', 'replen', 'commit']
+      : words.map(setKindOf);
     const ir: AbilityIR = { name, raw, trigger: 'onSet', setKinds, effect: parsed.effect, constraints: [] };
     if (parsed.optional) ir.optional = true;
     return ir;

@@ -2121,7 +2121,7 @@ describe('P8 On-Set triggers (v3 wording)', () => {
     }
   });
 
-  it('Domination destroys enemy Normal Heroes up to the material count (strongest first)', () => {
+  it('Domination destroys every enemy Normal Hero; Special Heroes are immune', () => {
     vi.useFakeTimers();
     try {
       const base = createInitialState();
@@ -2135,10 +2135,10 @@ describe('P8 On-Set triggers (v3 wording)', () => {
       store.getState().placePendingSummon('A1');
       vi.advanceTimersByTime(SUMMON_SHOWCASE_MS);
       const s = store.getState();
-      expect(s.opponentBoard.O2).toBeNull(); // level 2 goes first
-      expect(s.opponentBoard.O1).toBe('opp-O1'); // cap of 1 material
+      expect(s.opponentBoard.O1).toBeNull();
+      expect(s.opponentBoard.O2).toBeNull(); // no material cap any more
       expect(s.opponentBoard.O3).toBe('opp-O3'); // Special Hero immune
-      expect(s.opponentGraveyard).toContain('opp-O2');
+      expect(s.opponentGraveyard).toEqual(expect.arrayContaining(['opp-O1', 'opp-O2']));
     } finally {
       vi.useRealTimers();
     }

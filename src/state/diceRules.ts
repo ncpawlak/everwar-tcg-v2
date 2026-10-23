@@ -1,28 +1,24 @@
 import type { RollOutcome, RollResult } from './types';
 
 /**
- * Phase 5 dice rules — pure combat resolution for a single attacker's D20 roll.
+ * Dice rules — pure combat resolution for a single attacker's D20 roll.
  * Side-effect free so the engine can absorb the result and tests can assert the
  * math directly.
  *
- * A card's ACC is a base-10 value (10..200) that scales onto the d20 by ÷10, so
- * the accuracy THRESHOLD `t = acc / 10` lands in 1..20. Given a roll `r`:
+ * A card's ACC is a base-10 value that scales onto the d20 by ÷10, so the hit
+ * THRESHOLD is `t = acc / 10` (ACC 70 hits on 7 or less). Given a roll `r`:
  *
- *   1-2            -> Glancing : half DMG   (a nat-low always at least grazes)
- *   3..t           -> Normal   : full DMG
- *   t+1..18        -> Miss     : no damage
- *   19-20          -> Crit     : double DMG
- *   acc > 100 and r == t -> Crit (rolling your own ACC value crits too)
+ *   20                          -> Crit     : double DMG (always, regardless of ACC)
+ *   r == t on a Special Hero    -> Crit     : double DMG (L3–4 "exact ACC" crit)
+ *   1                           -> Glancing : half DMG
+ *   2..t                        -> Normal   : full DMG
+ *   otherwise                   -> Miss     : no damage
  *
- * The multiplier applies to DMG only; ACC just sets the thresholds. Crit (19-20
- * or the ACC-value crit) wins over everything; the 1-2 graze wins over a normal
- * hit at the low end. Bands are inclusive.
+ * A "Hit" is any of glancing / normal / crit. The multiplier applies to DMG only.
  */
 
-export const GLANCE_MAX = 2;
-export const CRIT_MIN = 19;
-/** Highest face that can still be a plain miss (above the accuracy threshold). */
-export const MISS_CEILING = 18;
+export const GLANCE_ROLL = 1;
+export const CRIT_ROLL = 20;
 
 export const DAMAGE_MULTIPLIER: Record<RollOutcome, number> = {
   glancing: 0.5,
@@ -37,25 +33,27 @@ export function accThreshold(acc: number): number {
 }
 
 /** Classify a d20 roll against a card's accuracy into a hit outcome. */
-export function classifyRoll(roll: number, acc: number): RollOutcome {
+export function classifyRoll(roll: number, acc: number, special = false): RollOutcome {
   const t = accThreshold(acc);
-  // High-roll crit, then the bonus "roll your ACC value" crit for high accuracy.
-  if (roll >= CRIT_MIN) return 'crit';
-  if (acc > 100 && roll === t) return 'crit';
-  // A nat-low always grazes for half, regardless of accuracy.
-  if (roll <= GLANCE_MAX) return 'glancing';
-  // Normal hit up to the accuracy threshold; everything else up to 18 misses.
+  if (roll === CRIT_ROLL) return 'crit';
+  if (special && roll === t) return 'crit';
+  if (roll === GLANCE_ROLL) return 'glancing';
   if (roll <= t) return 'normal';
   return 'miss';
+}
+
+/** Special Hero = level 3–4; they get the exact-ACC crit. */
+export function isSpecialHero(card: { level?: number } | undefined): boolean {
+  return (card?.level ?? 1) >= 3;
 }
 
 /**
  * Resolve one attacker's roll into an outcome + damage dealt. `dmg` is the
  * card's base damage; the outcome multiplier scales it (glancing ×0.5, normal
- * ×1, crit ×2, miss ×0).
+ * ×1, crit ×2, miss ×0). `special` enables the Special Hero exact-ACC crit.
  */
-export function resolveRoll(roll: number, dmg: number, acc: number): RollResult {
-  const outcome = classifyRoll(roll, acc);
+export function resolveRoll(roll: number, dmg: number, acc: number, special = false): RollResult {
+  const outcome = classifyRoll(roll, acc, special);
   return { roll, outcome, damage: dmg * DAMAGE_MULTIPLIER[outcome] };
 }
 

@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  accThreshold,
-  classifyRoll,
-  resolveRoll,
-  DAMAGE_MULTIPLIER,
-} from './diceRules';
+import { accThreshold, classifyRoll, resolveRoll, isSpecialHero, DAMAGE_MULTIPLIER } from './diceRules';
 
 describe('diceRules', () => {
   it('accThreshold scales base-10 ACC onto the d20 (÷10)', () => {
@@ -14,49 +9,34 @@ describe('diceRules', () => {
     expect(accThreshold(10)).toBe(1);
   });
 
-  it('classifies a mid ACC card (70, t=7) across the full d20', () => {
+  it('classifies a Normal Hero with ACC 70 (hits on 7 or less) across the full d20', () => {
     const acc = 70;
-    // 1-2 always graze for half, even below the normal band.
     expect(classifyRoll(1, acc)).toBe('glancing');
-    expect(classifyRoll(2, acc)).toBe('glancing');
-    // 3..t normal.
-    expect(classifyRoll(3, acc)).toBe('normal');
-    expect(classifyRoll(7, acc)).toBe('normal');
-    // t+1..18 miss.
-    expect(classifyRoll(8, acc)).toBe('miss');
-    expect(classifyRoll(18, acc)).toBe('miss');
-    // 19-20 crit.
-    expect(classifyRoll(19, acc)).toBe('crit');
+    for (let r = 2; r <= 7; r++) expect(classifyRoll(r, acc)).toBe('normal');
+    for (let r = 8; r <= 19; r++) expect(classifyRoll(r, acc)).toBe('miss');
     expect(classifyRoll(20, acc)).toBe('crit');
   });
 
-  it('gives a high-ACC card (>100) a bonus crit on its exact ACC value', () => {
-    const acc = 130; // t = 13, acc > 100
-    expect(classifyRoll(12, acc)).toBe('normal');
-    expect(classifyRoll(13, acc)).toBe('crit'); // rolling your ACC value crits
-    expect(classifyRoll(14, acc)).toBe('miss');
+  it('a natural 20 always crits, even when above ACC/10', () => {
+    expect(classifyRoll(20, 30)).toBe('crit');
+    expect(classifyRoll(19, 30)).toBe('miss');
   });
 
-  it('does NOT bonus-crit on the ACC value when ACC is 100 or less', () => {
-    const acc = 70; // t = 7, not > 100
-    expect(classifyRoll(7, acc)).toBe('normal');
+  it('a Special Hero crits on its exact ACC/10, at any ACC', () => {
+    expect(classifyRoll(11, 110, true)).toBe('crit');
+    expect(classifyRoll(10, 110, true)).toBe('normal');
+    expect(classifyRoll(12, 110, true)).toBe('miss');
+    expect(classifyRoll(9, 90, true)).toBe('crit');
+    // A Normal Hero does not.
+    expect(classifyRoll(11, 110)).toBe('normal');
+    expect(classifyRoll(9, 90)).toBe('normal');
   });
 
-  it('max ACC (200, t=20) never misses', () => {
-    const acc = 200;
-    expect(classifyRoll(3, acc)).toBe('normal');
-    expect(classifyRoll(18, acc)).toBe('normal');
-    expect(classifyRoll(19, acc)).toBe('crit');
-    // No face in 3..18 is a miss.
-    for (let r = 3; r <= 18; r++) expect(classifyRoll(r, acc)).not.toBe('miss');
-  });
-
-  it('very low ACC (20, t=2) whiffs everything but a graze or a high crit', () => {
-    const acc = 20;
-    expect(classifyRoll(1, acc)).toBe('glancing');
-    expect(classifyRoll(2, acc)).toBe('glancing');
-    for (let r = 3; r <= 18; r++) expect(classifyRoll(r, acc)).toBe('miss');
-    expect(classifyRoll(19, acc)).toBe('crit');
+  it('isSpecialHero is level 3+', () => {
+    expect(isSpecialHero({ level: 2 })).toBe(false);
+    expect(isSpecialHero({ level: 3 })).toBe(true);
+    expect(isSpecialHero({ level: 4 })).toBe(true);
+    expect(isSpecialHero(undefined)).toBe(false);
   });
 
   it('resolveRoll scales DMG by the outcome multiplier', () => {
@@ -66,6 +46,7 @@ describe('diceRules', () => {
     expect(resolveRoll(5, dmg, acc)).toEqual({ roll: 5, outcome: 'normal', damage: 40 });
     expect(resolveRoll(10, dmg, acc)).toEqual({ roll: 10, outcome: 'miss', damage: 0 });
     expect(resolveRoll(20, dmg, acc)).toEqual({ roll: 20, outcome: 'crit', damage: 80 });
+    expect(resolveRoll(7, dmg, acc, true)).toEqual({ roll: 7, outcome: 'crit', damage: 80 });
   });
 
   it('exposes the expected damage multipliers', () => {

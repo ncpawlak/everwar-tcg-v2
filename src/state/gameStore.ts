@@ -11,7 +11,7 @@ import {
   opponentAuraDelta,
   linkedCSlot,
 } from './combatStats';
-import { resolveRoll } from './diceRules';
+import { resolveRoll, isSpecialHero } from './diceRules';
 import { applyArmorToHit } from './armorCombat';
 import { parseAbility } from '../abilities/parseAbility';
 import {
@@ -24,7 +24,7 @@ import {
 } from '../abilities/activated';
 import type { AbilityIR } from '../abilities/abilityIR';
 import { onSentAbilities, pileActivatedAbilityFor } from '../abilities/pile';
-import { combatHitAbilities, finisherEliminates } from '../abilities/combat';
+import { combatHitAbilities, finisherEliminates, ignoresArmorBars } from '../abilities/combat';
 import { parseSpell, spellCostOptions, tutorPicks, type SpellIR } from '../abilities/spells';
 import { onSetAbilities, onSetNeedsChoice, onSetChoiceOptions, dominationVictims } from '../abilities/onSet';
 import type { SetKind } from '../abilities/abilityIR';
@@ -437,10 +437,11 @@ export function createGameStore(
           const armor =
             (defCard?.armor ?? 0) + (defCard ? opponentAuraDelta(s, defCard, 'armor') : 0);
           const baseDmg = effectiveStats(s, src).dmg.value;
-          // "Hits ignore Armor Bars" (Anvil): resolve as if bar-less; bars stay intact.
-          const hitBars = combat.ignoreArmorBars ? 0 : bars;
+          // "Normal Hits ignore Armor Bars" (Anvil): resolve as if bar-less; bars stay intact.
+          const skipBars = ignoresArmorBars(combat, result.outcome);
+          const hitBars = skipBars ? 0 : bars;
           const hit = applyArmorToHit({ bars: hitBars, armor }, result.outcome, result.damage, baseDmg);
-          if (!combat.ignoreArmorBars) currentArmorBars[oppId] = hit.bars;
+          if (!skipBars) currentArmorBars[oppId] = hit.bars;
           if (hit.hpDamage > 0) {
             const next = Math.max(0, cur - hit.hpDamage);
             currentHp[oppId] = next;
@@ -594,7 +595,9 @@ export function createGameStore(
                 // Resolve the roll against the attacker's EFFECTIVE stats (base
                 // DMG/ACC + auras and buffs) into an outcome + damage.
                 const eff = effectiveStats(s, k as SlotId);
-                results[k] = resolveRoll(value, eff.dmg.value, eff.acc.value);
+                const attackerId = s.board[k as SlotId];
+                const special = isSpecialHero(attackerId ? s.cardsById[attackerId] : undefined);
+                results[k] = resolveRoll(value, eff.dmg.value, eff.acc.value, special);
               }
               return { resolutionRolls: settled, resolutionResults: results };
             });
@@ -721,7 +724,9 @@ export function createGameStore(
                 const value = s.oppResolutionRolls[k].value;
                 settled[k] = { value, rolling: false };
                 const eff = opponentEffectiveStats(s, k as OppSlotId);
-                results[k] = resolveRoll(value, eff.dmg.value, eff.acc.value);
+                const attackerId = s.opponentBoard[k as OppSlotId];
+                const special = isSpecialHero(attackerId ? s.opponentCards[attackerId] : undefined);
+                results[k] = resolveRoll(value, eff.dmg.value, eff.acc.value, special);
               }
               return { oppResolutionRolls: settled, oppResolutionResults: results };
             });
@@ -1185,7 +1190,7 @@ export function createGameStore(
             const card = id ? s.opponentCards[id] : undefined;
             return id && card ? [{ slot, card, hp: s.currentHp[id] ?? card.hp ?? 0 }] : [];
           });
-          const victims = dominationVictims(enemies, info.materials);
+          const victims = dominationVictims(enemies, e.upToMaterials ? info.materials : Infinity);
           if (!victims.length) continue;
           const opponentBoard = { ...s.opponentBoard };
           const opponentCBoard = { ...s.opponentCBoard };

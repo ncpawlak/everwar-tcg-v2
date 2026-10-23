@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { combatHitAbilities, hasCombatHitAbility, finisherEliminates } from './combat';
+import { combatHitAbilities, hasCombatHitAbility, finisherEliminates, ignoresArmorBars } from './combat';
 import type { Card } from '../state/types';
 
 const BUNKER =
@@ -35,6 +35,13 @@ describe('P8 combat-trigger helpers (v3 wording)', () => {
     const a = combatHitAbilities(card({ abilities: [] }), equip([HEADHUNTER]));
     expect(a.instantEliminate).toHaveLength(1);
     expect(combatHitAbilities(card({ abilities: [] }), equip([ANVIL])).ignoreArmorBars).toBe(true);
+  });
+
+  it('"Normal Hits ignore Armor Bars" applies only to a normal hit', () => {
+    const a = combatHitAbilities(card({ abilities: [] }), equip(["This Hero's Normal Hits ignore Armor Bars."]));
+    expect(ignoresArmorBars(a, 'normal')).toBe(true);
+    expect(ignoresArmorBars(a, 'crit')).toBe(false);
+    expect(ignoresArmorBars(combatHitAbilities(card({ abilities: [] }), equip([ANVIL])), 'crit')).toBe(true);
   });
 
   it('hasCombatHitAbility is true only when a combatHit ability is present', () => {

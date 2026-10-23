@@ -126,13 +126,14 @@ export interface EquipFromDeckEffect {
   disturb: boolean;
 }
 
-/** "destroy Human Normal Heroes on your opponent's field, up to the number of
- *  materials used to Commit Set this Hero" (Domination). Destroyed = sent to
- *  the GY with no points. Every Hero counts as Human for now. */
+/** "destroy all Human Normal Heroes on your opponent's field" (Domination).
+ *  Older wording capped it "up to the number of materials used to Commit Set
+ *  this Hero". Destroyed = sent to the GY with no points. Every Hero counts as
+ *  Human for now. */
 export interface DestroyEnemyNormalHeroesEffect {
   kind: 'destroyEnemyNormalHeroes';
-  /** Cap = number of Set materials. */
-  upToMaterials: true;
+  /** True = cap at the number of Set materials; false = every qualifying Hero. */
+  upToMaterials: boolean;
 }
 
 /** "send the top card of your opponent's Deck to Replen" (Shadow Hack). */
@@ -203,10 +204,12 @@ export interface InstantEliminateEffect {
   gate: EliminateGate;
 }
 
-/** "This Hero's Hits ignore Armor Bars." (Anvil) — passive combat modifier: the
- *  hit skips the target's Armor Bars (they are neither consumed nor absorb). */
+/** "This Hero's [Normal ]Hits ignore Armor Bars." (Anvil) — passive combat
+ *  modifier: the hit skips the target's Armor Bars (they are neither consumed
+ *  nor absorb). `normalOnly` limits it to normal hits (not crits/glancing). */
 export interface IgnoreArmorBarsEffect {
   kind: 'ignoreArmorBars';
+  normalOnly?: true;
 }
 
 /** "This Hero can be <Kind> Set[ with N <SubType> Hero(es)]." — an alternate

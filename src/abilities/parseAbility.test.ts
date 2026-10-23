@@ -276,6 +276,7 @@ describe('P8 ability parser', () => {
     const ir = parseAbility("This Hero's Hits ignore Armor Bars.");
     expect(ir.trigger).toBe('passive');
     expect(ir.effect).toEqual({ kind: 'ignoreArmorBars' });
+    expect(parseAbility("This Hero's Normal Hits ignore Armor Bars.").effect).toEqual({ kind: 'ignoreArmorBars', normalOnly: true });
   });
 
   it('keeps the ability name but marks unrecognized text as unimplemented (inert, still displays)', () => {
@@ -318,6 +319,10 @@ describe('P8 parser: On-Set + used-as-material triggers (v3)', () => {
       { trigger: 'onSet', setKinds: ['commit'], effect: { kind: 'destroyEnemyNormalHeroes', upToMaterials: true } }],
     ['Reclaim Ops: When this Hero is Commit Set, you can select 1 Ability Card in your GY and add that card to your Hand.',
       { trigger: 'onSet', setKinds: ['commit'], optional: true, effect: { kind: 'recoverFromGraveyard', cardType: 'B', to: 'hand' } }],
+    ["Domination: When this Hero is Commit Set, destroy all Human Normal Heroes on your opponent's field.",
+      { trigger: 'onSet', setKinds: ['commit'], effect: { kind: 'destroyEnemyNormalHeroes', upToMaterials: false } }],
+    ['Reclaim Ops: When this Hero is Set, you can select 1 Ability Card in your GY and add that card to your Hand.',
+      { trigger: 'onSet', setKinds: ['normal', 'replen', 'commit'], optional: true, effect: { kind: 'recoverFromGraveyard', cardType: 'B', to: 'hand' } }],
     ['Shadow Hack: When this Hero is used as material to Replen Set a "Jackal" Hero, you can send this Hero to the GY, then send the top card of your opponent\'s Deck to Replen.',
       { trigger: 'usedAsMaterial', setKinds: ['replen'], materialFor: { side: 'ally', family: 'Jackal' }, optional: true, selfToGraveyard: true,
         effect: { kind: 'opponentDeckTopToReplen', count: 1 } }],
